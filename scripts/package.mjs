@@ -19,6 +19,8 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const RELEASE_DIR = path.join(ROOT, 'release');
 const CACHE_DIR = path.join(RELEASE_DIR, '.cache');
 const NODE_DIST_URL = 'https://nodejs.org/dist';
+// Working directory of the packaged app, beside the launchers
+const DATA_DIR = 'data';
 
 // The packaged runtime is the Node running this script, so it must satisfy .nvmrc
 const NODE_VERSION = process.version;
@@ -107,10 +109,12 @@ async function buildPackage(platform, checksums) {
     fs.copyFileSync(await nodeBinary(platform, checksums), runtimePath);
 
     writeLaunchers(packageDir, platform);
+    // The launchers use data/ as the working directory: config.yaml and the event folders go there
+    fs.mkdirSync(path.join(packageDir, DATA_DIR));
     if (fs.existsSync(path.join(ROOT, 'workdir/config.yaml'))) {
-        copy('workdir/config.yaml', path.join(packageDir, 'config.yaml'));
+        copy('workdir/config.yaml', path.join(packageDir, DATA_DIR, 'config.yaml'));
     } else {
-        console.log('  workdir/config.yaml not found: the package has no config.yaml (create it from the configuration page).');
+        console.log(`  workdir/config.yaml not found: ${DATA_DIR}/ has no config.yaml (create it from the configuration page).`);
     }
     fs.writeFileSync(path.join(packageDir, 'README.txt'), readme(platform));
 
@@ -194,7 +198,10 @@ function writeLaunchers(packageDir, platform) {
             const pause = name === 'diagnose' ? 'if "%~1"=="" pause\r\n' : 'if errorlevel 1 pause\r\n';
             fs.writeFileSync(
                 path.join(packageDir, `${name}.cmd`),
-                `@echo off\r\nrem ${description}. config.yaml is read from the current directory.\r\n` +
+                `@echo off\r\nrem ${description}.\r\n` +
+                    `rem Working directory: ${DATA_DIR} beside this file, unless TIMING_WORK_DIR or --work-dir says otherwise.\r\n` +
+                    'setlocal\r\n' +
+                    `if not defined TIMING_WORK_DIR set "TIMING_WORK_DIR=%~dp0${DATA_DIR}"\r\n` +
                     `"%~dp0runtime\\node.exe" "%~dp0app\\backend\\dist\\${script.replace('/', '\\')}"${extraArgs} %*\r\n` +
                     pause
             );
@@ -202,8 +209,10 @@ function writeLaunchers(packageDir, platform) {
             const launcherPath = path.join(packageDir, `${name}.sh`);
             fs.writeFileSync(
                 launcherPath,
-                `#!/bin/sh\n# ${description}. config.yaml is read from the current directory.\n` +
+                `#!/bin/sh\n# ${description}.\n` +
+                    `# Working directory: ${DATA_DIR} beside this file, unless TIMING_WORK_DIR or --work-dir says otherwise.\n` +
                     `DIR="$(cd "$(dirname "$0")" && pwd)"\n` +
+                    `export TIMING_WORK_DIR="\${TIMING_WORK_DIR:-$DIR/${DATA_DIR}}"\n` +
                     `exec "$DIR/runtime/node" "$DIR/app/backend/dist/${script}"${extraArgs} "$@"\n`
             );
             fs.chmodSync(launcherPath, 0o755);
@@ -226,12 +235,17 @@ function readme(platform) {
         isWindows ? '  Double-clicking the file also works.' : '',
         '  Closing the browser does not stop the app: stop it with Ctrl+C in its terminal window.',
         '',
-        'CONFIGURATION',
-        '  config.yaml is read from the directory the app is started from.',
-        '  Without it, the app starts with no devices: add them on the configuration page, which creates the file.',
-        '  To use another directory: --work-dir <dir>, or the TIMING_WORK_DIR environment variable.',
+        'DATA',
+        `  The ${DATA_DIR} folder beside this file holds everything the app reads and writes, whatever folder it is`,
+        '  started from:',
+        `    ${DATA_DIR}/config.yaml                            devices (edited on the configuration page)`,
+        `    ${DATA_DIR}/<event>/<discipline>/*.csv             participants, one "bib;name" line each`,
+        `    ${DATA_DIR}/<event>/<discipline>/config.yaml       discipline settings (attempts, period, access)`,
+        `    ${DATA_DIR}/<event>/<discipline>/results.csv       timed runs, written by the app`,
+        '  Without config.yaml, the app starts with no devices: add them on the configuration page, which creates it.',
+        '  To use another folder: --work-dir <dir>, or the TIMING_WORK_DIR environment variable.',
         `  Example: ${start} --work-dir ${isWindows ? 'C:\\timing' : '/srv/timing'}`,
-        '  Changes to config.yaml are applied while the app runs.',
+        '  Changes to the files are applied while the app runs.',
         '',
         'FINDING A DEVICE',
         `  ${diagnose}                          list HID devices and check config.yaml`,
