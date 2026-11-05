@@ -3,7 +3,7 @@ import path from 'path';
 import type { RunResult, RunState, RunStatus } from '../types/messages.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
-import { disciplineDir, loadDisciplineSettings, parseCsv, RESULTS_FILE, type Participant } from './eventService.js';
+import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, RESULTS_FILE, type Participant } from './eventService.js';
 
 const log = createLogger('Run');
 
@@ -30,7 +30,10 @@ export async function prepareRun(event: string, discipline: string, participant:
     const dir = await disciplineDir(event, discipline);
     if (!dir) return 'Unknown event or discipline.';
 
-    const { attempts } = (await loadDisciplineSettings(dir)).settings;
+    const { settings } = await loadDisciplineSettings(dir);
+    const closed = closedReason(settings);
+    if (closed) return `${event} / ${discipline} is closed: ${closed}.`;
+    const { attempts } = settings;
     if (attempts !== null) {
         const used = ((await loadResults(event, discipline)) ?? []).filter(
             (result) => result.bib === participant.bib && countsAsAttempt(result)
@@ -192,6 +195,9 @@ export async function setResultStatus(
     return enqueueWrite(async () => {
         const dir = await disciplineDir(event, discipline);
         if (!dir) return { status: 404 as const, problem: 'Unknown event or discipline.' };
+
+        const closed = closedReason((await loadDisciplineSettings(dir)).settings);
+        if (closed) return { status: 409 as const, problem: `${event} / ${discipline} is closed: ${closed}.` };
 
         const file = path.join(dir, RESULTS_FILE);
         const rows = await readRows(file);

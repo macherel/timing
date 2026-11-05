@@ -15,6 +15,8 @@ const props = defineProps<{
   // Time of the run that just finished, highlighted until the next run
   lastResult: RunResult | null;
   busy: boolean;
+  // Why runs and result changes are disabled (outside the discipline's period), or null
+  closed: string | null;
   // Runs allowed per participant, from config.yaml (in the discipline folder). null: unlimited
   attempts: number | null;
 }>();
@@ -106,8 +108,8 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
         <button
           type="button"
           class="ready"
-          :disabled="busy || run.status !== 'idle' || noAttemptLeft"
-          :title="noAttemptLeft ? 'No attempt left' : undefined"
+          :disabled="busy || run.status !== 'idle' || noAttemptLeft || closed !== null"
+          :title="closed ? `Closed: ${closed}` : noAttemptLeft ? 'No attempt left' : undefined"
           @click="$emit('ready')"
         >
           Ready to start
@@ -155,7 +157,7 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
                 class="status-select"
                 :class="result.status"
                 :value="result.status"
-                :disabled="busy"
+                :disabled="busy || closed !== null"
                 :title="STATUS_HINTS[result.status]"
                 :aria-label="`Status of run ${index + 1}`"
                 @change="onStatusChange($event, result)"

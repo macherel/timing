@@ -8,7 +8,16 @@ import {
     validateDevicesConfig,
     writeDevicesConfigFile,
 } from '../services/hardware/deviceConfig.js';
-import { listEvents, loadParticipants } from '../services/eventService.js';
+import {
+    disciplineDir,
+    listEvents,
+    loadDisciplineSettings,
+    loadParticipants,
+    saveDisciplineSettings,
+    toDateTime,
+    validateDisciplineSettings,
+} from '../services/eventService.js';
+import { broadcastToUI } from '../websocket/wsServer.js';
 import {
     cancelRun,
     getRunState,
@@ -49,6 +58,32 @@ router.get('/events/:event/:discipline/participants', async (req: Request, res: 
         return;
     }
     res.json(list);
+});
+
+// Race page: saves the settings of a discipline to its config.yaml, then returns them as read back from the file
+router.put('/events/:event/:discipline/settings', async (req: Request, res: Response) => {
+    const event = String(req.params.event);
+    const discipline = String(req.params.discipline);
+    const dir = await disciplineDir(event, discipline);
+    if (!dir) {
+        res.status(404).json({ problems: ['Unknown event or discipline.'] });
+        return;
+    }
+    const problems = validateDisciplineSettings(req.body?.settings);
+    if (problems.length > 0) {
+        res.status(422).json({ problems });
+        return;
+    }
+    const { attempts, start, end, access } = req.body.settings;
+    await saveDisciplineSettings(dir, {
+        attempts,
+        start: start ? toDateTime(start, 'start') : null,
+        end: end ? toDateTime(end, 'end') : null,
+        access: access ?? 'auto',
+    });
+    const saved = await loadDisciplineSettings(dir);
+    broadcastToUI({ type: 'SETTINGS_UPDATE', event, discipline, settings: saved.settings });
+    res.json(saved);
 });
 
 // Race page: results of a discipline (every run, oldest first)

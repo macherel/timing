@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type {
   DisciplineSettings,
@@ -28,7 +28,55 @@ const loadError = ref<string | null>(null);
 
 const participants = ref<Participant[]>([]);
 const problems = ref<string[]>([]);
-const settings = ref<DisciplineSettings>({ attempts: null });
+const NO_SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto' };
+const settings = ref<DisciplineSettings>({ ...NO_SETTINGS });
+
+// The current time, refreshed often enough that the page opens and closes on the minute
+const now = ref(Date.now());
+const clockTimer = setInterval(() => (now.value = Date.now()), 5_000);
+onUnmounted(() => clearInterval(clockTimer));
+
+/** A UTC date-time in the browser's local time with its offset, e.g. "2026-11-05 08:00 +01:00", for messages. */
+function showDateTime(iso: string): string {
+  const date = new Date(iso);
+  const offset = -date.getTimezoneOffset();
+  const pad = (value: number) => String(Math.floor(Math.abs(value))).padStart(2, '0');
+  return `${toLocalInput(iso).replace('T', ' ')} ${offset >= 0 ? '+' : '-'}${pad(offset / 60)}:${pad(offset % 60)}`;
+}
+
+/** An ISO 8601 date-time with offset as the browser's local YYYY-MM-DDTHH:MM, for a datetime-local input. */
+function toLocalInput(iso: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** A datetime-local input value (browser's local time) as ISO 8601 in UTC, as stored in config.yaml. */
+function fromLocalInput(local: string): string | null {
+  if (!local) return null;
+  const date = new Date(local);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 16) + 'Z';
+}
+
+// Why the start - end period closes the discipline now, or null when it is within the period
+const outsidePeriod = computed(() => {
+  const { start, end } = settings.value;
+  if (start && now.value < Date.parse(start)) return `it opens on ${showDateTime(start)}`;
+  if (end && now.value >= Date.parse(end)) return `it closed on ${showDateTime(end)}`;
+  return null;
+});
+
+// Why runs and result changes are disabled (locked, or outside the period unless access is open), or null.
+// The backend checks it too: this only avoids offering actions that would be refused.
+const closedReason = computed(() => {
+  if (settings.value.access === 'locked') return 'its results are locked';
+  if (settings.value.access === 'open') return null;
+  return outsidePeriod.value;
+});
+// Open although the period would close it: shown as a reminder, so it is not left open by mistake
+const forcedOpen = computed(() => settings.value.access === 'open' && outsidePeriod.value !== null);
 const loadingParticipants = ref(false);
 const selected = ref<Participant | null>(null);
 const picker = ref<InstanceType<typeof ParticipantPicker> | null>(null);
@@ -51,6 +99,58 @@ const finishedBibs = computed(() => {
   return new Set([...used].filter(([, count]) => count >= limit).map(([bib]) => bib));
 });
 const remainingCount = computed(() => participants.value.filter((p) => !finishedBibs.value.has(p.bib)).length);
+// Discipline settings form: the attempts as typed, empty for unlimited (Vue gives a number input's value as a number)
+const editingSettings = ref(false);
+const attemptsInput = ref<string | number>('');
+// YYYY-MM-DD from the date inputs, empty for no limit
+const startInput = ref('');
+const endInput = ref('');
+const accessInput = ref<DisciplineSettings['access']>('auto');
+const ACCESS_OPTIONS: { value: DisciplineSettings['access']; label: string; hint: string }[] = [
+  { value: 'auto', label: 'Auto', hint: 'Open during the period above' },
+  { value: 'open', label: 'Open', hint: 'Always open, ignores the period (e.g. to correct a result)' },
+  { value: 'locked', label: 'Locked', hint: 'Never open: results are final' },
+];
+
+const settingsError = ref<string | null>(null);
+const savingSettings = ref(false);
+
+function openSettings(): void {
+  attemptsInput.value = settings.value.attempts === null ? '' : String(settings.value.attempts);
+  startInput.value = toLocalInput(settings.value.start);
+  endInput.value = toLocalInput(settings.value.end);
+  accessInput.value = settings.value.access;
+  settingsError.value = null;
+  editingSettings.value = true;
+}
+
+async function saveSettings(): Promise<void> {
+  const text = String(attemptsInput.value ?? '').trim();
+  const attempts = text === '' ? null : Number(text);
+  if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
+    settingsError.value = 'Attempts must be a whole number from 1, or empty for unlimited.';
+    return;
+  }
+  if (startInput.value && endInput.value && startInput.value >= endInput.value) {
+    settingsError.value = 'The start must be before the end.';
+    return;
+  }
+  savingSettings.value = true;
+  try {
+    const saved = await getJson<{ settings: DisciplineSettings }>(`${disciplinePath()}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { attempts, start: fromLocalInput(startInput.value), end: fromLocalInput(endInput.value), access: accessInput.value } }),
+    });
+    settings.value = saved.settings;
+    editingSettings.value = false;
+  } catch (e) {
+    settingsError.value = `Cannot save the settings: ${errorText(e)}`;
+  } finally {
+    savingSettings.value = false;
+  }
+}
+
 const participantResults = computed(() => results.value.filter((result) => result.bib === selected.value?.bib));
 
 // The chosen event and discipline live in the URL (?event=…&discipline=…), so a reload or a bookmark keeps them
@@ -135,6 +235,8 @@ function onMessage(message: ServerMessage): void {
     if (message.result.bib === selected.value?.bib) lastResult.value = message.result;
   } else if (message.type === 'RESULT_UPDATE' && message.event === eventName.value && message.discipline === discipline.value) {
     replaceResult(message.result);
+  } else if (message.type === 'SETTINGS_UPDATE' && message.event === eventName.value && message.discipline === discipline.value) {
+    settings.value = message.settings;
   }
 }
 
@@ -212,7 +314,7 @@ async function loadParticipants(): Promise<void> {
   if (!disciplineExists.value) {
     participants.value = [];
     problems.value = [];
-    settings.value = { attempts: null };
+    settings.value = { ...NO_SETTINGS };
     results.value = [];
     selected.value = null;
     return;
@@ -249,6 +351,7 @@ watch(currentEvent, (event) => {
 });
 watch([eventName, discipline], () => {
   selected.value = null;
+  editingSettings.value = false;
   loadParticipants();
 });
 watch(selected, () => (lastResult.value = null));
@@ -283,15 +386,27 @@ onMounted(reload);
         </select>
       </label>
 
-      <label class="field">
-        Discipline
-        <select v-model="discipline" :disabled="locked || !currentEvent || currentEvent.disciplines.length === 0">
+      <div class="field">
+        <span class="label-row">
+          <label for="discipline-select">Discipline</label>
+          <button
+            type="button"
+            class="link"
+            :disabled="!disciplineExists"
+            :aria-expanded="editingSettings"
+            title="Settings of this discipline (number of attempts)"
+            @click="editingSettings ? (editingSettings = false) : openSettings()"
+          >
+            ⚙ Settings
+          </button>
+        </span>
+        <select id="discipline-select" v-model="discipline" :disabled="locked || !currentEvent || currentEvent.disciplines.length === 0">
           <option value="" disabled>
             {{ currentEvent && currentEvent.disciplines.length === 0 ? 'No discipline in this event' : 'Choose a discipline' }}
           </option>
           <option v-for="name in currentEvent?.disciplines ?? []" :key="name" :value="name">{{ name }}</option>
         </select>
-      </label>
+      </div>
 
       <div class="field participant">
         <span>
@@ -311,6 +426,54 @@ onMounted(reload);
       </div>
     </section>
 
+    <form v-if="editingSettings && disciplineExists" class="card settings" @submit.prevent="saveSettings">
+      <h3>Settings of {{ eventName }} / {{ discipline }}</h3>
+      <label class="field">
+        Attempts per participant
+        <input v-model="attemptsInput" type="number" min="1" step="1" placeholder="Unlimited" class="attempts" />
+      </label>
+      <p class="muted small">Invalid runs do not use up an attempt. Leave empty for unlimited attempts.</p>
+      <div class="period">
+        <label class="field">
+          Start
+          <input v-model="startInput" type="datetime-local" :max="endInput || undefined" />
+        </label>
+        <label class="field">
+          End
+          <input v-model="endInput" type="datetime-local" :min="startInput || undefined" />
+        </label>
+      </div>
+      <p class="muted small">
+        Runs can be timed and results changed only from the start until the end (this computer's time, saved in UTC).
+        Leave empty for no limit.
+      </p>
+      <fieldset class="access">
+        <legend>Runs and result changes</legend>
+        <div class="segmented" role="radiogroup">
+          <label v-for="option in ACCESS_OPTIONS" :key="option.value" :class="[option.value, { checked: accessInput === option.value }]" :title="option.hint">
+            <input v-model="accessInput" type="radio" name="access" :value="option.value" />
+            {{ option.label }}
+          </label>
+        </div>
+        <p class="muted small">{{ ACCESS_OPTIONS.find((option) => option.value === accessInput)?.hint }}</p>
+      </fieldset>
+      <p v-if="settingsError" class="alert error">{{ settingsError }}</p>
+      <div class="actions">
+        <button type="submit" :disabled="savingSettings">Save</button>
+        <button type="button" class="secondary" @click="editingSettings = false">Cancel</button>
+      </div>
+    </form>
+
+    <p v-if="disciplineExists && forcedOpen" class="alert hint">
+      {{ eventName }} / {{ discipline }} is open although {{ outsidePeriod }}: access is forced open in
+      <em>⚙ Settings</em>.
+    </p>
+
+    <p v-if="disciplineExists && closedReason" class="alert warn">
+      {{ eventName }} / {{ discipline }} is closed: {{ closedReason }}. Runs and result changes are disabled
+      (see <em>⚙ Settings</em>).
+    </p>
+
     <p v-if="disciplineExists && !loadingParticipants && participants.length === 0" class="alert warn">
       No participant in {{ eventName }} / {{ discipline }}: add CSV files with <code>bib;name</code> lines to its folder.
     </p>
@@ -323,6 +486,7 @@ onMounted(reload);
     </details>
 
     <RunPanel
+      :closed="closedReason"
       :attempts="settings.attempts"
       v-if="selected"
       :participant="selected"
@@ -360,6 +524,105 @@ onMounted(reload);
 }
 .selectors select {
   padding: 8px;
+}
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+button.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 1em;
+}
+button.link:disabled {
+  color: var(--text-muted);
+}
+.settings h3 {
+  margin: 0 0 12px;
+}
+.access {
+  margin: 12px 0 0;
+  padding: 0;
+  border: none;
+}
+.access legend {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.segmented label {
+  padding: 5px 14px;
+  cursor: pointer;
+  color: var(--text);
+  border-left: 1px solid var(--border);
+}
+.segmented label:first-child {
+  border-left: none;
+}
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.segmented label:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.segmented label.checked {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+.segmented label.open.checked {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.segmented label.locked.checked {
+  background: var(--error-bg);
+  color: var(--error);
+}
+.period {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.settings input[type='datetime-local'] {
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+.settings .attempts {
+  font: inherit;
+  width: 8em;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+.settings .actions {
+  display: flex;
+  gap: 8px;
+}
+.settings .actions button {
+  margin: 0;
+}
+.small {
+  font-size: 0.85em;
+  margin-top: 6px;
 }
 .tree {
   font-family: var(--mono);

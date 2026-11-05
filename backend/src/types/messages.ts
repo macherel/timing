@@ -75,4 +75,17 @@ export interface ResultUpdateMessage {
 /**
  * Every message the backend pushes over the WebSocket.
  */
-export type ServerMessage = RaceUpdateMessage | RunUpdateMessage | RunResultMessage | ResultUpdateMessage;
+/** Sent to every frontend client when the settings of a discipline are saved from the race page. */
+export interface SettingsUpdateMessage {
+    type: 'SETTINGS_UPDATE';
+    event: string;
+    discipline: string;
+    settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked' };
+}
+
+export type ServerMessage =
+    | RaceUpdateMessage
+    | RunUpdateMessage
+    | RunResultMessage
+    | ResultUpdateMessage
+    | SettingsUpdateMessage;

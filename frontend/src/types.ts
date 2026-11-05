@@ -56,7 +56,19 @@ export interface ResultUpdateMessage {
   result: RunResult;
 }
 
-export type ServerMessage = RaceUpdateMessage | RunUpdateMessage | RunResultMessage | ResultUpdateMessage;
+export interface SettingsUpdateMessage {
+  type: 'SETTINGS_UPDATE';
+  event: string;
+  discipline: string;
+  settings: DisciplineSettings;
+}
+
+export type ServerMessage =
+  | RaceUpdateMessage
+  | RunUpdateMessage
+  | RunResultMessage
+  | ResultUpdateMessage
+  | SettingsUpdateMessage;
 
 export interface TriggerState {
   reportId?: number;
@@ -177,6 +189,12 @@ export interface Participant {
 export interface DisciplineSettings {
   // Runs allowed per participant (invalid runs do not count). null: unlimited
   attempts: number | null;
+  // Period when runs can be timed and results changed, from start (included) to end (excluded), as ISO 8601
+  // date-times in UTC, e.g. 2026-11-05T07:00Z. null: no limit on that side
+  start: string | null;
+  end: string | null;
+  // auto: follow the start - end period; open: always (ignores the period); locked: never (results are final)
+  access: 'auto' | 'open' | 'locked';
 }
 
 export interface ParticipantsResponse {

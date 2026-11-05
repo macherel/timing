@@ -196,10 +196,25 @@ A discipline folder can hold a `config.yaml` with its settings (not to be confus
 ```yaml
 # Runs allowed per participant. Remove for unlimited attempts.
 attempts: 3
+
+# Period when runs can be timed and results changed, from start (included) to end (excluded).
+start: 2026-11-05T07:00Z
+end: 2026-11-06T17:00Z
+
+# When runs can be timed and results changed: auto (during the period), open (always) or locked (never)
+access: auto
 ```
 
 - `attempts`: how many runs each participant may do. `OK` and `DQ` runs use up an attempt; `INVALID` runs do not (the participant is not at fault, so they run again). Once all attempts are used, the participant cannot be made ready: the race page shows "All 3 attempt(s) used" and disables *Ready to start*. Setting a run back to `INVALID` frees an attempt.
+- `start`, `end`: the period when the discipline is open, from `start` until `end` (excluded), as ISO 8601 date-times in UTC (`2026-11-05T07:00Z`), so they mean the same moment whatever the time zone of the server or the browser. Any offset is accepted (`2026-11-05T08:00+01:00`) and saved converted to UTC. Either can be left out. Seconds are ignored. A date-time without an offset (`2026-11-05T08:00` or `2026-11-05 08:00`) is read in the server's time zone; a date alone means the whole day (`start: 2026-11-05` opens at 00:00, `end: 2026-11-06` closes at the end of that day). The settings form and the messages show them in local time; the form saves them in UTC. Outside the period (with `access: auto`), getting a participant ready and changing a result's status are refused, so nothing is changed by accident; the race page says the discipline is closed and disables these actions. A run already in progress can still end. The settings themselves can always be edited, to correct the period. A `start` that is not before `end` is ignored.
+- `access`: when runs can be timed and results changed, one of:
+  - `auto` (default): during the `start` - `end` period;
+  - `open`: always, ignoring the period, e.g. to correct a result after the event (the race page reminds that the discipline is forced open while the period would close it);
+  - `locked`: never, the results are final (the race page says they are locked).
+
+  It is the *Runs and result changes* choice in *⚙ Settings*. The older `locked: true` setting is read as `access: locked`.
 - The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
+- *⚙ Settings* next to the discipline on the race page edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
 
 ### Timed runs and `results.csv`
 
@@ -254,6 +269,7 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
 - `RUN_UPDATE` `{ run }`: the run changed. `run.status` is `idle`, `ready` (with `event`, `discipline`, `participant`) or `running` (also with `startedAt`).
 - `RUN_RESULT` `{ event, discipline, result }`: a run finished or the participant was disqualified. `result` has `bib`, `name`, `start`, `finish`, `timeMs` and `status` (`ok`, `invalid` or `dq`) (`finish` and `timeMs` are `null` when the run was ended before the finish).
 - `RESULT_UPDATE` `{ event, discipline, result }`: the status of a saved run changed.
+- `SETTINGS_UPDATE` `{ event, discipline, settings }`: the settings of a discipline were saved from the race page.
 
 ### REST Endpoints
 
@@ -263,10 +279,11 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
 - `PUT /api/config` `{ config, modifiedAt }`: writes the config to `config.yaml`. `422` with the problems if it is invalid; `409` if the file changed since `modifiedAt` (the value returned by `GET`).
 - `GET /api/events`: the working directory (`workDir`) and its `events`, each with its `disciplines`.
 - `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
+- `PUT /api/events/:event/:discipline/settings` `{ settings: { attempts, start, end, access } }`: saves the discipline's `config.yaml` (`attempts`: a whole number from 1, or `null` for unlimited; `start`, `end`: ISO 8601 date-times, saved in UTC, or `null`; `access`: `auto`, `open` or `locked`) and returns the `settings` read back with their `problems`. `422` for an invalid value.
 - `GET /api/events/:event/:discipline/results`: every run of the discipline from `results.csv`, oldest first.
-- `PATCH /api/events/:event/:discipline/results` `{ bib, start, status }`: sets the status (`ok`, `invalid` or `dq`) of the saved run of `bib` that started at `start` (bib and start together identify a run, as several participants can share a start). `404` when there is no such run, `409` to set `ok` on a run without a time.
+- `PATCH /api/events/:event/:discipline/results` `{ bib, start, status }`: sets the status (`ok`, `invalid` or `dq`) of the saved run of `bib` that started at `start` (bib and start together identify a run, as several participants can share a start). `404` when there is no such run, `409` to set `ok` on a run without a time, or when the discipline is closed (outside its period with `access: auto`, or `access: locked`).
 - `GET /api/run`: the current run (see `RUN_UPDATE`).
-- `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress or when the participant has no attempt left.
+- `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress, when the participant has no attempt left, or when the discipline is closed.
 - `POST /api/run/invalidate`, `POST /api/run/disqualify`: ends the running run now and saves it as `INVALID` or `DQ`. `409` when no run is in progress.
 - `POST /api/run/cancel`: abandons the current run, nothing is saved.
 - `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each configured device (`deviceName`) as `listening` (report count, last report, last 50 changed reports, trigger states) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it, and explanations for rules that match no device.
