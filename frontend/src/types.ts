@@ -1,0 +1,116 @@
+/**
+ * Messages and API payloads from the backend.
+ * Keep in sync with backend/src/types/messages.ts and HardwareStatus in backend/src/services/hardwareService.ts.
+ */
+
+export interface CrossingEvent {
+  action: string;
+  timestamp: string; // ISO 8601, nanosecond precision
+}
+
+export interface RaceUpdateMessage {
+  type: 'RACE_UPDATE';
+  deviceId: string;
+  deviceName: string;
+  action: string;
+  timestamp: string;
+  allCrossings: CrossingEvent[];
+}
+
+export type ServerMessage = RaceUpdateMessage;
+
+export interface TriggerState {
+  reportId?: number;
+  byteIndex: number;
+  mask: number;
+  value: number;
+  action?: string;
+  releaseAction?: string;
+  isMatched: boolean;
+}
+
+export interface RecentReport {
+  at: string;
+  reportId: number | null;
+  hex: string;
+  changes: string[];
+}
+
+export interface DeviceStatus {
+  deviceName: string;
+  path: string;
+  state: 'listening' | 'failing';
+  since: string;
+  reportCount?: number;
+  numberedReports?: boolean;
+  lastReportAt?: string;
+  lastReportHex?: string;
+  recentReports?: RecentReport[];
+  triggers?: TriggerState[];
+  error?: string;
+  hint?: string;
+  attempts?: number;
+}
+
+export interface HidInterface {
+  path: string;
+  vendorId: string;
+  productId: string;
+  manufacturer: string;
+  product: string;
+  serialNumber: string;
+  usbPort: string | null;
+  interfaceNumber: number;
+  usages: string[];
+  osOwned: boolean;
+  rules: Array<{ name: string; enabled: boolean; conflict: boolean }>;
+}
+
+export interface HardwareStatus {
+  platform: string;
+  configPath: string;
+  configValid: boolean;
+  devices: DeviceStatus[];
+  interfaces: HidInterface[];
+  lastScanAt: string | null;
+  unmatchedRules: string[];
+}
+
+/** config.yaml content. Keep in sync with backend/src/services/hardware/deviceConfig.ts. */
+export interface TriggerRule {
+  reportId?: number;
+  byteIndex: number;
+  mask: number;
+  value: number;
+  action?: string;
+  releaseAction?: string;
+}
+
+export interface DeviceRule {
+  name: string;
+  vendorId: number;
+  productId: number;
+  usagePage?: number;
+  usage?: number;
+  serialNumber?: string;
+  usbPort?: string;
+  enabled: boolean;
+  logReports?: boolean;
+  triggers?: TriggerRule[];
+}
+
+export interface DevicesConfig {
+  discoveryFilter?: { usagePage: number; usage: number };
+  devices: DeviceRule[];
+}
+
+/** GET /api/config */
+export interface ConfigFileResponse {
+  path: string;
+  modifiedAt: number | null;
+  // null when the file is missing or invalid
+  config: DevicesConfig | null;
+  problems: string[];
+  // Raw text, only sent when the file exists but is invalid
+  content?: string | null;
+}

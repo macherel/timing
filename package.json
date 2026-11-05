@@ -1,0 +1,19 @@
+{
+  "name": "timing",
+  "private": true,
+  "scripts": {
+    "dev": "TIMING_WORK_DIR=$(pwd)/workdir concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "build": "npm run build --prefix frontend && npm run build --prefix backend",
+    "start": "node backend/dist/server.js",
+    "package": "node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  },
+  "engines": {
+    "node": "26"
+  },
+  "devEngines": {
+    "runtime": { "name": "node", "version": "26", "onFail": "error" }
+  }
+}
