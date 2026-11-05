@@ -6,7 +6,12 @@ import { searchParticipants } from '../../race/participantSearch';
 // Most suggestions shown for a search: enough to pick from, short enough to scan. An empty input lists everyone.
 const MAX_SUGGESTIONS = 12;
 
-const props = defineProps<{ participants: Participant[]; disabled?: boolean }>();
+const props = defineProps<{
+  participants: Participant[];
+  // Bibs of the participants who used all their attempts: still listed, but shown as done
+  finished?: Set<string>;
+  disabled?: boolean;
+}>();
 const selected = defineModel<Participant | null>({ required: true });
 
 const input = ref<HTMLInputElement | null>(null);
@@ -103,6 +108,7 @@ defineExpose({ focus: () => input.value?.focus() });
         :id="`${listId}-${index}`"
         :key="participant.bib"
         role="option"
+        :class="{ finished: finished?.has(participant.bib) }"
         :aria-selected="index === activeIndex"
         @mousedown.prevent="choose(participant)"
         @mousemove="activeIndex = index"
@@ -110,6 +116,7 @@ defineExpose({ focus: () => input.value?.focus() });
         <span class="bib mono">{{ participant.bib }}</span>
         <span class="name">{{ participant.name }}</span>
         <span class="file muted">{{ participant.file }}</span>
+        <span v-if="finished?.has(participant.bib)" class="badge done" title="All attempts used">done</span>
       </li>
       <li v-if="suggestions.length === 0" class="empty muted">No participant matches “{{ query.trim() }}”</li>
     </ul>
@@ -171,6 +178,15 @@ defineExpose({ focus: () => input.value?.focus() });
 .name {
   flex: 1;
   color: var(--text-h);
+}
+.suggestions li.finished .bib,
+.suggestions li.finished .name {
+  color: var(--text-muted);
+  font-weight: normal;
+  text-decoration: line-through;
+}
+.badge.done {
+  font-size: 0.75em;
 }
 .file {
   font-size: 0.85em;

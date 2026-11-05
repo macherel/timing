@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import yaml from 'yaml';
 import { errorMessage } from '../utils/logger.js';
 import { WORK_DIR } from '../utils/workDir.js';
 
@@ -12,9 +13,16 @@ import { WORK_DIR } from '../utils/workDir.js';
  * extra columns ignored). A discipline can have several files, e.g. one per category: they are merged.
  * Files are read on every request, so edits are picked up without restarting.
  * results.csv in a discipline folder holds the timed runs (see runService.ts), it is not a participant file.
+ * config.yaml, optional, holds the discipline settings (see DisciplineSettings).
  */
 
 export const RESULTS_FILE = 'results.csv';
+export const SETTINGS_FILE = 'config.yaml';
+
+/** Settings of a discipline, from its config.yaml. Every setting is optional. */
+export interface DisciplineSettings {
+    attempts: number | null; // Runs allowed per participant (invalid runs do not count). null: unlimited
+}
 
 export interface EventSummary {
     name: string;
@@ -29,7 +37,8 @@ export interface Participant {
 
 export interface ParticipantList {
     participants: Participant[];
-    problems: string[]; // Rows that were skipped, and why
+    settings: DisciplineSettings;
+    problems: string[]; // Settings that were ignored and rows that were skipped, and why
 }
 
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
@@ -81,7 +90,7 @@ export async function loadParticipants(event: string, discipline: string): Promi
         .sort(byName);
 
     const participants: Participant[] = [];
-    const problems: string[] = [];
+    const { settings, problems } = await loadDisciplineSettings(dir);
     const fileOfBib = new Map<string, string>();
 
     for (const fileName of files) {
@@ -114,7 +123,39 @@ export async function loadParticipants(event: string, discipline: string): Promi
     }
 
     participants.sort((a, b) => Number(a.bib) - Number(b.bib));
-    return { participants, problems };
+    return { participants, settings, problems };
+}
+
+/**
+ * Reads config.yaml in a discipline folder. Missing file: default settings. A wrong setting is ignored (its
+ * default is used) and listed in `problems`.
+ */
+export async function loadDisciplineSettings(dir: string): Promise<{ settings: DisciplineSettings; problems: string[] }> {
+    const settings: DisciplineSettings = { attempts: null };
+    const problems: string[] = [];
+
+    let parsed: any;
+    try {
+        parsed = yaml.parse(await fs.promises.readFile(path.join(dir, SETTINGS_FILE), 'utf8'));
+    } catch (error: any) {
+        if (error.code !== 'ENOENT') problems.push(`${SETTINGS_FILE}: cannot be read (${errorMessage(error)})`);
+        return { settings, problems };
+    }
+    if (parsed === null || parsed === undefined) return { settings, problems };
+    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        problems.push(`${SETTINGS_FILE}: settings must be written as "name: value" lines`);
+        return { settings, problems };
+    }
+
+    for (const [key, value] of Object.entries(parsed)) {
+        if (key === 'attempts') {
+            if (Number.isInteger(value) && (value as number) >= 1) settings.attempts = value as number;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: attempts must be a whole number from 1 (attempts are unlimited)`);
+        } else {
+            problems.push(`${SETTINGS_FILE}: unknown setting "${key}" is ignored`);
+        }
+    }
+    return { settings, problems };
 }
 
 /** UTF-8 (with or without BOM), or Windows-1252 as saved by Excel on Windows when the file is not valid UTF-8. */

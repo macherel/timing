@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import type { Participant, RunResult, RunState } from '../../types';
+import type { Participant, RunResult, RunState, RunStatus } from '../../types';
 import { formatDuration, formatTime, parseInstant } from '../../format';
+import { countsAsAttempt, sameRun } from '../../race/results';
 
 // Refresh rate of the running clock
 const CLOCK_INTERVAL_MS = 50;
@@ -14,11 +15,42 @@ const props = defineProps<{
   // Time of the run that just finished, highlighted until the next run
   lastResult: RunResult | null;
   busy: boolean;
+  // Runs allowed per participant, from config.yaml (in the discipline folder). null: unlimited
+  attempts: number | null;
 }>();
-defineEmits<{ ready: []; cancel: [] }>();
+const emit = defineEmits<{ ready: []; cancel: []; invalidate: []; disqualify: []; setStatus: [result: RunResult, status: RunStatus] }>();
+
+const STATUS_LABELS: Record<RunStatus, string> = { ok: 'OK', invalid: 'Invalid', dq: 'DQ' };
+const STATUS_HINTS: Record<RunStatus, string> = {
+  ok: 'Valid run',
+  invalid: 'Invalid: this run does not count (not the participant’s fault)',
+  dq: 'Disqualified: this run does not count',
+};
 
 const isThisRun = computed(() => props.run.status !== 'idle' && props.run.participant.bib === props.participant.bib);
-const bestMs = computed(() => Math.min(...props.results.map((result) => result.timeMs)));
+// Best time among the valid runs; invalid and disqualified runs never count
+const bestMs = computed(() => {
+  const times = props.results.flatMap((result) => (result.status !== 'ok' || result.timeMs === null ? [] : [result.timeMs]));
+  return times.length > 0 ? Math.min(...times) : null;
+});
+const validCount = computed(() => props.results.filter((result) => result.status === 'ok').length);
+const usedAttempts = computed(() => props.results.filter(countsAsAttempt).length);
+const noAttemptLeft = computed(() => props.attempts !== null && usedAttempts.value >= props.attempts);
+// The attempt being run or about to be run, e.g. "Attempt 2 of 3"
+const attemptLabel = computed(() => {
+  if (noAttemptLeft.value && !isThisRun.value) return `All ${props.attempts} attempt(s) used`;
+  const next = usedAttempts.value + 1;
+  return props.attempts === null ? `Attempt ${next}` : `Attempt ${next} of ${props.attempts}`;
+});
+
+// The select shows the saved status until the change is saved (then the new result comes back), so a failed save
+// does not leave it showing a status that is not in the file
+function onStatusChange(event: Event, result: RunResult): void {
+  const select = event.target as HTMLSelectElement;
+  const status = select.value as RunStatus;
+  select.value = result.status;
+  emit('setStatus', result, status);
+}
 
 // Running clock, from the browser's time: the saved result comes from the hardware timestamps
 const now = ref(Date.now());
@@ -41,7 +73,9 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
       <span class="bib mono">{{ participant.bib }}</span>
       <div>
         <div class="name">{{ participant.name }}</div>
-        <div class="muted">{{ participant.file }}</div>
+        <div class="muted">
+          {{ participant.file }} · <span :class="{ 'no-attempt': noAttemptLeft && !isThisRun }">{{ attemptLabel }}</span>
+        </div>
       </div>
     </div>
 
@@ -52,13 +86,30 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
       </template>
       <template v-else-if="isThisRun && run.status === 'running'">
         <span class="clock mono" role="timer">{{ formatDuration(elapsed, 1) }}</span>
-        <button type="button" class="secondary" :disabled="busy" @click="$emit('cancel')">Cancel run</button>
+        <button type="button" class="secondary" :disabled="busy" title="Abandon the run, nothing is saved" @click="$emit('cancel')">
+          Cancel run
+        </button>
+        <button type="button" class="warn" :disabled="busy" title="End the run now and save it as invalid (not the participant's fault)" @click="$emit('invalidate')">
+          Invalidate
+        </button>
+        <button type="button" class="danger" :disabled="busy" title="End the run now and save it as disqualified" @click="$emit('disqualify')">
+          Disqualify
+        </button>
       </template>
       <template v-else>
-        <span v-if="lastResult" class="clock mono done" title="Time of the run that just finished">
+        <span v-if="lastResult && lastResult.status !== 'ok'" class="clock" :class="lastResult.status" :title="STATUS_HINTS[lastResult.status]">
+          {{ STATUS_LABELS[lastResult.status] }}
+        </span>
+        <span v-else-if="lastResult?.timeMs != null" class="clock mono done" title="Time of the run that just finished">
           {{ formatDuration(lastResult.timeMs) }}
         </span>
-        <button type="button" class="ready" :disabled="busy || run.status !== 'idle'" @click="$emit('ready')">
+        <button
+          type="button"
+          class="ready"
+          :disabled="busy || run.status !== 'idle' || noAttemptLeft"
+          :title="noAttemptLeft ? 'No attempt left' : undefined"
+          @click="$emit('ready')"
+        >
           Ready to start
         </button>
       </template>
@@ -77,21 +128,43 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
           <tr>
             <th>Run</th>
             <th>Time</th>
-            <th>Finished at</th>
+            <th>Started at</th>
+            <th>Status</th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="(result, index) in results"
-            :key="result.finish"
-            :class="{ best: result.timeMs === bestMs, last: result.finish === lastResult?.finish }"
+            :key="`${index}-${result.start}`"
+            :class="{
+              best: result.status === 'ok' && result.timeMs === bestMs,
+              last: lastResult !== null && sameRun(result, lastResult),
+              void: result.status !== 'ok',
+            }"
           >
             <td>{{ index + 1 }}</td>
             <td class="mono time">
-              {{ formatDuration(result.timeMs) }}
-              <span v-if="result.timeMs === bestMs && results.length > 1" class="badge ok">best</span>
+              <s v-if="result.status !== 'ok' && result.timeMs !== null">{{ formatDuration(result.timeMs) }}</s>
+              <template v-else-if="result.timeMs !== null">{{ formatDuration(result.timeMs) }}</template>
+              <span v-else class="muted" title="Ended before the finish: no time">—</span>
+              <span v-if="result.status === 'ok' && result.timeMs === bestMs && validCount > 1" class="badge ok">best</span>
             </td>
-            <td class="mono muted">{{ formatTime(result.finish) }}</td>
+            <td class="mono muted">{{ formatTime(result.start) }}</td>
+            <td>
+              <select
+                class="status-select"
+                :class="result.status"
+                :value="result.status"
+                :disabled="busy"
+                :title="STATUS_HINTS[result.status]"
+                :aria-label="`Status of run ${index + 1}`"
+                @change="onStatusChange($event, result)"
+              >
+                <option v-for="(label, status) in STATUS_LABELS" :key="status" :value="status" :disabled="status === 'ok' && result.timeMs === null">
+                  {{ label }}
+                </option>
+              </select>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -163,7 +236,7 @@ button.ready {
   margin: 0 0 8px;
 }
 .results table {
-  max-width: 480px;
+  max-width: 600px;
 }
 .time {
   font-variant-numeric: tabular-nums;
@@ -174,6 +247,42 @@ tr.best .time {
 }
 tr.last {
   background: var(--accent-bg);
+}
+.time .badge.ok {
+  margin-left: 8px;
+}
+.status-select {
+  font-size: 0.85em;
+  padding: 2px 6px;
+}
+.status-select.invalid {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.status-select.dq {
+  color: var(--error);
+  border-color: var(--error);
+}
+tr.void td {
+  color: var(--text-muted);
+}
+.clock.dq {
+  color: var(--error);
+}
+.no-attempt {
+  color: var(--error);
+  font-weight: 600;
+}
+.clock.invalid {
+  color: var(--warn);
+}
+.status button.warn {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+.status button.danger {
+  background: var(--error);
+  border-color: var(--error);
 }
 @media (max-width: 720px) {
   .run {

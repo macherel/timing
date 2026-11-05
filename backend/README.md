@@ -165,8 +165,10 @@ The race page lists the events found in the working directory. Each event is a f
 ├── config.yaml
 ├── CFM26/
 │   ├── 100m/
+│   │   ├── config.yaml       # optional discipline settings
 │   │   ├── femmes.csv
-│   │   └── hommes.csv
+│   │   ├── hommes.csv
+│   │   └── results.csv       # written by the app
 │   └── Lenteur/
 │       └── participants.csv
 └── UNICON22/
@@ -187,20 +189,35 @@ bib;name
 - Rows with a bib that is not a number, without a name, or with a bib already used in the discipline are skipped and listed on the race page.
 - Files are read on every request: click *Reload lists* on the race page after adding or editing them.
 
+### Discipline settings (`config.yaml`)
+
+A discipline folder can hold a `config.yaml` with its settings (not to be confused with the device `config.yaml` at the root of the working directory). Every setting is optional:
+
+```yaml
+# Runs allowed per participant. Remove for unlimited attempts.
+attempts: 3
+```
+
+- `attempts`: how many runs each participant may do. `OK` and `DQ` runs use up an attempt; `INVALID` runs do not (the participant is not at fault, so they run again). Once all attempts are used, the participant cannot be made ready: the race page shows "All 3 attempt(s) used" and disables *Ready to start*. Setting a run back to `INVALID` frees an attempt.
+- The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
+
 ### Timed runs and `results.csv`
 
 On the race page, select a participant and click *Ready to start*. The next crossing whose action contains `start` (from any device) starts the run, the next one containing `finish` ends it. The time is the difference between the two hardware timestamps. Then the participant can run again: every run is kept, and the page lists the participant's runs with the best one highlighted.
 
 - One run at a time. The run is kept by the backend, so every open page shows it, and reloading the page does not lose it. It is lost if the server restarts before the finish.
 - While a participant is ready or running, the event, discipline and participant cannot change. *Cancel* abandons the run without saving anything.
+- While running, *Invalidate* or *Disqualify* ends the run at once (no need to wait for the finish) and saves it as `INVALID` or `DQ`, without finish or time. Such a run is listed but never counts as the best.
+- A saved run has a status, changed from the participant's results on the race page: `OK` (counts), `INVALID` (does not count, without the participant being at fault, e.g. a timing problem) or `DQ` (disqualified). A run keeps its time whatever its status (shown struck through when it does not count). A run ended before the finish has no time, so it cannot be set back to `OK`.
 - Each finished run is appended to `results.csv` in the discipline folder (this file is not read as a participant list):
 
   ```csv
-  bib;name;start;finish;time
-  3;Nathan Henry;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;1.228
+  bib;name;start;finish;status
+  3;Nathan Henry;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;OK
+  4;Margaux Perrin;2026-11-05T20:49:57.848684082Z;;DQ
   ```
 
-  `start` and `finish` are UTC instants with nanoseconds, `time` is in seconds with milliseconds. Lines can be deleted by hand to remove a run.
+  `start` and `finish` are UTC instants with nanoseconds, `status` is `OK`, `INVALID` or `DQ`. The time is not stored: it is computed as `finish` − `start` (rounded to the millisecond), so editing a date by hand changes the time. A run is identified by `bib` and `start` together. Lines can be deleted by hand to remove a run. Columns are found by their header name: files with an older layout (a `time` column, no `status` column, read as `OK`) are read too, and rewritten in this layout on their next write.
 
 ## 🩺 Troubleshooting in the Logs
 
@@ -235,7 +252,8 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
   ```
 
 - `RUN_UPDATE` `{ run }`: the run changed. `run.status` is `idle`, `ready` (with `event`, `discipline`, `participant`) or `running` (also with `startedAt`).
-- `RUN_RESULT` `{ event, discipline, result }`: a run finished. `result` has `bib`, `name`, `start`, `finish` and `timeMs`.
+- `RUN_RESULT` `{ event, discipline, result }`: a run finished or the participant was disqualified. `result` has `bib`, `name`, `start`, `finish`, `timeMs` and `status` (`ok`, `invalid` or `dq`) (`finish` and `timeMs` are `null` when the run was ended before the finish).
+- `RESULT_UPDATE` `{ event, discipline, result }`: the status of a saved run changed.
 
 ### REST Endpoints
 
@@ -244,10 +262,12 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
 - `POST /api/config/validate` `{ config }`: the problems found in a config object, without saving it.
 - `PUT /api/config` `{ config, modifiedAt }`: writes the config to `config.yaml`. `422` with the problems if it is invalid; `409` if the file changed since `modifiedAt` (the value returned by `GET`).
 - `GET /api/events`: the working directory (`workDir`) and its `events`, each with its `disciplines`.
-- `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the CSV file name without extension), sorted by bib, and the `problems` of skipped rows. `404` for an unknown event or discipline.
+- `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
 - `GET /api/events/:event/:discipline/results`: every run of the discipline from `results.csv`, oldest first.
+- `PATCH /api/events/:event/:discipline/results` `{ bib, start, status }`: sets the status (`ok`, `invalid` or `dq`) of the saved run of `bib` that started at `start` (bib and start together identify a run, as several participants can share a start). `404` when there is no such run, `409` to set `ok` on a run without a time.
 - `GET /api/run`: the current run (see `RUN_UPDATE`).
-- `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress.
+- `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress or when the participant has no attempt left.
+- `POST /api/run/invalidate`, `POST /api/run/disqualify`: ends the running run now and saves it as `INVALID` or `DQ`. `409` when no run is in progress.
 - `POST /api/run/cancel`: abandons the current run, nothing is saved.
 - `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each configured device (`deviceName`) as `listening` (report count, last report, last 50 changed reports, trigger states) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it, and explanations for rules that match no device.
 

@@ -33,13 +33,21 @@ export type RunState =
     | { status: 'ready'; event: string; discipline: string; participant: RunParticipant }
     | { status: 'running'; event: string; discipline: string; participant: RunParticipant; startedAt: string };
 
-/** A finished run, as saved in results.csv. */
+/**
+ * Status of a saved run. Only `ok` runs count:
+ *   invalid: the run does not count, without the participant being at fault (e.g. timing problem)
+ *   dq: the participant is disqualified for this run
+ */
+export type RunStatus = 'ok' | 'invalid' | 'dq';
+
+/** A finished or disqualified run, as saved in results.csv. */
 export interface RunResult {
     bib: string;
     name: string;
-    start: string;   // Temporal.Instant as ISO 8601
-    finish: string;
-    timeMs: number;  // Finish - start, rounded to the millisecond
+    start: string;          // Temporal.Instant as ISO 8601
+    finish: string | null;  // null when the run was ended before the finish (invalidated or disqualified)
+    timeMs: number | null;  // Finish - start, rounded to the millisecond. null when the run was ended before the finish (invalidated or disqualified)
+    status: RunStatus;
 }
 
 /** Sent to every frontend client each time the run state changes. */
@@ -48,9 +56,17 @@ export interface RunUpdateMessage {
     run: RunState;
 }
 
-/** Sent to every frontend client when a run finishes. */
+/** Sent to every frontend client when a run finishes or the participant is disqualified. */
 export interface RunResultMessage {
     type: 'RUN_RESULT';
+    event: string;
+    discipline: string;
+    result: RunResult;
+}
+
+/** Sent to every frontend client when the status of a saved result changes. */
+export interface ResultUpdateMessage {
+    type: 'RESULT_UPDATE';
     event: string;
     discipline: string;
     result: RunResult;
@@ -59,4 +75,4 @@ export interface RunResultMessage {
 /**
  * Every message the backend pushes over the WebSocket.
  */
-export type ServerMessage = RaceUpdateMessage | RunUpdateMessage | RunResultMessage;
+export type ServerMessage = RaceUpdateMessage | RunUpdateMessage | RunResultMessage | ResultUpdateMessage;

@@ -9,7 +9,15 @@ import {
     writeDevicesConfigFile,
 } from '../services/hardware/deviceConfig.js';
 import { listEvents, loadParticipants } from '../services/eventService.js';
-import { cancelRun, getRunState, loadResults, prepareRun } from '../services/runService.js';
+import {
+    cancelRun,
+    getRunState,
+    loadResults,
+    prepareRun,
+    RUN_STATUSES,
+    setResultStatus,
+    voidRun,
+} from '../services/runService.js';
 import { WORK_DIR } from '../utils/workDir.js';
 
 const router = Router();
@@ -53,6 +61,22 @@ router.get('/events/:event/:discipline/results', async (req: Request, res: Respo
     res.json({ results });
 });
 
+// Race page: changes the status of a saved run (ok, invalid or dq). `bib` and `start` (the run's start instant)
+// together identify it
+router.patch('/events/:event/:discipline/results', async (req: Request, res: Response) => {
+    const { bib, start, status } = req.body ?? {};
+    if (typeof bib !== 'string' || typeof start !== 'string' || !RUN_STATUSES.includes(status)) {
+        res.status(400).json({ problems: [`bib (string), start (string) and status (${RUN_STATUSES.join(', ')}) are required.`] });
+        return;
+    }
+    const outcome = await setResultStatus(String(req.params.event), String(req.params.discipline), bib, start, status);
+    if ('problem' in outcome) {
+        res.status(outcome.status).json({ problems: [outcome.problem] });
+        return;
+    }
+    res.json(outcome.result);
+});
+
 // Race page: the current run (idle, ready or running)
 router.get('/run', (req: Request, res: Response) => {
     res.json(getRunState());
@@ -74,6 +98,19 @@ router.post('/run/ready', async (req: Request, res: Response) => {
     }
     res.json(getRunState());
 });
+
+// Race page: ends the running run now and saves it as DQ (disqualify) or INVALID (invalidate), without a time.
+// 409 when no run is in progress
+for (const [action, status] of [['disqualify', 'dq'], ['invalidate', 'invalid']] as const) {
+    router.post(`/run/${action}`, (req: Request, res: Response) => {
+        const problem = voidRun(status);
+        if (problem) {
+            res.status(409).json({ problems: [problem] });
+            return;
+        }
+        res.json(getRunState());
+    });
+}
 
 // Race page: abandons the ready or running run, nothing is saved
 router.post('/run/cancel', (req: Request, res: Response) => {

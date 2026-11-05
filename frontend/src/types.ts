@@ -23,13 +23,18 @@ export type RunState =
   | { status: 'ready'; event: string; discipline: string; participant: Participant }
   | { status: 'running'; event: string; discipline: string; participant: Participant; startedAt: string };
 
-/** A finished run, as saved in <event>/<discipline>/results.csv */
+/** Only ok runs count. invalid: not the participant's fault (e.g. timing problem); dq: disqualified */
+export type RunStatus = 'ok' | 'invalid' | 'dq';
+
+/** A finished or disqualified run, as saved in <event>/<discipline>/results.csv */
 export interface RunResult {
   bib: string;
   name: string;
   start: string;
-  finish: string;
-  timeMs: number;
+  // null when the run was ended before the finish (invalidated or disqualified)
+  finish: string | null;
+  timeMs: number | null;
+  status: RunStatus;
 }
 
 export interface RunUpdateMessage {
@@ -44,7 +49,14 @@ export interface RunResultMessage {
   result: RunResult;
 }
 
-export type ServerMessage = RaceUpdateMessage | RunUpdateMessage | RunResultMessage;
+export interface ResultUpdateMessage {
+  type: 'RESULT_UPDATE';
+  event: string;
+  discipline: string;
+  result: RunResult;
+}
+
+export type ServerMessage = RaceUpdateMessage | RunUpdateMessage | RunResultMessage | ResultUpdateMessage;
 
 export interface TriggerState {
   reportId?: number;
@@ -161,9 +173,16 @@ export interface Participant {
 }
 
 /** GET /api/events/:event/:discipline/participants */
+/** Settings of a discipline, from its config.yaml (in the discipline folder) */
+export interface DisciplineSettings {
+  // Runs allowed per participant (invalid runs do not count). null: unlimited
+  attempts: number | null;
+}
+
 export interface ParticipantsResponse {
   participants: Participant[];
-  // Skipped CSV rows, and why
+  settings: DisciplineSettings;
+  // Ignored settings and skipped CSV rows, and why
   problems: string[];
 }
 

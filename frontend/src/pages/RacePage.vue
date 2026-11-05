@@ -2,6 +2,8 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type {
+  DisciplineSettings,
+  RunStatus,
   EventSummary,
   EventsResponse,
   Participant,
@@ -13,6 +15,7 @@ import type {
 } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import ParticipantPicker from '../components/race/ParticipantPicker.vue';
+import { countsAsAttempt, sameRun } from '../race/results';
 import RunPanel from '../components/race/RunPanel.vue';
 
 const route = useRoute();
@@ -25,6 +28,7 @@ const loadError = ref<string | null>(null);
 
 const participants = ref<Participant[]>([]);
 const problems = ref<string[]>([]);
+const settings = ref<DisciplineSettings>({ attempts: null });
 const loadingParticipants = ref(false);
 const selected = ref<Participant | null>(null);
 const picker = ref<InstanceType<typeof ParticipantPicker> | null>(null);
@@ -36,6 +40,17 @@ const lastResult = ref<RunResult | null>(null);
 const busy = ref(false);
 // While a participant is ready or running, the event, discipline and participant cannot change
 const locked = computed(() => run.value.status !== 'idle');
+// Bibs of the participants who used all their attempts (none when attempts are unlimited)
+const finishedBibs = computed(() => {
+  const limit = settings.value.attempts;
+  if (limit === null) return new Set<string>();
+  const used = new Map<string, number>();
+  for (const result of results.value) {
+    if (countsAsAttempt(result)) used.set(result.bib, (used.get(result.bib) ?? 0) + 1);
+  }
+  return new Set([...used].filter(([, count]) => count >= limit).map(([bib]) => bib));
+});
+const remainingCount = computed(() => participants.value.filter((p) => !finishedBibs.value.has(p.bib)).length);
 const participantResults = computed(() => results.value.filter((result) => result.bib === selected.value?.bib));
 
 // The chosen event and discipline live in the URL (?event=…&discipline=…), so a reload or a bookmark keeps them
@@ -118,13 +133,40 @@ function onMessage(message: ServerMessage): void {
   } else if (message.type === 'RUN_RESULT' && message.event === eventName.value && message.discipline === discipline.value) {
     results.value = [...results.value, message.result];
     if (message.result.bib === selected.value?.bib) lastResult.value = message.result;
+  } else if (message.type === 'RESULT_UPDATE' && message.event === eventName.value && message.discipline === discipline.value) {
+    replaceResult(message.result);
+  }
+}
+
+function replaceResult(result: RunResult): void {
+  results.value = results.value.map((r) => (sameRun(r, result) ? result : r));
+  if (lastResult.value && sameRun(lastResult.value, result)) lastResult.value = result;
+}
+
+/** Changes the status of a saved run (valid, invalid or disqualified). */
+async function setStatus(result: RunResult, status: RunStatus): Promise<void> {
+  if (status === result.status) return;
+  busy.value = true;
+  try {
+    replaceResult(
+      await getJson<RunResult>(`${disciplinePath()}/results`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bib: result.bib, start: result.start, status }),
+      }),
+    );
+    loadError.value = null;
+  } catch (e) {
+    loadError.value = `Cannot change the result: ${errorText(e)}`;
+  } finally {
+    busy.value = false;
   }
 }
 
 // Reloads the run on each WebSocket (re)connection, so a run that changed while disconnected is shown
 useRaceSocket({ onMessage, onConnect: loadRun });
 
-async function postRun(action: 'ready' | 'cancel'): Promise<void> {
+async function postRun(action: 'ready' | 'cancel' | 'invalidate' | 'disqualify'): Promise<void> {
   busy.value = true;
   try {
     const body = action === 'ready' ? { event: eventName.value, discipline: discipline.value, bib: selected.value?.bib } : {};
@@ -136,7 +178,13 @@ async function postRun(action: 'ready' | 'cancel'): Promise<void> {
     if (action === 'ready') lastResult.value = null;
     loadError.value = null;
   } catch (e) {
-    loadError.value = `Cannot ${action === 'ready' ? 'get the participant ready' : 'cancel the run'}: ${errorText(e)}`;
+    const what = {
+      ready: 'get the participant ready',
+      cancel: 'cancel the run',
+      invalidate: 'invalidate the run',
+      disqualify: 'disqualify the participant',
+    }[action];
+    loadError.value = `Cannot ${what}: ${errorText(e)}`;
   } finally {
     busy.value = false;
   }
@@ -147,11 +195,24 @@ function cancel(): void {
   postRun('cancel');
 }
 
+/** Ends the running run now, saved as INVALID or DQ, after a confirmation. */
+function voidRun(action: 'invalidate' | 'disqualify'): void {
+  if (run.value.status !== 'running') return;
+  const { bib, name } = run.value.participant;
+  const question =
+    action === 'disqualify'
+      ? `Disqualify ${bib} ${name}? The run ends now and is saved as disqualified (DQ).`
+      : `Invalidate this run of ${bib} ${name}? The run ends now and is saved as invalid (not a disqualification).`;
+  if (!confirm(question)) return;
+  postRun(action);
+}
+
 async function loadParticipants(): Promise<void> {
   const request = ++participantsRequest;
   if (!disciplineExists.value) {
     participants.value = [];
     problems.value = [];
+    settings.value = { attempts: null };
     results.value = [];
     selected.value = null;
     return;
@@ -163,6 +224,7 @@ async function loadParticipants(): Promise<void> {
     if (request !== participantsRequest) return;
     participants.value = list.participants;
     problems.value = list.problems;
+    settings.value = list.settings;
     loadError.value = null;
     // The participant of a run in progress here, or else the one selected before a reload when still in the list
     const wanted = runIsHere() && run.value.status !== 'idle' ? run.value.participant : selected.value;
@@ -234,9 +296,18 @@ onMounted(reload);
       <div class="field participant">
         <span>
           Participant
-          <span v-if="disciplineExists && !loadingParticipants" class="muted">({{ participants.length }})</span>
+          <span v-if="disciplineExists && !loadingParticipants" class="muted">
+            <template v-if="settings.attempts !== null">({{ remainingCount }} remaining / {{ participants.length }})</template>
+            <template v-else>({{ participants.length }})</template>
+          </span>
         </span>
-        <ParticipantPicker ref="picker" v-model="selected" :participants="participants" :disabled="locked || !disciplineExists" />
+        <ParticipantPicker
+          ref="picker"
+          v-model="selected"
+          :participants="participants"
+          :finished="finishedBibs"
+          :disabled="locked || !disciplineExists"
+        />
       </div>
     </section>
 
@@ -245,13 +316,14 @@ onMounted(reload);
     </p>
 
     <details v-if="problems.length > 0" class="alert warn">
-      <summary>{{ problems.length }} CSV line(s) skipped</summary>
+      <summary>{{ problems.length }} problem(s) in the files of {{ discipline }}</summary>
       <ul>
         <li v-for="problem in problems" :key="problem">{{ problem }}</li>
       </ul>
     </details>
 
     <RunPanel
+      :attempts="settings.attempts"
       v-if="selected"
       :participant="selected"
       :run="run"
@@ -260,6 +332,9 @@ onMounted(reload);
       :busy="busy"
       @ready="postRun('ready')"
       @cancel="cancel"
+      @invalidate="voidRun('invalidate')"
+      @disqualify="voidRun('disqualify')"
+      @set-status="setStatus"
     />
   </main>
 </template>
