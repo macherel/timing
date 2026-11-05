@@ -30,6 +30,8 @@ src/
 ├── tools/diagnose.ts            # `npm run diagnose`: find and test devices without the server
 └── services/
     ├── raceService.ts           # Records crossings per lane and broadcasts them
+    ├── eventService.ts          # Events, disciplines and participant CSV files of the working directory
+    ├── runService.ts            # Timed run of one participant (ready → running → result in results.csv)
     ├── hardwareService.ts       # Polls devices, opens them, routes reports to triggers, tracks status
     └── hardware/
         ├── deviceConfig.ts      # config.yaml types, loading, validation and watching
@@ -38,7 +40,7 @@ src/
         └── hidDiagnostics.ts    # Human-readable usages, hex dumps, bit diffs, failure hints
 ```
 
-**Flow:** every second (and on a `config.yaml` change) `hardwareService` syncs devices → each HID report goes through `triggers` → fired actions go to `raceService` → `wsServer` broadcasts a `RACE_UPDATE`.
+**Flow:** every second (and on a `config.yaml` change) `hardwareService` syncs devices → each HID report goes through `triggers` → fired actions go to `raceService` → `wsServer` broadcasts a `RACE_UPDATE`, and `runService` times the run of the participant who is ready.
 
 ---
 
@@ -154,6 +156,52 @@ Windows needs no permission setup for readable devices.
 
 ---
 
+## 🏁 Events and Participants
+
+The race page lists the events found in the working directory. Each event is a folder, each discipline a subfolder, and a discipline holds one or more participant CSV files (e.g. one per category), merged in the app:
+
+```
+<working directory>/
+├── config.yaml
+├── CFM26/
+│   ├── 100m/
+│   │   ├── femmes.csv
+│   │   └── hommes.csv
+│   └── Lenteur/
+│       └── participants.csv
+└── UNICON22/
+    └── ...
+```
+
+A CSV file has the bib number in the first column and the name in the second; other columns are ignored:
+
+```csv
+bib;name
+1;Zoé Nguyen
+2;Hugo Guérin
+```
+
+- The separator is detected from the first line: semicolon (French Excel), comma or tab. Quoted cells (`"Dupont, Jean"`) are supported.
+- The first line is skipped when its bib is not a number (header row).
+- UTF-8 (with or without BOM) and Windows-1252 (Excel on Windows) are both read correctly.
+- Rows with a bib that is not a number, without a name, or with a bib already used in the discipline are skipped and listed on the race page.
+- Files are read on every request: click *Reload lists* on the race page after adding or editing them.
+
+### Timed runs and `results.csv`
+
+On the race page, select a participant and click *Ready to start*. The next crossing whose action contains `start` (from any device) starts the run, the next one containing `finish` ends it. The time is the difference between the two hardware timestamps. Then the participant can run again: every run is kept, and the page lists the participant's runs with the best one highlighted.
+
+- One run at a time. The run is kept by the backend, so every open page shows it, and reloading the page does not lose it. It is lost if the server restarts before the finish.
+- While a participant is ready or running, the event, discipline and participant cannot change. *Cancel* abandons the run without saving anything.
+- Each finished run is appended to `results.csv` in the discipline folder (this file is not read as a participant list):
+
+  ```csv
+  bib;name;start;finish;time
+  3;Nathan Henry;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;1.228
+  ```
+
+  `start` and `finish` are UTC instants with nanoseconds, `time` is in seconds with milliseconds. Lines can be deleted by hand to remove a run.
+
 ## 🩺 Troubleshooting in the Logs
 
 - **Device list**: logged at startup and whenever a relevant device appears, disappears, or the config changes.
@@ -186,12 +234,21 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
   }
   ```
 
+- `RUN_UPDATE` `{ run }`: the run changed. `run.status` is `idle`, `ready` (with `event`, `discipline`, `participant`) or `running` (also with `startedAt`).
+- `RUN_RESULT` `{ event, discipline, result }`: a run finished. `result` has `bib`, `name`, `start`, `finish` and `timeMs`.
+
 ### REST Endpoints
 
 - `GET /api/status`: Health check (status, uptime, server time).
 - `GET /api/config`: `config.yaml` parsed as `config`, with its path and modification time. `config` is `null` when the file is missing, or invalid (then `problems` says why and `content` holds the text).
 - `POST /api/config/validate` `{ config }`: the problems found in a config object, without saving it.
 - `PUT /api/config` `{ config, modifiedAt }`: writes the config to `config.yaml`. `422` with the problems if it is invalid; `409` if the file changed since `modifiedAt` (the value returned by `GET`).
+- `GET /api/events`: the working directory (`workDir`) and its `events`, each with its `disciplines`.
+- `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the CSV file name without extension), sorted by bib, and the `problems` of skipped rows. `404` for an unknown event or discipline.
+- `GET /api/events/:event/:discipline/results`: every run of the discipline from `results.csv`, oldest first.
+- `GET /api/run`: the current run (see `RUN_UPDATE`).
+- `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress.
+- `POST /api/run/cancel`: abandons the current run, nothing is saved.
 - `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each configured device (`deviceName`) as `listening` (report count, last report, last 50 changed reports, trigger states) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it, and explanations for rules that match no device.
 
 ---

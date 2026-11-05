@@ -1,6 +1,7 @@
 <template>
   <nav class="nav">
     <span class="brand">Timing</span>
+    <RouterLink to="/">Race</RouterLink>
     <RouterLink to="/diagnostics">Diagnostics</RouterLink>
     <RouterLink to="/config">Configuration</RouterLink>
   </nav>

@@ -17,7 +17,34 @@ export interface RaceUpdateMessage {
   allCrossings: CrossingEvent[];
 }
 
-export type ServerMessage = RaceUpdateMessage;
+/** The timed run: idle, ready (waiting for a start crossing) or running (waiting for a finish crossing). */
+export type RunState =
+  | { status: 'idle' }
+  | { status: 'ready'; event: string; discipline: string; participant: Participant }
+  | { status: 'running'; event: string; discipline: string; participant: Participant; startedAt: string };
+
+/** A finished run, as saved in <event>/<discipline>/results.csv */
+export interface RunResult {
+  bib: string;
+  name: string;
+  start: string;
+  finish: string;
+  timeMs: number;
+}
+
+export interface RunUpdateMessage {
+  type: 'RUN_UPDATE';
+  run: RunState;
+}
+
+export interface RunResultMessage {
+  type: 'RUN_RESULT';
+  event: string;
+  discipline: string;
+  result: RunResult;
+}
+
+export type ServerMessage = RaceUpdateMessage | RunUpdateMessage | RunResultMessage;
 
 export interface TriggerState {
   reportId?: number;
@@ -113,4 +140,34 @@ export interface ConfigFileResponse {
   problems: string[];
   // Raw text, only sent when the file exists but is invalid
   content?: string | null;
+}
+
+/** GET /api/events. Keep in sync with backend/src/services/eventService.ts. */
+export interface EventSummary {
+  name: string;
+  disciplines: string[];
+}
+
+export interface EventsResponse {
+  workDir: string;
+  events: EventSummary[];
+}
+
+export interface Participant {
+  bib: string;
+  name: string;
+  // CSV file name without extension, e.g. the category
+  file: string;
+}
+
+/** GET /api/events/:event/:discipline/participants */
+export interface ParticipantsResponse {
+  participants: Participant[];
+  // Skipped CSV rows, and why
+  problems: string[];
+}
+
+/** GET /api/events/:event/:discipline/results */
+export interface ResultsResponse {
+  results: RunResult[];
 }

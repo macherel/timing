@@ -1,13 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import ConfigPage from './pages/ConfigPage.vue';
 import DiagnosticsPage from './pages/DiagnosticsPage.vue';
+import RacePage from './pages/RacePage.vue';
 
 export const router = createRouter({
   // The backend serves index.html for every non-API path, so plain URLs work after a reload
   history: createWebHistory(),
   routes: [
-    // No race page yet: the app opens on the diagnostics
-    { path: '/', redirect: '/diagnostics' },
+    { path: '/', component: RacePage, meta: { title: 'Race' } },
     { path: '/diagnostics', component: DiagnosticsPage, meta: { title: 'Diagnostics' } },
     { path: '/config', component: ConfigPage, meta: { title: 'Configuration' } },
     { path: '/:unknown(.*)*', redirect: '/' },

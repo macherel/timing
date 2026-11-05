@@ -10,6 +10,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 - **YAML Configuration & Hot-Reloading**: Real-time configuration parsing (`config.yaml`) with bitmask trigger rules and live file watching.
 - **State-Aware Edge Detection**: Eliminates false positives when multiple buttons are pressed simultaneously or released in complex sequences.
 - **High-Precision Timing with `Temporal`**: Uses the modern ECMAScript `Temporal` API (`Temporal.Now.instant()`) for timezone-agnostic timing records.
+- **Events & Participants**: The race page picks an event and a discipline from the working directory, then finds a participant by partial bib or name (case and accents ignored), times their runs between the start and finish crossings, and keeps every result in the discipline's `results.csv`.
 - **Real-Time UI Synchronization**: Low-latency WebSocket event distribution to connected Vue.js clients.
 
 ---
@@ -39,7 +40,12 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   └── package.json
 ├── scripts/
 │   └── package.mjs           # Builds standalone release packages (npm run package)
-├── workdir/                  # Working directory in dev mode, not in git: config.yaml lives here
+├── workdir/                  # Working directory in dev mode, not in git: config.yaml and the events
+│   ├── config.yaml
+│   └── CFM26/                # One folder per event...
+│       └── 100m/             # ...one subfolder per discipline...
+│           ├── femmes.csv    # ...with participant CSV files (bib;name)
+│           └── results.csv   # Timed runs, written by the app
 ├── release/                  # Release packages, not in git
 ├── package.json              # Root scripts: dev, build, start, package
 └── README.md                 # Root documentation

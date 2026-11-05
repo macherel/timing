@@ -1,6 +1,7 @@
 import type { CrossingEvent } from '../types/messages.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
+import { onCrossing } from './runService.js';
 
 const log = createLogger('Race');
 
@@ -23,6 +24,7 @@ const raceLanes = new Map<string, LaneRecord>();
 export function handleRaceEvent(laneId: string, laneName: string, action: string, instant: Temporal.Instant): void {
     if (RECORDED_ACTION_KEYWORDS.some((keyword) => action.includes(keyword))) {
         recordCrossing(laneId, laneName, action, instant);
+        onCrossing(action, laneName, instant);
     }
 }
 

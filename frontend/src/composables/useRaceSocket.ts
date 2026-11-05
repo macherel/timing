@@ -14,8 +14,9 @@ function getWebSocketUrl(): string {
 
 /**
  * Connects to the backend WebSocket, reconnects when it drops, and keeps the latest race events (newest first).
+ * `onMessage` receives every message; `onConnect` runs on each (re)connection, to reload state missed meanwhile.
  */
-export function useRaceSocket() {
+export function useRaceSocket(options: { onMessage?: (message: ServerMessage) => void; onConnect?: () => void } = {}) {
   const connected = ref(false);
   const events = ref<RaceUpdateMessage[]>([]);
   let socket: WebSocket | null = null;
@@ -24,7 +25,10 @@ export function useRaceSocket() {
 
   function connect(): void {
     socket = new WebSocket(getWebSocketUrl());
-    socket.onopen = () => (connected.value = true);
+    socket.onopen = () => {
+      connected.value = true;
+      options.onConnect?.();
+    };
     socket.onclose = () => {
       connected.value = false;
       if (!stopped) reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
@@ -34,6 +38,7 @@ export function useRaceSocket() {
       if (message.type === 'RACE_UPDATE') {
         events.value = [message, ...events.value].slice(0, EVENTS_KEPT);
       }
+      options.onMessage?.(message);
     };
   }
 
