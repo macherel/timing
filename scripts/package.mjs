@@ -242,6 +242,8 @@ function readme(platform) {
         `    ${DATA_DIR}/<event>/<discipline>/*.csv             participants, one "bib;name" line each`,
         `    ${DATA_DIR}/<event>/<discipline>/config.yaml       discipline settings (attempts, period, access)`,
         `    ${DATA_DIR}/<event>/<discipline>/results.csv       timed runs, written by the app`,
+        `    ${DATA_DIR}/sync.yaml                              optional, "key: <text>" to sync with the other computers`,
+        '                                                    running the app on the network with the same key',
         '  Without config.yaml, the app starts with no devices: add them on the configuration page, which creates it.',
         '  To use another folder: --work-dir <dir>, or the TIMING_WORK_DIR environment variable.',
         `  Example: ${start} --work-dir ${isWindows ? 'C:\\timing' : '/srv/timing'}`,

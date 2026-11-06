@@ -6,6 +6,7 @@ import apiRouter from './routes/api.js';
 import { setupFrontendMiddleware } from './middlewares/frontend.js';
 import { setupWebSocketServer } from './websocket/wsServer.js';
 import { initHardwareService, stopHardwareService } from './services/hardwareService.js';
+import { initSyncService, stopSyncService } from './services/syncService.js';
 import { createLogger } from './utils/logger.js';
 import { checkWorkDir } from './utils/workDir.js';
 import { openBrowser } from './utils/openBrowser.js';
@@ -32,6 +33,7 @@ setupWebSocketServer(server);
 server.listen(PORT, () => {
     log.info(`🚀 Backend listening on http://localhost:${PORT}`);
     initHardwareService();
+    initSyncService(Number(PORT));
     if (OPEN_BROWSER) openBrowser(`http://localhost:${PORT}`);
 });
 
@@ -40,6 +42,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
         log.info(`Received ${signal}, shutting down...`);
         stopHardwareService();
+        stopSyncService();
         server.close(() => process.exit(0));
         setTimeout(() => process.exit(0), SHUTDOWN_TIMEOUT_MS).unref();
     });

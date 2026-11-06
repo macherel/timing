@@ -11,6 +11,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 - **State-Aware Edge Detection**: Eliminates false positives when multiple buttons are pressed simultaneously or released in complex sequences.
 - **High-Precision Timing with `Temporal`**: Uses the modern ECMAScript `Temporal` API (`Temporal.Now.instant()`) for timezone-agnostic timing records.
 - **Events & Participants**: The race page picks an event and a discipline from the working directory, then finds a participant by partial bib or name (case and accents ignored), times their runs between the start and finish crossings, and keeps every result in the discipline's `results.csv`.
+- **Several Computers**: Instances on the same network with the same key in `sync.yaml` find each other and keep their events, participants and results in sync (see `backend/README.md`).
 - **Real-Time UI Synchronization**: Low-latency WebSocket event distribution to connected Vue.js clients.
 
 ---
@@ -42,6 +43,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   └── package.mjs           # Builds standalone release packages (npm run package)
 ├── workdir/                  # Working directory in dev mode, not in git: config.yaml and the events
 │   ├── config.yaml
+│   ├── sync.yaml             # Optional: sync key, to sync with other computers
 │   └── CFM26/                # One folder per event...
 │       └── 100m/             # ...one subfolder per discipline...
 │           ├── config.yaml   # ...optional settings (number of attempts)...

@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { Router, Request, Response } from 'express';
 import { getHardwareStatus } from '../services/hardwareService.js';
 import {
@@ -23,11 +24,21 @@ import {
     getRunState,
     loadResults,
     prepareRun,
+    readResultRows,
     RUN_STATUSES,
     setResultStatus,
     voidRun,
 } from '../services/runService.js';
 import { WORK_DIR } from '../utils/workDir.js';
+import { notifyLocalChange } from '../utils/localChanges.js';
+import {
+    buildManifest,
+    getSyncStatus,
+    isFolderName,
+    isPeerRequest,
+    onPeerNotification,
+    syncedFilePath,
+} from '../services/syncService.js';
 
 const router = Router();
 
@@ -83,6 +94,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
     });
     const saved = await loadDisciplineSettings(dir);
     broadcastToUI({ type: 'SETTINGS_UPDATE', event, discipline, settings: saved.settings });
+    notifyLocalChange(event, discipline);
     res.json(saved);
 });
 
@@ -151,6 +163,50 @@ for (const [action, status] of [['disqualify', 'dq'], ['invalidate', 'invalid']]
 router.post('/run/cancel', (req: Request, res: Response) => {
     cancelRun();
     res.json(getRunState());
+});
+
+// Sync: whether it is on and which other computers were found (shown in the navigation bar)
+router.get('/sync', (req: Request, res: Response) => {
+    res.json(getSyncStatus());
+});
+
+// Sync between instances: only for peers with the same key (its hash is in the x-timing-sync header)
+router.use('/sync', (req: Request, res: Response, next) => {
+    if (isPeerRequest(req.get('x-timing-sync'))) next();
+    else res.status(403).json({ problems: ['Sync is off, or the sync key differs.'] });
+});
+
+// Sync: the event files and results digests this instance offers
+router.get('/sync/manifest', async (req: Request, res: Response) => {
+    res.json(await buildManifest());
+});
+
+// Sync: one event file, "<event>/<discipline>/<file>"
+router.get('/sync/file', async (req: Request, res: Response) => {
+    const file = syncedFilePath(req.query.path);
+    const content = file && (await fs.promises.readFile(file).catch(() => null));
+    if (!content) {
+        res.status(404).json({ problems: ['Unknown file.'] });
+        return;
+    }
+    res.type('application/octet-stream').send(content);
+});
+
+// Sync: every results.csv line of a discipline
+router.get('/sync/results', async (req: Request, res: Response) => {
+    const { event, discipline } = req.query;
+    const rows = isFolderName(event) && isFolderName(discipline) ? await readResultRows(event, discipline) : null;
+    if (!rows) {
+        res.status(404).json({ problems: ['Unknown event or discipline.'] });
+        return;
+    }
+    res.json({ rows });
+});
+
+// Sync: a peer changed something, pull from it now
+router.post('/sync/notify', (req: Request, res: Response) => {
+    onPeerNotification(req.body?.id);
+    res.json({ ok: true });
 });
 
 // Config page: the current config.yaml, parsed. `config` is null when the file is missing or invalid

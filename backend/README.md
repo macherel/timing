@@ -32,6 +32,7 @@ src/
     ├── raceService.ts           # Records crossings per lane and broadcasts them
     ├── eventService.ts          # Events, disciplines and participant CSV files of the working directory
     ├── runService.ts            # Timed run of one participant (ready → running → result in results.csv)
+    ├── syncService.ts           # Finds the other instances on the network and syncs the event folders with them
     ├── hardwareService.ts       # Polls devices, opens them, routes reports to triggers, tracks status
     └── hardware/
         ├── deviceConfig.ts      # config.yaml types, loading, validation and watching
@@ -227,12 +228,36 @@ On the race page, select a participant and click *Ready to start*. The next cros
 - Each finished run is appended to `results.csv` in the discipline folder (this file is not read as a participant list):
 
   ```csv
-  bib;name;start;finish;status
-  3;Nathan Henry;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;OK
-  4;Margaux Perrin;2026-11-05T20:49:57.848684082Z;;DQ
+  bib;name;start;finish;status;updated
+  3;Nathan Henry;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;OK;2026-11-05T20:30:35.340Z
+  4;Margaux Perrin;2026-11-05T20:49:57.848684082Z;;DQ;2026-11-05T20:50:02.511Z
   ```
 
-  `start` and `finish` are UTC instants with nanoseconds, `status` is `OK`, `INVALID` or `DQ`. The time is not stored: it is computed as `finish` − `start` (rounded to the millisecond), so editing a date by hand changes the time. A run is identified by `bib` and `start` together. Lines can be deleted by hand to remove a run. Columns are found by their header name: files with an older layout (a `time` column, no `status` column, read as `OK`) are read too, and rewritten in this layout on their next write.
+  `start` and `finish` are UTC instants with nanoseconds, `status` is `OK`, `INVALID` or `DQ`, `updated` is when the line was last changed (used by the sync). The time is not stored: it is computed as `finish` − `start` (rounded to the millisecond), so editing a date by hand changes the time. A run is identified by `bib` and `start` together. Lines can be deleted by hand to remove a run. Columns are found by their header name: files with an older layout (a `time` column, no `status` column, read as `OK`, no `updated` column) are read too, and rewritten in this layout on their next write.
+
+## 🔄 Syncing Several Computers
+
+Instances of the app on the same local network (e.g. one computer at the start line, one at the finish) find each other and keep their event folders in sync. It is enabled by a `sync.yaml` in the working directory, next to the device `config.yaml`:
+
+```yaml
+# Only instances with the same key sync together
+key: cfm26
+# Optional: the name shown to the other computers (the computer name by default)
+name: Finish line
+```
+
+- Without `sync.yaml`, or without a key, sync is off. The file is read again every few seconds, so sync can be turned on or off without restarting.
+- **Discovery**: every instance announces itself every 3 s by UDP broadcast on port 41234 (its name, HTTP port and a hash of its key, never the key itself). The firewall must let UDP 41234 and the HTTP port (`PORT`, 3001 by default) through; Windows asks the first time.
+- **What is synced**: everything in the event folders.
+  - Participant CSV files and discipline `config.yaml`: the most recently modified copy wins, and keeps its modification time on the other computers.
+  - `results.csv`: merged line by line. A run is identified by its bib and start; when a line was changed on both computers, the most recently changed (`updated` column) wins. The page of every computer updates live.
+  - Not synced: the device `config.yaml` (devices differ per computer), `sync.yaml`, and the run in progress (each computer times its own runs).
+- Changes are sent at once to the other computers, which also check every 3 s, so a computer that was off catches up when it comes back.
+- The latest change wins, so the computers' clocks must roughly agree: the navigation bar warns when they differ by more than 2 s.
+- A deleted file or result line comes back from a computer that still has it: delete it on every computer while they are not connected, or mark the run `INVALID` instead.
+- The key prevents mixing with another timing app on the same network; it is not a protection against someone on the network who wants to change the results.
+
+The navigation bar shows the sync state ("Synced with 1 computer"); its tooltip lists the computers found and any problem.
 
 ## 🩺 Troubleshooting in the Logs
 
@@ -270,6 +295,7 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
 - `RUN_RESULT` `{ event, discipline, result }`: a run finished or the participant was disqualified. `result` has `bib`, `name`, `start`, `finish`, `timeMs` and `status` (`ok`, `invalid` or `dq`) (`finish` and `timeMs` are `null` when the run was ended before the finish).
 - `RESULT_UPDATE` `{ event, discipline, result }`: the status of a saved run changed.
 - `SETTINGS_UPDATE` `{ event, discipline, settings }`: the settings of a discipline were saved from the race page.
+- `SYNC_UPDATE` `{ event, discipline }`: files of a discipline were changed by the sync with another computer.
 
 ### REST Endpoints
 
@@ -286,6 +312,8 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
 - `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress, when the participant has no attempt left, or when the discipline is closed.
 - `POST /api/run/invalidate`, `POST /api/run/disqualify`: ends the running run now and saves it as `INVALID` or `DQ`. `409` when no run is in progress.
 - `POST /api/run/cancel`: abandons the current run, nothing is saved.
+- `GET /api/sync`: whether sync is on, this computer's `name`, and the `peers` found (name, address, port, last sync, error, clock offset).
+- `GET /api/sync/manifest`, `GET /api/sync/file?path=`, `GET /api/sync/results?event=&discipline=`, `POST /api/sync/notify`: used between instances, only with the hash of the same key in the `x-timing-sync` header (`403` otherwise).
 - `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each configured device (`deviceName`) as `listening` (report count, last report, last 50 changed reports, trigger states) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it, and explanations for rules that match no device.
 
 ---

@@ -3,6 +3,7 @@ import path from 'path';
 import type { RunResult, RunState, RunStatus } from '../types/messages.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
+import { notifyLocalChange } from '../utils/localChanges.js';
 import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, RESULTS_FILE, type Participant } from './eventService.js';
 
 const log = createLogger('Run');
@@ -97,11 +98,13 @@ function formatSeconds(timeMs: number): string {
     return (timeMs / 1000).toFixed(3);
 }
 
-// Columns of results.csv. The time is not stored: it is finish - start. `status` is OK, INVALID or DQ.
-// Columns are found by their header name, so files with older layouts (with a time column, without status) are
-// read too, and are rewritten in this layout on their next write.
-const COLUMNS = ['bib', 'name', 'start', 'finish', 'status'] as const;
-type Row = Record<(typeof COLUMNS)[number], string>;
+// Columns of results.csv. The time is not stored: it is finish - start. `status` is OK, INVALID or DQ. `updated` is
+// when the line was last changed (UTC), so the sync keeps the latest change of a line edited on two computers.
+// Columns are found by their header name, so files with older layouts (with a time column, without status or
+// updated) are read too, and are rewritten in this layout on their next write.
+const COLUMNS = ['bib', 'name', 'start', 'finish', 'status', 'updated'] as const;
+export type ResultRow = Record<(typeof COLUMNS)[number], string>;
+type Row = ResultRow;
 const RESULTS_HEADER = COLUMNS.join(';');
 
 const STATUS_TEXT: Record<RunStatus, string> = { ok: 'OK', invalid: 'INVALID', dq: 'DQ' };
@@ -134,18 +137,49 @@ function parseRows(text: string): Row[] {
         .filter((row) => row.some((cell) => cell.trim() !== ''))
         .map((row) => {
             const cell = (column: (typeof COLUMNS)[number]) => row[columnIndex.indexOf(column)] ?? '';
-            return { bib: cell('bib').trim(), name: cell('name'), start: cell('start').trim(), finish: cell('finish').trim(), status: cell('status').trim() || 'OK' };
+            return {
+                bib: cell('bib').trim(),
+                name: cell('name'),
+                start: cell('start').trim(),
+                finish: cell('finish').trim(),
+                status: cell('status').trim() || 'OK',
+                updated: cell('updated').trim(),
+            };
         });
 }
 
+/** Writes through a temporary file, so a peer or the page never reads a half-written file. */
 async function writeRows(file: string, rows: Row[]): Promise<void> {
     const csvCell = (value: string) => (/[;"\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
     const lines = rows.map((row) => COLUMNS.map((column) => csvCell(row[column])).join(';'));
-    await fs.promises.writeFile(file, `${[RESULTS_HEADER, ...lines].join('\n')}\n`, 'utf8');
+    const tempFile = path.join(path.dirname(file), `.${path.basename(file)}.tmp`);
+    await fs.promises.writeFile(tempFile, `${[RESULTS_HEADER, ...lines].join('\n')}\n`, 'utf8');
+    await fs.promises.rename(tempFile, file);
 }
 
+const nowText = () => Temporal.Now.instant().toString({ smallestUnit: 'millisecond' });
+
 function toRow(result: RunResult): Row {
-    return { bib: result.bib, name: result.name, start: result.start, finish: result.finish ?? '', status: STATUS_TEXT[result.status] };
+    return {
+        bib: result.bib,
+        name: result.name,
+        start: result.start,
+        finish: result.finish ?? '',
+        status: STATUS_TEXT[result.status],
+        updated: nowText(),
+    };
+}
+
+/** When a line was last changed. Lines written before the updated column count as changed at their start. */
+function updatedAt(row: Row): Temporal.Instant {
+    for (const value of [row.updated, row.start]) {
+        try {
+            return Temporal.Instant.from(value);
+        } catch {
+            // Try the next value
+        }
+    }
+    return Temporal.Instant.fromEpochMilliseconds(0);
 }
 
 /** A results.csv row as a result. null for a valid run without a time (finish missing or unreadable). */
@@ -177,6 +211,7 @@ function saveResult(event: string, discipline: string, result: RunResult): void 
         const file = path.join(dir, RESULTS_FILE);
         await writeRows(file, [...(await readRows(file)), toRow(result)]);
         log.info(`Result saved to ${file}`);
+        notifyLocalChange(event, discipline);
     }).catch((error) => log.error(`Cannot save the result of ${result.bib}:`, error));
 }
 
@@ -209,7 +244,9 @@ export async function setResultStatus(
         }
 
         row.status = STATUS_TEXT[status];
+        row.updated = nowText();
         await writeRows(file, rows);
+        notifyLocalChange(event, discipline);
         const result = { ...current, status };
         log.info(`Run of ${result.bib} ${result.name} started at ${start} set to ${STATUS_TEXT[status]}.`);
         broadcastToUI({ type: 'RESULT_UPDATE', event, discipline, result });
@@ -222,4 +259,54 @@ export async function loadResults(event: string, discipline: string): Promise<Ru
     const dir = await disciplineDir(event, discipline);
     if (!dir) return null;
     return (await readRows(path.join(dir, RESULTS_FILE))).map(toResult).filter((result) => result !== null);
+}
+
+// ---------------------------------------------------------------------------
+// Sync with other computers (see syncService.ts)
+// ---------------------------------------------------------------------------
+
+/** Every line of a discipline's results.csv, as written. null when the discipline does not exist. */
+export async function readResultRows(event: string, discipline: string): Promise<ResultRow[] | null> {
+    const dir = await disciplineDir(event, discipline);
+    return dir ? readRows(path.join(dir, RESULTS_FILE)) : null;
+}
+
+/**
+ * Merges lines from another computer into a discipline's results.csv: a line it does not have is added, a line it
+ * has (same bib and start) is replaced when the other one was changed later. Returns whether the file changed.
+ * The discipline folder must exist.
+ */
+export async function mergeResultRows(event: string, discipline: string, remoteRows: ResultRow[]): Promise<boolean> {
+    return enqueueWrite(async () => {
+        const dir = await disciplineDir(event, discipline);
+        if (!dir) return false;
+        const file = path.join(dir, RESULTS_FILE);
+        const rows = await readRows(file);
+        const byKey = new Map(rows.map((row, index) => [`${row.bib}\n${row.start}`, index]));
+
+        let changed = false;
+        for (const remote of remoteRows) {
+            const index = byKey.get(`${remote.bib}\n${remote.start}`);
+            if (index === undefined) {
+                byKey.set(`${remote.bib}\n${remote.start}`, rows.length);
+                rows.push({ ...remote });
+                changed = true;
+            } else if (Temporal.Instant.compare(updatedAt(remote), updatedAt(rows[index])) > 0) {
+                rows[index] = { ...remote };
+                changed = true;
+            }
+        }
+        if (!changed) return false;
+
+        // Oldest run first, as when they are timed on one computer
+        rows.sort((a, b) => {
+            try {
+                return Temporal.Instant.compare(Temporal.Instant.from(a.start), Temporal.Instant.from(b.start));
+            } catch {
+                return a.start.localeCompare(b.start);
+            }
+        });
+        await writeRows(file, rows);
+        return true;
+    });
 }

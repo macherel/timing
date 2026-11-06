@@ -237,6 +237,11 @@ function onMessage(message: ServerMessage): void {
     replaceResult(message.result);
   } else if (message.type === 'SETTINGS_UPDATE' && message.event === eventName.value && message.discipline === discipline.value) {
     settings.value = message.settings;
+  } else if (message.type === 'SYNC_UPDATE') {
+    // Another computer added or changed files: new events or disciplines, participants, settings or results
+    loadEvents().then(() => {
+      if (message.event === eventName.value && message.discipline === discipline.value) loadParticipants();
+    });
   }
 }
 

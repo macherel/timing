@@ -1,14 +1,22 @@
+<script setup lang="ts">
+import SyncIndicator from './components/SyncIndicator.vue';
+</script>
+
 <template>
   <nav class="nav">
     <span class="brand">Timing</span>
     <RouterLink to="/">Race</RouterLink>
     <RouterLink to="/diagnostics">Diagnostics</RouterLink>
     <RouterLink to="/config">Configuration</RouterLink>
+    <SyncIndicator class="sync-indicator" />
   </nav>
   <RouterView />
 </template>
 
 <style scoped>
+.sync-indicator {
+  margin-left: auto;
+}
 .nav {
   display: flex;
   align-items: center;

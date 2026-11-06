@@ -63,7 +63,31 @@ export interface SettingsUpdateMessage {
   settings: DisciplineSettings;
 }
 
+/** Files of a discipline were changed by the sync with another computer */
+export interface SyncUpdateMessage {
+  type: 'SYNC_UPDATE';
+  event: string;
+  discipline: string;
+}
+
+/** GET /api/sync */
+export interface SyncStatus {
+  enabled: boolean;
+  name: string | null;
+  peers: {
+    name: string;
+    address: string;
+    port: number;
+    lastSeen: string;
+    lastSyncAt: string | null;
+    error: string | null;
+    // Peer clock minus this computer's clock, in ms
+    clockOffsetMs: number | null;
+  }[];
+}
+
 export type ServerMessage =
+  | SyncUpdateMessage
   | RaceUpdateMessage
   | RunUpdateMessage
   | RunResultMessage

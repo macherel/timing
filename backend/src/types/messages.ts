@@ -83,7 +83,15 @@ export interface SettingsUpdateMessage {
     settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked' };
 }
 
+/** Sent to every frontend client when files of a discipline were changed by the sync with another computer. */
+export interface SyncUpdateMessage {
+    type: 'SYNC_UPDATE';
+    event: string;
+    discipline: string;
+}
+
 export type ServerMessage =
+    | SyncUpdateMessage
     | RaceUpdateMessage
     | RunUpdateMessage
     | RunResultMessage
