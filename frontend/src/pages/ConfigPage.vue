@@ -216,8 +216,8 @@ onUnmounted(() => {
 
 <template>
   <main class="page">
+    <!-- The page title is in the navigation bar -->
     <header class="page-header">
-      <h1>Configuration</h1>
       <div class="actions">
         <button type="button" class="secondary" @click="load">Reload from disk</button>
         <button type="button" :disabled="!canSave" title="Ctrl+S" @click="save">
@@ -322,7 +322,7 @@ onUnmounted(() => {
 .page-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   flex-wrap: wrap;
 }

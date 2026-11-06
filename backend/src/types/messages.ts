@@ -90,7 +90,35 @@ export interface SyncUpdateMessage {
     discipline: string;
 }
 
+/** What an instance is doing, shown on the live pages of every synced computer. */
+export interface Activity {
+    // Event and discipline open on its race pages (several browsers may show different ones)
+    viewing: { event: string; discipline: string }[];
+    run: RunState;
+    // The last run it ended, shown until the next participant is ready
+    lastResult: { event: string; discipline: string; result: RunResult; endedAt: string } | null;
+}
+
+/** An instance on the live page: this computer or a synced one. */
+export interface LiveInstance extends Activity {
+    id: string;
+    name: string;
+    self: boolean;
+    // Its clock minus this computer's clock, in ms, to show its running clock right
+    clockOffsetMs: number;
+}
+
+/** Sent to every frontend client when the activity of this computer or of a synced one changes. */
+export interface LiveUpdateMessage {
+    type: 'LIVE_UPDATE';
+    instances: LiveInstance[];
+}
+
+/** Messages a page sends to its backend. VIEWING: the event and discipline its race page shows (null: none). */
+export type ClientMessage = { type: 'VIEWING'; event: string | null; discipline: string | null };
+
 export type ServerMessage =
+    | LiveUpdateMessage
     | SyncUpdateMessage
     | RaceUpdateMessage
     | RunUpdateMessage

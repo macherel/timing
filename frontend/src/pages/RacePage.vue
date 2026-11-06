@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
 import type {
   DisciplineSettings,
   RunStatus,
-  EventSummary,
-  EventsResponse,
   Participant,
   ParticipantsResponse,
   ResultsResponse,
@@ -17,13 +14,23 @@ import { useRaceSocket } from '../composables/useRaceSocket';
 import ParticipantPicker from '../components/race/ParticipantPicker.vue';
 import { countsAsAttempt, sameRun } from '../race/results';
 import RunPanel from '../components/race/RunPanel.vue';
+import { showDateTime } from '../race/dateTime';
+import {
+  currentEvent,
+  discipline,
+  disciplineExists,
+  eventName,
+  events,
+  eventsError,
+  eventsLoaded,
+  loadEvents,
+  reloadRequests,
+  select,
+  selectionLock,
+  switcherOpen,
+  workDir,
+} from '../selection';
 
-const route = useRoute();
-const router = useRouter();
-
-const workDir = ref('');
-const events = ref<EventSummary[]>([]);
-const eventsLoaded = ref(false);
 const loadError = ref<string | null>(null);
 
 const participants = ref<Participant[]>([]);
@@ -35,30 +42,6 @@ const settings = ref<DisciplineSettings>({ ...NO_SETTINGS });
 const now = ref(Date.now());
 const clockTimer = setInterval(() => (now.value = Date.now()), 5_000);
 onUnmounted(() => clearInterval(clockTimer));
-
-/** A UTC date-time in the browser's local time with its offset, e.g. "2026-11-05 08:00 +01:00", for messages. */
-function showDateTime(iso: string): string {
-  const date = new Date(iso);
-  const offset = -date.getTimezoneOffset();
-  const pad = (value: number) => String(Math.floor(Math.abs(value))).padStart(2, '0');
-  return `${toLocalInput(iso).replace('T', ' ')} ${offset >= 0 ? '+' : '-'}${pad(offset / 60)}:${pad(offset % 60)}`;
-}
-
-/** An ISO 8601 date-time with offset as the browser's local YYYY-MM-DDTHH:MM, for a datetime-local input. */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return '';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-/** A datetime-local input value (browser's local time) as ISO 8601 in UTC, as stored in config.yaml. */
-function fromLocalInput(local: string): string | null {
-  if (!local) return null;
-  const date = new Date(local);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 16) + 'Z';
-}
 
 // Why the start - end period closes the discipline now, or null when it is within the period
 const outsidePeriod = computed(() => {
@@ -88,6 +71,12 @@ const lastResult = ref<RunResult | null>(null);
 const busy = ref(false);
 // While a participant is ready or running, the event, discipline and participant cannot change
 const locked = computed(() => run.value.status !== 'idle');
+watch(
+  locked,
+  (isLocked) => (selectionLock.value = isLocked ? 'A run is in progress: the event and discipline cannot change.' : null),
+  { immediate: true },
+);
+onUnmounted(() => (selectionLock.value = null));
 // Bibs of the participants who used all their attempts (none when attempts are unlimited)
 const finishedBibs = computed(() => {
   const limit = settings.value.attempts;
@@ -99,73 +88,7 @@ const finishedBibs = computed(() => {
   return new Set([...used].filter(([, count]) => count >= limit).map(([bib]) => bib));
 });
 const remainingCount = computed(() => participants.value.filter((p) => !finishedBibs.value.has(p.bib)).length);
-// Discipline settings form: the attempts as typed, empty for unlimited (Vue gives a number input's value as a number)
-const editingSettings = ref(false);
-const attemptsInput = ref<string | number>('');
-// YYYY-MM-DD from the date inputs, empty for no limit
-const startInput = ref('');
-const endInput = ref('');
-const accessInput = ref<DisciplineSettings['access']>('auto');
-const ACCESS_OPTIONS: { value: DisciplineSettings['access']; label: string; hint: string }[] = [
-  { value: 'auto', label: 'Auto', hint: 'Open during the period above' },
-  { value: 'open', label: 'Open', hint: 'Always open, ignores the period (e.g. to correct a result)' },
-  { value: 'locked', label: 'Locked', hint: 'Never open: results are final' },
-];
-
-const settingsError = ref<string | null>(null);
-const savingSettings = ref(false);
-
-function openSettings(): void {
-  attemptsInput.value = settings.value.attempts === null ? '' : String(settings.value.attempts);
-  startInput.value = toLocalInput(settings.value.start);
-  endInput.value = toLocalInput(settings.value.end);
-  accessInput.value = settings.value.access;
-  settingsError.value = null;
-  editingSettings.value = true;
-}
-
-async function saveSettings(): Promise<void> {
-  const text = String(attemptsInput.value ?? '').trim();
-  const attempts = text === '' ? null : Number(text);
-  if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
-    settingsError.value = 'Attempts must be a whole number from 1, or empty for unlimited.';
-    return;
-  }
-  if (startInput.value && endInput.value && startInput.value >= endInput.value) {
-    settingsError.value = 'The start must be before the end.';
-    return;
-  }
-  savingSettings.value = true;
-  try {
-    const saved = await getJson<{ settings: DisciplineSettings }>(`${disciplinePath()}/settings`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings: { attempts, start: fromLocalInput(startInput.value), end: fromLocalInput(endInput.value), access: accessInput.value } }),
-    });
-    settings.value = saved.settings;
-    editingSettings.value = false;
-  } catch (e) {
-    settingsError.value = `Cannot save the settings: ${errorText(e)}`;
-  } finally {
-    savingSettings.value = false;
-  }
-}
-
 const participantResults = computed(() => results.value.filter((result) => result.bib === selected.value?.bib));
-
-// The chosen event and discipline live in the URL (?event=…&discipline=…), so a reload or a bookmark keeps them
-const queryValue = (key: string) => (typeof route.query[key] === 'string' ? route.query[key] : '');
-const eventName = computed({
-  get: () => queryValue('event'),
-  set: (event) => router.replace({ query: { ...route.query, event: event || undefined, discipline: undefined } }),
-});
-const discipline = computed({
-  get: () => queryValue('discipline'),
-  set: (name) => router.replace({ query: { ...route.query, discipline: name || undefined } }),
-});
-
-const currentEvent = computed(() => events.value.find((event) => event.name === eventName.value));
-const disciplineExists = computed(() => currentEvent.value?.disciplines.includes(discipline.value) ?? false);
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -179,20 +102,6 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
 const disciplinePath = () => `/api/events/${encodeURIComponent(eventName.value)}/${encodeURIComponent(discipline.value)}`;
 const runIsHere = () =>
   run.value.status !== 'idle' && run.value.event === eventName.value && run.value.discipline === discipline.value;
-
-async function loadEvents(): Promise<void> {
-  try {
-    const body = await getJson<EventsResponse>('/api/events');
-    workDir.value = body.workDir;
-    events.value = body.events;
-    loadError.value = null;
-  } catch (e) {
-    loadError.value = `Cannot load the events: ${errorText(e)}`;
-  }
-  eventsLoaded.value = true;
-  // Select the only choice, so a single event or discipline needs no click
-  if (!eventName.value && events.value.length === 1) eventName.value = events.value[0].name;
-}
 
 // Ignores the answer of a request when another one was started meanwhile (fast discipline changes)
 let participantsRequest = 0;
@@ -210,7 +119,7 @@ function showRun(): void {
   const current = run.value;
   if (current.status === 'idle') return;
   if (current.event !== eventName.value || current.discipline !== discipline.value) {
-    router.replace({ query: { ...route.query, event: current.event, discipline: current.discipline } });
+    select(current.event, current.discipline);
   } else if (selected.value?.bib !== current.participant.bib) {
     selected.value = participants.value.find((p) => p.bib === current.participant.bib) ?? null;
   }
@@ -271,7 +180,22 @@ async function setStatus(result: RunResult, status: RunStatus): Promise<void> {
 }
 
 // Reloads the run on each WebSocket (re)connection, so a run that changed while disconnected is shown
-useRaceSocket({ onMessage, onConnect: loadRun });
+// Tells the backend which event and discipline this race page shows, for the live page of every synced computer
+function sendViewing(): void {
+  send({
+    type: 'VIEWING',
+    event: disciplineExists.value ? eventName.value : null,
+    discipline: disciplineExists.value ? discipline.value : null,
+  });
+}
+const { send } = useRaceSocket({
+  onMessage,
+  onConnect: () => {
+    loadRun();
+    sendViewing();
+  },
+});
+watch([eventName, discipline, disciplineExists], sendViewing);
 
 async function postRun(action: 'ready' | 'cancel' | 'invalidate' | 'disqualify'): Promise<void> {
   busy.value = true;
@@ -351,72 +275,40 @@ async function reload(): Promise<void> {
   await loadParticipants();
 }
 
-watch(currentEvent, (event) => {
-  if (event && !discipline.value && event.disciplines.length === 1) discipline.value = event.disciplines[0];
-});
 watch([eventName, discipline], () => {
   selected.value = null;
-  editingSettings.value = false;
   loadParticipants();
 });
 watch(selected, () => (lastResult.value = null));
+// "Reload lists" in the event switcher
+watch(reloadRequests, loadParticipants);
 
 onMounted(reload);
 </script>
 
 <template>
   <main class="page">
-    <div class="page-header">
-      <h1>Race</h1>
-      <button type="button" class="secondary" title="Read the folders and CSV files again" @click="reload">Reload lists</button>
-    </div>
+    <p v-if="loadError || eventsError" class="alert error">{{ loadError ?? eventsError }}</p>
 
-    <p v-if="loadError" class="alert error">{{ loadError }}</p>
-
-    <div v-if="eventsLoaded && events.length === 0 && !loadError" class="alert hint">
+    <div v-if="eventsLoaded && events.length === 0 && !eventsError" class="alert hint">
       <p>No event yet. Create one folder per event in <code>{{ workDir }}</code>, one subfolder per discipline, and put the participant CSV files in it:</p>
       <pre class="tree">CFM26/
   100m/
     femmes.csv     bib;name
     hommes.csv     1;Hugo Guérin</pre>
-      <p>Then click <em>Reload lists</em>.</p>
+      <p>Then click <em>↻ Reload lists</em> in the menu of the title.</p>
     </div>
 
-    <section v-else class="card selectors">
-      <label class="field">
-        Event
-        <select v-model="eventName" :disabled="locked">
-          <option value="" disabled>Choose an event</option>
-          <option v-for="event in events" :key="event.name" :value="event.name">{{ event.name }}</option>
-        </select>
-      </label>
+    <div v-else-if="eventsLoaded && !disciplineExists" class="alert hint choose">
+      <span>{{ currentEvent ? `Choose a discipline of ${eventName}` : 'Choose an event and a discipline' }} to time runs.</span>
+      <button type="button" @click.stop="switcherOpen = true">Choose</button>
+    </div>
 
-      <div class="field">
-        <span class="label-row">
-          <label for="discipline-select">Discipline</label>
-          <button
-            type="button"
-            class="link"
-            :disabled="!disciplineExists"
-            :aria-expanded="editingSettings"
-            title="Settings of this discipline (number of attempts)"
-            @click="editingSettings ? (editingSettings = false) : openSettings()"
-          >
-            ⚙ Settings
-          </button>
-        </span>
-        <select id="discipline-select" v-model="discipline" :disabled="locked || !currentEvent || currentEvent.disciplines.length === 0">
-          <option value="" disabled>
-            {{ currentEvent && currentEvent.disciplines.length === 0 ? 'No discipline in this event' : 'Choose a discipline' }}
-          </option>
-          <option v-for="name in currentEvent?.disciplines ?? []" :key="name" :value="name">{{ name }}</option>
-        </select>
-      </div>
-
+    <section v-else-if="disciplineExists" class="card">
       <div class="field participant">
         <span>
           Participant
-          <span v-if="disciplineExists && !loadingParticipants" class="muted">
+          <span v-if="!loadingParticipants" class="muted">
             <template v-if="settings.attempts !== null">({{ remainingCount }} remaining / {{ participants.length }})</template>
             <template v-else>({{ participants.length }})</template>
           </span>
@@ -426,57 +318,19 @@ onMounted(reload);
           v-model="selected"
           :participants="participants"
           :finished="finishedBibs"
-          :disabled="locked || !disciplineExists"
+          :disabled="locked"
         />
       </div>
     </section>
 
-    <form v-if="editingSettings && disciplineExists" class="card settings" @submit.prevent="saveSettings">
-      <h3>Settings of {{ eventName }} / {{ discipline }}</h3>
-      <label class="field">
-        Attempts per participant
-        <input v-model="attemptsInput" type="number" min="1" step="1" placeholder="Unlimited" class="attempts" />
-      </label>
-      <p class="muted small">Invalid runs do not use up an attempt. Leave empty for unlimited attempts.</p>
-      <div class="period">
-        <label class="field">
-          Start
-          <input v-model="startInput" type="datetime-local" :max="endInput || undefined" />
-        </label>
-        <label class="field">
-          End
-          <input v-model="endInput" type="datetime-local" :min="startInput || undefined" />
-        </label>
-      </div>
-      <p class="muted small">
-        Runs can be timed and results changed only from the start until the end (this computer's time, saved in UTC).
-        Leave empty for no limit.
-      </p>
-      <fieldset class="access">
-        <legend>Runs and result changes</legend>
-        <div class="segmented" role="radiogroup">
-          <label v-for="option in ACCESS_OPTIONS" :key="option.value" :class="[option.value, { checked: accessInput === option.value }]" :title="option.hint">
-            <input v-model="accessInput" type="radio" name="access" :value="option.value" />
-            {{ option.label }}
-          </label>
-        </div>
-        <p class="muted small">{{ ACCESS_OPTIONS.find((option) => option.value === accessInput)?.hint }}</p>
-      </fieldset>
-      <p v-if="settingsError" class="alert error">{{ settingsError }}</p>
-      <div class="actions">
-        <button type="submit" :disabled="savingSettings">Save</button>
-        <button type="button" class="secondary" @click="editingSettings = false">Cancel</button>
-      </div>
-    </form>
-
     <p v-if="disciplineExists && forcedOpen" class="alert hint">
-      {{ eventName }} / {{ discipline }} is open although {{ outsidePeriod }}: access is forced open in
-      <em>⚙ Settings</em>.
+      {{ eventName }} / {{ discipline }} is open although {{ outsidePeriod }}: access is forced open in the
+      discipline settings (title menu).
     </p>
 
     <p v-if="disciplineExists && closedReason" class="alert warn">
-      {{ eventName }} / {{ discipline }} is closed: {{ closedReason }}. Runs and result changes are disabled
-      (see <em>⚙ Settings</em>).
+      {{ eventName }} / {{ discipline }} is closed: {{ closedReason }}. Runs and result changes are disabled (see
+      the discipline settings in the title menu).
     </p>
 
     <p v-if="disciplineExists && !loadingParticipants && participants.length === 0" class="alert warn">
@@ -509,125 +363,15 @@ onMounted(reload);
 </template>
 
 <style scoped>
-.page-header {
+.choose {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
 }
-.selectors {
-  display: grid;
-  grid-template-columns: minmax(10em, 1fr) minmax(10em, 1fr) minmax(16em, 2fr);
-  gap: 12px 16px;
-  align-items: start;
-}
-@media (max-width: 720px) {
-  .selectors {
-    grid-template-columns: 1fr;
-  }
-}
-.selectors select {
-  padding: 8px;
-}
-.label-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-button.link {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent);
-  font-size: 1em;
-}
-button.link:disabled {
-  color: var(--text-muted);
-}
-.settings h3 {
-  margin: 0 0 12px;
-}
-.access {
-  margin: 12px 0 0;
-  padding: 0;
-  border: none;
-}
-.access legend {
-  font-size: 0.85em;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
-.segmented {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.segmented label {
-  padding: 5px 14px;
-  cursor: pointer;
-  color: var(--text);
-  border-left: 1px solid var(--border);
-}
-.segmented label:first-child {
-  border-left: none;
-}
-.segmented input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-.segmented label:has(input:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-.segmented label.checked {
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-weight: 600;
-}
-.segmented label.open.checked {
-  background: var(--ok-bg);
-  color: var(--ok);
-}
-.segmented label.locked.checked {
-  background: var(--error-bg);
-  color: var(--error);
-}
-.period {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-.settings input[type='datetime-local'] {
-  font: inherit;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text-h);
-}
-.settings .attempts {
-  font: inherit;
-  width: 8em;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text-h);
-}
-.settings .actions {
-  display: flex;
-  gap: 8px;
-}
-.settings .actions button {
+.choose button {
   margin: 0;
-}
-.small {
-  font-size: 0.85em;
-  margin-top: 6px;
 }
 .tree {
   font-family: var(--mono);

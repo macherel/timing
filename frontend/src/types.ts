@@ -86,7 +86,31 @@ export interface SyncStatus {
   }[];
 }
 
+/** What an instance is doing (keep in sync with backend/src/types/messages.ts) */
+export interface Activity {
+  // Event and discipline open on its race pages
+  viewing: { event: string; discipline: string }[];
+  run: RunState;
+  // The last run it ended, until the next participant is ready
+  lastResult: { event: string; discipline: string; result: RunResult; endedAt: string } | null;
+}
+
+/** GET /api/live: this computer and the synced ones */
+export interface LiveInstance extends Activity {
+  id: string;
+  name: string;
+  self: boolean;
+  // Its clock minus this computer's clock, in ms
+  clockOffsetMs: number;
+}
+
+export interface LiveUpdateMessage {
+  type: 'LIVE_UPDATE';
+  instances: LiveInstance[];
+}
+
 export type ServerMessage =
+  | LiveUpdateMessage
   | SyncUpdateMessage
   | RaceUpdateMessage
   | RunUpdateMessage

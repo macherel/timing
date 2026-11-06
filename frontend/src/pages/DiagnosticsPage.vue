@@ -69,8 +69,8 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
 
 <template>
   <main class="page">
+    <!-- The page title is in the navigation bar -->
     <header class="page-header">
-      <h1>Hardware diagnostics</h1>
       <button type="button" @click="paused = !paused">{{ paused ? 'Resume updates' : 'Pause updates' }}</button>
     </header>
 
@@ -235,7 +235,7 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
 .page-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   flex-wrap: wrap;
 }

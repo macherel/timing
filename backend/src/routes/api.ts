@@ -33,9 +33,11 @@ import { WORK_DIR } from '../utils/workDir.js';
 import { notifyLocalChange } from '../utils/localChanges.js';
 import {
     buildManifest,
+    getLive,
     getSyncStatus,
     isFolderName,
     isPeerRequest,
+    onPeerActivity,
     onPeerNotification,
     syncedFilePath,
 } from '../services/syncService.js';
@@ -69,6 +71,16 @@ router.get('/events/:event/:discipline/participants', async (req: Request, res: 
         return;
     }
     res.json(list);
+});
+
+// Race page: the settings of a discipline, from its config.yaml, with the problems found in it
+router.get('/events/:event/:discipline/settings', async (req: Request, res: Response) => {
+    const dir = await disciplineDir(String(req.params.event), String(req.params.discipline));
+    if (!dir) {
+        res.status(404).json({ problems: ['Unknown event or discipline.'] });
+        return;
+    }
+    res.json(await loadDisciplineSettings(dir));
 });
 
 // Race page: saves the settings of a discipline to its config.yaml, then returns them as read back from the file
@@ -165,6 +177,11 @@ router.post('/run/cancel', (req: Request, res: Response) => {
     res.json(getRunState());
 });
 
+// Live page: what this computer and the synced ones are doing
+router.get('/live', (req: Request, res: Response) => {
+    res.json({ instances: getLive() });
+});
+
 // Sync: whether it is on and which other computers were found (shown in the navigation bar)
 router.get('/sync', (req: Request, res: Response) => {
     res.json(getSyncStatus());
@@ -201,6 +218,12 @@ router.get('/sync/results', async (req: Request, res: Response) => {
         return;
     }
     res.json({ rows });
+});
+
+// Sync: a peer's activity changed (run, last result, race pages shown)
+router.post('/sync/activity', (req: Request, res: Response) => {
+    onPeerActivity(req.body?.id, req.body?.activity);
+    res.json({ ok: true });
 });
 
 // Sync: a peer changed something, pull from it now

@@ -13,3 +13,12 @@ export function notifyLocalChange(event: string, discipline: string): void {
 export function onLocalChange(listener: (event: string, discipline: string) => void): void {
     emitter.on('change', listener);
 }
+
+/** Tells the live service that this computer's activity changed (run state, last result, race pages shown). */
+export function notifyActivityChange(): void {
+    emitter.emit('activity');
+}
+
+export function onActivityChange(listener: () => void): void {
+    emitter.on('activity', listener);
+}

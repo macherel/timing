@@ -4,12 +4,13 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import yaml from 'yaml';
-import { broadcastToUI } from '../websocket/wsServer.js';
+import type { Activity, LiveInstance } from '../types/messages.js';
+import { broadcastToUI, getViewing } from '../websocket/wsServer.js';
 import { createLogger, errorMessage } from '../utils/logger.js';
-import { onLocalChange } from '../utils/localChanges.js';
+import { onActivityChange, onLocalChange } from '../utils/localChanges.js';
 import { WORK_DIR, workDirPath } from '../utils/workDir.js';
 import { RESULTS_FILE } from './eventService.js';
-import { mergeResultRows, readResultRows, type ResultRow } from './runService.js';
+import { getLastResult, getRunState, mergeResultRows, readResultRows, type ResultRow } from './runService.js';
 
 const log = createLogger('Sync');
 
@@ -24,6 +25,9 @@ const log = createLogger('Sync');
  *       sent back.
  *     - results.csv is merged line by line (bib + start identify a run), the most recently changed line wins.
  *   Peers are told when something changes here, so they pull at once; they also pull every few seconds.
+ * - Live: each instance also shares its activity (the event and discipline open on its race pages, its run in
+ *   progress and its last result), pushed to the peers when it changes and repeated in every announcement. The live
+ *   page shows the activity of every computer.
  * - Not synced: the device config.yaml and sync.yaml at the root of the working directory, and runs in progress.
  *   A deleted file or result line comes back from a peer that still has it.
  *
@@ -62,6 +66,8 @@ interface Peer {
     clockOffsetMs: number | null;
     pulling: boolean;
     pullAgain: boolean;
+    // What the peer is doing, for the live page
+    activity: Activity | null;
 }
 
 /** One event file offered to peers. `path` is "<event>/<discipline>/<file>". */
@@ -140,6 +146,15 @@ export function initSyncService(port: number): void {
     socket.on('error', (error) => log.error('UDP socket error, discovery stopped:', errorMessage(error)));
     socket.bind(UDP_PORT, () => socket?.setBroadcast(true));
 
+    let activityTimer: NodeJS.Timeout | undefined;
+    onActivityChange(() => {
+        clearTimeout(activityTimer);
+        activityTimer = setTimeout(() => {
+            broadcastLive();
+            pushActivity();
+        }, 50);
+    });
+
     let notifyTimer: NodeJS.Timeout | undefined;
     onLocalChange(() => {
         // Several changes in a row (e.g. a status and a result) make one notification
@@ -163,6 +178,8 @@ async function tick(): Promise<void> {
     if ((next === null) !== (config === null) || (next && config && next.keyHash !== config.keyHash)) {
         log.info(next ? `Sync on as "${next.name}" (${SYNC_FILE} found with a key).` : `Sync off (no key in ${SYNC_FILE}).`);
         peers.clear();
+        config = next;
+        broadcastLive();
     }
     config = next;
     if (!config) return;
@@ -172,6 +189,7 @@ async function tick(): Promise<void> {
         if (Date.now() - peer.lastSeen > PEER_TIMEOUT_MS) {
             peers.delete(peer.id);
             log.info(`Peer "${peer.name}" (${peer.address}:${peer.port}) lost.`);
+            broadcastLive();
         } else {
             pull(peer);
         }
@@ -199,7 +217,14 @@ function broadcastAddresses(): string[] {
 function announce(): void {
     if (!socket || !config) return;
     const message = Buffer.from(
-        JSON.stringify({ protocol: PROTOCOL, id: INSTANCE_ID, name: config.name, port: httpPort, keyHash: config.keyHash })
+        JSON.stringify({
+            protocol: PROTOCOL,
+            id: INSTANCE_ID,
+            name: config.name,
+            port: httpPort,
+            keyHash: config.keyHash,
+            activity: localActivity(),
+        })
     );
     for (const address of broadcastAddresses()) {
         socket.send(message, UDP_PORT, address, (error) => {
@@ -225,6 +250,7 @@ function onAnnouncement(data: Buffer, sender: dgram.RemoteInfo): void {
         known.address = sender.address;
         known.port = message.port;
         known.name = String(message.name ?? sender.address);
+        setPeerActivity(known, message.activity);
         return;
     }
     const peer: Peer = {
@@ -238,8 +264,10 @@ function onAnnouncement(data: Buffer, sender: dgram.RemoteInfo): void {
         clockOffsetMs: null,
         pulling: false,
         pullAgain: false,
+        activity: isActivity(message.activity) ? message.activity : null,
     };
     peers.set(peer.id, peer);
+    broadcastLive();
     log.info(`Peer "${peer.name}" found at ${peer.address}:${peer.port}.`);
     pull(peer);
 }
@@ -422,4 +450,58 @@ function notifyPeers(): void {
 export function onPeerNotification(id: unknown): void {
     const peer = typeof id === 'string' ? peers.get(id) : undefined;
     if (peer) pull(peer);
+}
+
+// ---------------------------------------------------------------------------
+// Live activity
+// ---------------------------------------------------------------------------
+
+function localActivity(): Activity {
+    return { viewing: getViewing(), run: getRunState(), lastResult: getLastResult() };
+}
+
+/** A light check of an activity received from a peer (the page shows it as text only). */
+function isActivity(value: any): value is Activity {
+    return (
+        value !== null &&
+        typeof value === 'object' &&
+        Array.isArray(value.viewing) &&
+        value.viewing.every((v: any) => typeof v?.event === 'string' && typeof v?.discipline === 'string') &&
+        typeof value.run?.status === 'string'
+    );
+}
+
+function setPeerActivity(peer: Peer, activity: unknown): void {
+    if (!isActivity(activity) || JSON.stringify(activity) === JSON.stringify(peer.activity)) return;
+    peer.activity = activity;
+    broadcastLive();
+}
+
+/** This computer and the synced ones, with what they are doing. */
+export function getLive(): LiveInstance[] {
+    const self: LiveInstance = { id: INSTANCE_ID, name: config?.name ?? os.hostname(), self: true, clockOffsetMs: 0, ...localActivity() };
+    const others = [...peers.values()]
+        .filter((peer) => peer.activity)
+        .map((peer) => ({ id: peer.id, name: peer.name, self: false, clockOffsetMs: peer.clockOffsetMs ?? 0, ...peer.activity! }));
+    return [self, ...others];
+}
+
+function broadcastLive(): void {
+    broadcastToUI({ type: 'LIVE_UPDATE', instances: getLive() });
+}
+
+/** Sends this computer's activity to every peer at once (the announcements repeat it every few seconds). */
+function pushActivity(): void {
+    const body = JSON.stringify({ id: INSTANCE_ID, activity: localActivity() });
+    for (const peer of peers.values()) {
+        request(peer, '/api/sync/activity', { method: 'POST', body }).catch((error) =>
+            log.debug(`Cannot send the activity to "${peer.name}":`, errorMessage(error))
+        );
+    }
+}
+
+/** A peer sent its activity. */
+export function onPeerActivity(id: unknown, activity: unknown): void {
+    const peer = typeof id === 'string' ? peers.get(id) : undefined;
+    if (peer) setPeerActivity(peer, activity);
 }

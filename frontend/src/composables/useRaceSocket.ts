@@ -49,5 +49,10 @@ export function useRaceSocket(options: { onMessage?: (message: ServerMessage) =>
     socket?.close();
   });
 
-  return { connected, events, clear: () => (events.value = []) };
+  /** Sends a message to the backend, when connected (e.g. the event and discipline shown, see onConnect). */
+  function send(message: unknown): void {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+  }
+
+  return { connected, events, clear: () => (events.value = []), send };
 }

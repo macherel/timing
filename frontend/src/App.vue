@@ -1,48 +1,43 @@
 <script setup lang="ts">
-import SyncIndicator from './components/SyncIndicator.vue';
+import { useRoute } from 'vue-router';
+import NavMenu from './components/nav/NavMenu.vue';
+import EventSwitcher from './components/nav/EventSwitcher.vue';
+import { usesSelection } from './selection';
+
+const route = useRoute();
 </script>
 
 <template>
   <nav class="nav">
-    <span class="brand">Timing</span>
-    <RouterLink to="/">Race</RouterLink>
-    <RouterLink to="/diagnostics">Diagnostics</RouterLink>
-    <RouterLink to="/config">Configuration</RouterLink>
-    <SyncIndicator class="sync-indicator" />
+    <NavMenu />
+    <EventSwitcher v-if="usesSelection(route)" class="event-title" />
   </nav>
   <RouterView />
 </template>
 
 <style scoped>
-.sync-indicator {
-  margin-left: auto;
-}
+/* Page menu on the left; on race pages, the event and discipline in the middle as the title */
 .nav {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
+  gap: 8px 12px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
-  flex-wrap: wrap;
 }
-.brand {
-  font-weight: 600;
-  color: var(--text-h);
-  margin-right: 16px;
+.event-title {
+  grid-column: 2;
 }
-.nav a {
-  color: var(--text);
-  text-decoration: none;
-  padding: 6px 12px;
-  border-radius: 6px;
-}
-.nav a:hover {
-  background: var(--accent-bg);
-}
-.nav a.router-link-active {
-  color: var(--accent);
-  background: var(--accent-bg);
-  font-weight: 600;
+/* Narrow screens: the title on its own line, under the menu */
+@media (max-width: 720px) {
+  .nav {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .event-title {
+    grid-column: 1;
+    justify-self: center;
+  }
 }
 </style>

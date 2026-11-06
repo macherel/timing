@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import type { RunResult, RunState, RunStatus } from '../types/messages.js';
+import type { Activity, RunResult, RunState, RunStatus } from '../types/messages.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
-import { notifyLocalChange } from '../utils/localChanges.js';
+import { notifyActivityChange, notifyLocalChange } from '../utils/localChanges.js';
 import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, RESULTS_FILE, type Participant } from './eventService.js';
 
 const log = createLogger('Run');
@@ -15,14 +15,22 @@ const log = createLogger('Run');
  */
 
 let state: RunState = { status: 'idle' };
+// The last run ended here, shown on the live pages until the next participant is ready
+let lastResult: Activity['lastResult'] = null;
 
 export function getRunState(): RunState {
     return state;
 }
 
+export function getLastResult(): Activity['lastResult'] {
+    return lastResult;
+}
+
 function setState(next: RunState): void {
     state = next;
+    if (next.status === 'ready') lastResult = null;
     broadcastToUI({ type: 'RUN_UPDATE', run: state });
+    notifyActivityChange();
 }
 
 /** Announces that a participant is ready: the next start crossing starts their run. */
@@ -88,6 +96,7 @@ function endRun(outcome: Pick<RunResult, 'finish' | 'timeMs' | 'status'>): void 
     if (state.status !== 'running') return;
     const { event, discipline, participant, startedAt } = state;
     const result: RunResult = { bib: participant.bib, name: participant.name, start: startedAt, ...outcome };
+    lastResult = { event, discipline, result, endedAt: new Date().toISOString() };
     setState({ status: 'idle' });
     broadcastToUI({ type: 'RUN_RESULT', event, discipline, result });
     saveResult(event, discipline, result);
@@ -247,6 +256,11 @@ export async function setResultStatus(
         row.updated = nowText();
         await writeRows(file, rows);
         notifyLocalChange(event, discipline);
+        // The live pages show the last run ended here: keep its status right
+        if (lastResult?.event === event && lastResult.discipline === discipline && lastResult.result.bib === bib && lastResult.result.start === start) {
+            lastResult = { ...lastResult, result: { ...lastResult.result, status } };
+            notifyActivityChange();
+        }
         const result = { ...current, status };
         log.info(`Run of ${result.bib} ${result.name} started at ${start} set to ${STATUS_TEXT[status]}.`);
         broadcastToUI({ type: 'RESULT_UPDATE', event, discipline, result });

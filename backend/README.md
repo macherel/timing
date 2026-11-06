@@ -188,7 +188,7 @@ bib;name
 - The first line is skipped when its bib is not a number (header row).
 - UTF-8 (with or without BOM) and Windows-1252 (Excel on Windows) are both read correctly.
 - Rows with a bib that is not a number, without a name, or with a bib already used in the discipline are skipped and listed on the race page.
-- Files are read on every request: click *Reload lists* on the race page after adding or editing them.
+- Files are read on every request: click *↻ Reload lists* in the event menu of the title ("CFM26 · 100m ▾") after adding or editing them.
 
 ### Discipline settings (`config.yaml`)
 
@@ -213,9 +213,9 @@ access: auto
   - `open`: always, ignoring the period, e.g. to correct a result after the event (the race page reminds that the discipline is forced open while the period would close it);
   - `locked`: never, the results are final (the race page says they are locked).
 
-  It is the *Runs and result changes* choice in *⚙ Settings*. The older `locked: true` setting is read as `access: locked`.
+  It is the *Runs and result changes* choice in *⚙ Discipline settings*. The older `locked: true` setting is read as `access: locked`.
 - The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
-- *⚙ Settings* next to the discipline on the race page edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
+- *⚙ Discipline settings*, in the event menu of the title on the race pages ("CFM26 · 100m ▾"), edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
 
 ### Timed runs and `results.csv`
 
@@ -259,6 +259,15 @@ name: Finish line
 
 The navigation bar shows the sync state ("Synced with 1 computer"); its tooltip lists the computers found and any problem.
 
+### Live page
+
+*Live* (in the Race part of the title menu, `/live`) is a public display of the selected event and discipline, for a screen facing the audience:
+
+- **On track**: one card per computer whose race page shows this discipline (this one and the synced ones): *Waiting*, the participant *Ready*, a running clock, or the time (or DQ / Invalid) of the run that just ended. The card also shows the participant's best time and its rank (or *No time yet*), whether ready, running or just finished.
+- **Ranking**: every participant with a run, by best valid time, with their category and number of runs; a run that just ended is highlighted. Invalid runs are left out (not counted, no time): a participant whose runs are all invalid is not listed. DQ runs are counted, without a time.
+
+Each computer shares its activity (the event and discipline open on its race pages, its run and its last result) with the synced ones at once when it changes, and in every announcement. A running clock on another computer is corrected by the difference between the clocks; the saved time is always measured by the computer that times the run.
+
 ## 🩺 Troubleshooting in the Logs
 
 - **Device list**: logged at startup and whenever a relevant device appears, disappears, or the config changes.
@@ -296,6 +305,8 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
 - `RESULT_UPDATE` `{ event, discipline, result }`: the status of a saved run changed.
 - `SETTINGS_UPDATE` `{ event, discipline, settings }`: the settings of a discipline were saved from the race page.
 - `SYNC_UPDATE` `{ event, discipline }`: files of a discipline were changed by the sync with another computer.
+- `LIVE_UPDATE` `{ instances }`: the activity of this computer or of a synced one changed (see `GET /api/live`).
+- From the page: `VIEWING` `{ event, discipline }` tells which event and discipline a race page shows (`null` for none).
 
 ### REST Endpoints
 
@@ -305,6 +316,7 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
 - `PUT /api/config` `{ config, modifiedAt }`: writes the config to `config.yaml`. `422` with the problems if it is invalid; `409` if the file changed since `modifiedAt` (the value returned by `GET`).
 - `GET /api/events`: the working directory (`workDir`) and its `events`, each with its `disciplines`.
 - `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
+- `GET /api/events/:event/:discipline/settings`: the discipline's `settings` from its `config.yaml`, and the `problems` found in it.
 - `PUT /api/events/:event/:discipline/settings` `{ settings: { attempts, start, end, access } }`: saves the discipline's `config.yaml` (`attempts`: a whole number from 1, or `null` for unlimited; `start`, `end`: ISO 8601 date-times, saved in UTC, or `null`; `access`: `auto`, `open` or `locked`) and returns the `settings` read back with their `problems`. `422` for an invalid value.
 - `GET /api/events/:event/:discipline/results`: every run of the discipline from `results.csv`, oldest first.
 - `PATCH /api/events/:event/:discipline/results` `{ bib, start, status }`: sets the status (`ok`, `invalid` or `dq`) of the saved run of `bib` that started at `start` (bib and start together identify a run, as several participants can share a start). `404` when there is no such run, `409` to set `ok` on a run without a time, or when the discipline is closed (outside its period with `access: auto`, or `access: locked`).
@@ -312,8 +324,9 @@ HTTP and WebSocket share the same port: `PORT`, default `3001`.
 - `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress, when the participant has no attempt left, or when the discipline is closed.
 - `POST /api/run/invalidate`, `POST /api/run/disqualify`: ends the running run now and saves it as `INVALID` or `DQ`. `409` when no run is in progress.
 - `POST /api/run/cancel`: abandons the current run, nothing is saved.
+- `GET /api/live`: the `instances` shown on the live page: this computer and the synced ones, each with its `name`, `viewing` (event and discipline open on its race pages), `run`, `lastResult` and `clockOffsetMs`.
 - `GET /api/sync`: whether sync is on, this computer's `name`, and the `peers` found (name, address, port, last sync, error, clock offset).
-- `GET /api/sync/manifest`, `GET /api/sync/file?path=`, `GET /api/sync/results?event=&discipline=`, `POST /api/sync/notify`: used between instances, only with the hash of the same key in the `x-timing-sync` header (`403` otherwise).
+- `GET /api/sync/manifest`, `GET /api/sync/file?path=`, `GET /api/sync/results?event=&discipline=`, `POST /api/sync/notify`, `POST /api/sync/activity`: used between instances, only with the hash of the same key in the `x-timing-sync` header (`403` otherwise).
 - `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each configured device (`deviceName`) as `listening` (report count, last report, last 50 changed reports, trigger states) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it, and explanations for rules that match no device.
 
 ---

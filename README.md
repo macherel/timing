@@ -12,6 +12,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 - **High-Precision Timing with `Temporal`**: Uses the modern ECMAScript `Temporal` API (`Temporal.Now.instant()`) for timezone-agnostic timing records.
 - **Events & Participants**: The race page picks an event and a discipline from the working directory, then finds a participant by partial bib or name (case and accents ignored), times their runs between the start and finish crossings, and keeps every result in the discipline's `results.csv`.
 - **Several Computers**: Instances on the same network with the same key in `sync.yaml` find each other and keep their events, participants and results in sync (see `backend/README.md`).
+- **Live Display**: The *Live* page shows the public what every synced computer is timing in a discipline (running clocks, last times) and the ranking by best time.
 - **Real-Time UI Synchronization**: Low-latency WebSocket event distribution to connected Vue.js clients.
 
 ---
@@ -33,9 +34,10 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   └── package.json
 ├── frontend/                 # Vue + TypeScript frontend (Vite)
 │   ├── src/
-│   │   ├── components/       # Device cards, event log, config editor...
-│   │   ├── composables/      # Hardware status polling & race WebSocket
+│   │   ├── components/       # Navigation menu & event switcher, device cards, race panels, config editor...
+│   │   ├── composables/      # Hardware status polling, race WebSocket, dropdowns
 │   │   ├── config/           # Configuration form state
+│   │   ├── selection.ts      # Selected event & discipline, shared by the navigation bar and the race pages
 │   │   ├── pages/            # Diagnostics and configuration pages
 │   │   └── main.ts           # Entry point
 │   └── package.json

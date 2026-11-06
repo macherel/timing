@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { SyncStatus } from '../types';
 
 const REFRESH_MS = 5000;
 // The latest change wins when two computers change the same thing, so their clocks must roughly agree
 const CLOCK_WARNING_MS = 2000;
+
+// Tells the page menu when sync has a problem, so its button can show it while the menu is closed
+const emit = defineEmits<{ kind: [kind: 'off' | 'alone' | 'ok' | 'warn'] }>();
 
 const status = ref<SyncStatus | null>(null);
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -33,6 +36,8 @@ const kind = computed(() => {
   if (failing.value.length > 0 || skewed.value.length > 0) return 'warn';
   return status.value.peers.length > 0 ? 'ok' : 'alone';
 });
+watch(kind, (value) => emit('kind', value), { immediate: true });
+
 const label = computed(() => {
   const peers = status.value?.peers.length ?? 0;
   if (!status.value?.enabled) return 'Sync off';
@@ -57,22 +62,37 @@ const details = computed(() => {
 </script>
 
 <template>
-  <span class="sync" :class="kind" :title="details" role="status">
-    <span class="dot" aria-hidden="true"></span>
-    {{ label }}
-    <template v-if="failing.length > 0">· failing</template>
-    <template v-else-if="skewed.length > 0">· clocks differ</template>
-  </span>
+  <div class="sync" :class="kind" role="status">
+    <div class="label">
+      <span class="dot" aria-hidden="true"></span>
+      {{ label }}
+      <template v-if="failing.length > 0">· failing</template>
+      <template v-else-if="skewed.length > 0">· clocks differ</template>
+    </div>
+    <ul class="details">
+      <li v-for="line in details.split('\n')" :key="line">{{ line }}</li>
+    </ul>
+  </div>
 </template>
 
 <style scoped>
 .sync {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   font-size: 0.85em;
   color: var(--text-muted);
-  cursor: help;
+}
+.label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.details {
+  margin: 4px 0 0 14px;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9em;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 .dot {
   width: 8px;
