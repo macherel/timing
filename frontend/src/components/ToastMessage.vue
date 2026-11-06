@@ -10,7 +10,7 @@ defineEmits<{ close: [] }>();
 <template>
   <div class="toast" :class="kind" :role="kind === 'ok' ? 'status' : 'alert'">
     <div class="content"><slot /></div>
-    <button type="button" class="close" title="Close" @click="$emit('close')">✕</button>
+    <button type="button" class="close" :title="$t('common.close')" @click="$emit('close')">✕</button>
   </div>
 </template>
 

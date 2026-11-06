@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { SyncStatus } from '../types';
+
+const { t } = useI18n();
 
 const REFRESH_MS = 5000;
 // The latest change wins when two computers change the same thing, so their clocks must roughly agree
@@ -40,23 +43,23 @@ watch(kind, (value) => emit('kind', value), { immediate: true });
 
 const label = computed(() => {
   const peers = status.value?.peers.length ?? 0;
-  if (!status.value?.enabled) return 'Sync off';
-  if (peers === 0) return 'Sync: no other computer';
-  return `Synced with ${peers} computer${peers > 1 ? 's' : ''}`;
+  if (!status.value?.enabled) return t('sync.off');
+  if (peers === 0) return t('sync.alone');
+  return t('sync.syncedWith', peers);
 });
 const details = computed(() => {
-  if (!status.value) return 'Sync status unavailable';
-  if (!status.value.enabled) return 'Set a sync key on the configuration page to sync with other computers.';
-  const lines = [`This computer: ${status.value.name}`];
+  if (!status.value) return t('sync.unavailable');
+  if (!status.value.enabled) return t('sync.disabledHint');
+  const lines = [t('sync.thisComputer', { name: status.value.name })];
   for (const peer of status.value.peers) {
     const offset = peer.clockOffsetMs !== null && Math.abs(peer.clockOffsetMs) > CLOCK_WARNING_MS;
     lines.push(
       `${peer.name} (${peer.address}:${peer.port})` +
-        (peer.error ? ` — sync failing: ${peer.error}` : '') +
-        (offset ? ` — clock differs by ${(peer.clockOffsetMs! / 1000).toFixed(1)} s` : ''),
+        (peer.error ? ` ${t('sync.peerFailing', { error: peer.error })}` : '') +
+        (offset ? ` ${t('sync.clockDiffers', { seconds: (peer.clockOffsetMs! / 1000).toFixed(1) })}` : ''),
     );
   }
-  if (status.value.peers.length === 0) lines.push('No other computer with the same key found on the network.');
+  if (status.value.peers.length === 0) lines.push(t('sync.noPeer'));
   return lines.join('\n');
 });
 </script>
@@ -66,8 +69,8 @@ const details = computed(() => {
     <div class="label">
       <span class="dot" aria-hidden="true"></span>
       {{ label }}
-      <template v-if="failing.length > 0">· failing</template>
-      <template v-else-if="skewed.length > 0">· clocks differ</template>
+      <template v-if="failing.length > 0">{{ $t('sync.failing') }}</template>
+      <template v-else-if="skewed.length > 0">{{ $t('sync.clocksDiffer') }}</template>
     </div>
     <ul class="details">
       <li v-for="line in details.split('\n')" :key="line">{{ line }}</li>

@@ -1,6 +1,7 @@
 import { computed, ref, watch } from 'vue';
 import type { RouteLocationNormalized, Router } from 'vue-router';
 import type { EventSummary, EventsResponse } from './types';
+import { t } from './i18n';
 
 /**
  * The event and discipline the race pages work on, shared by the event switcher of the navigation bar and the pages.
@@ -67,7 +68,7 @@ export async function loadEvents(): Promise<void> {
     events.value = body.events;
     eventsError.value = null;
   } catch (e) {
-    eventsError.value = `Cannot load the events: ${e instanceof Error ? e.message : String(e)}`;
+    eventsError.value = t('switcher.loadError', { error: e instanceof Error ? e.message : String(e) });
   }
   eventsLoaded.value = true;
   autoSelect();

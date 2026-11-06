@@ -89,7 +89,7 @@ defineExpose({ focus: () => input.value?.focus() });
       :aria-controls="listId"
       :aria-activedescendant="showList && suggestions.length > 0 ? `${listId}-${activeIndex}` : undefined"
       :disabled="disabled"
-      placeholder="Bib number or name"
+      :placeholder="$t('picker.placeholder')"
       autocomplete="off"
       spellcheck="false"
       @input="onInput"
@@ -98,7 +98,7 @@ defineExpose({ focus: () => input.value?.focus() });
       @click="open = true"
       @blur="open = false"
     />
-    <button v-if="selected && !disabled" type="button" class="icon clear" title="Clear" @click="selected = null; input?.focus()">
+    <button v-if="selected && !disabled" type="button" class="icon clear" :title="$t('common.clear')" @click="selected = null; input?.focus()">
       ✕
     </button>
 
@@ -116,9 +116,9 @@ defineExpose({ focus: () => input.value?.focus() });
         <span class="bib mono">{{ participant.bib }}</span>
         <span class="name">{{ participant.name }}</span>
         <span class="file muted">{{ participant.file }}</span>
-        <span v-if="finished?.has(participant.bib)" class="badge done" title="All attempts used">done</span>
+        <span v-if="finished?.has(participant.bib)" class="badge done" :title="$t('picker.allUsed')">{{ $t('picker.done') }}</span>
       </li>
-      <li v-if="suggestions.length === 0" class="empty muted">No participant matches “{{ query.trim() }}”</li>
+      <li v-if="suggestions.length === 0" class="empty muted">{{ $t('picker.noMatch', { query: query.trim() }) }}</li>
     </ul>
   </div>
 </template>

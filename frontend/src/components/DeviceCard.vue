@@ -13,22 +13,22 @@ const recentReports = computed(() => [...(props.device.recentReports ?? [])].rev
   <article class="card">
     <header class="card-header">
       <h3>{{ device.deviceName }}</h3>
-      <span class="badge" :class="device.state === 'listening' ? 'ok' : 'error'">{{ device.state }}</span>
+      <span class="badge" :class="device.state === 'listening' ? 'ok' : 'error'">{{ $t(`hid.states.${device.state}`) }}</span>
     </header>
 
     <dl class="facts">
-      <dt>Path</dt>
+      <dt>{{ $t('hid.path') }}</dt>
       <dd class="mono">{{ device.path }}</dd>
-      <dt>Since</dt>
+      <dt>{{ $t('deviceCard.since') }}</dt>
       <dd>{{ formatTime(device.since) }}</dd>
       <template v-if="device.state === 'listening'">
-        <dt>Reports received</dt>
+        <dt>{{ $t('deviceCard.reportsReceived') }}</dt>
         <dd>{{ device.reportCount }}</dd>
-        <dt>Last report</dt>
-        <dd>{{ device.lastReportAt ? formatTime(device.lastReportAt) : 'none yet' }}</dd>
+        <dt>{{ $t('deviceCard.lastReport') }}</dt>
+        <dd>{{ device.lastReportAt ? formatTime(device.lastReportAt) : $t('deviceCard.noneYet') }}</dd>
       </template>
       <template v-else>
-        <dt>Attempts</dt>
+        <dt>{{ $t('deviceCard.attempts') }}</dt>
         <dd>{{ device.attempts }}</dd>
       </template>
     </dl>
@@ -39,39 +39,39 @@ const recentReports = computed(() => [...(props.device.recentReports ?? [])].rev
     </template>
 
     <template v-else>
-      <h4>Triggers</h4>
-      <p v-if="!device.triggers?.length" class="muted">No trigger configured for this device.</p>
+      <h4>{{ $t('hid.triggers') }}</h4>
+      <p v-if="!device.triggers?.length" class="muted">{{ $t('deviceCard.noTrigger') }}</p>
       <table v-else>
         <thead>
           <tr>
-            <th>Report ID</th>
-            <th>Byte</th>
-            <th>Mask</th>
-            <th>Value</th>
-            <th>Press action</th>
-            <th>Release action</th>
-            <th>State</th>
+            <th>{{ $t('hid.reportId') }}</th>
+            <th>{{ $t('hid.byte') }}</th>
+            <th>{{ $t('hid.mask') }}</th>
+            <th>{{ $t('hid.value') }}</th>
+            <th>{{ $t('hid.pressAction') }}</th>
+            <th>{{ $t('hid.releaseAction') }}</th>
+            <th>{{ $t('deviceCard.state') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(trigger, i) in device.triggers" :key="i">
-            <td>{{ trigger.reportId ?? 'any' }}</td>
+            <td>{{ trigger.reportId ?? $t('common.any') }}</td>
             <td>{{ trigger.byteIndex }}</td>
             <td class="mono">{{ hexByte(trigger.mask) }}</td>
             <td class="mono">{{ hexByte(trigger.value) }}</td>
             <td>{{ trigger.action ?? '—' }}</td>
             <td>{{ trigger.releaseAction ?? '—' }}</td>
             <td>
-              <span class="badge" :class="{ ok: trigger.isMatched }">{{ trigger.isMatched ? 'pressed' : 'idle' }}</span>
+              <span class="badge" :class="{ ok: trigger.isMatched }">{{ trigger.isMatched ? $t('deviceCard.pressed') : $t('deviceCard.idle') }}</span>
             </td>
           </tr>
         </tbody>
       </table>
 
-      <h4>Last report</h4>
-      <p v-if="!device.lastReportHex" class="muted">No report received yet. Press a button on the device.</p>
+      <h4>{{ $t('deviceCard.lastReport') }}</h4>
+      <p v-if="!device.lastReportHex" class="muted">{{ $t('deviceCard.noReport') }}</p>
       <template v-else>
-        <p class="muted">Bits outlined in orange are read by a trigger.</p>
+        <p class="muted">{{ $t('deviceCard.watchedHint') }}</p>
         <ReportBytes
           :hex="device.lastReportHex"
           :triggers="device.triggers ?? []"
@@ -79,17 +79,17 @@ const recentReports = computed(() => [...(props.device.recentReports ?? [])].rev
         />
       </template>
 
-      <h4>Recent changes</h4>
-      <p class="muted">Reports that differ from the previous one with the same report ID, newest first.</p>
-      <p v-if="recentReports.length === 0" class="muted">None yet.</p>
+      <h4>{{ $t('deviceCard.recentChanges') }}</h4>
+      <p class="muted">{{ $t('deviceCard.recentHint') }}</p>
+      <p v-if="recentReports.length === 0" class="muted">{{ $t('deviceCard.noChange') }}</p>
       <div v-else class="scroll">
         <table>
           <thead>
             <tr>
-              <th>Time</th>
-              <th v-if="device.numberedReports">Report ID</th>
-              <th>Bytes</th>
-              <th>Changed bits</th>
+              <th>{{ $t('hid.time') }}</th>
+              <th v-if="device.numberedReports">{{ $t('hid.reportId') }}</th>
+              <th>{{ $t('deviceCard.bytes') }}</th>
+              <th>{{ $t('deviceCard.changedBits') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -97,7 +97,7 @@ const recentReports = computed(() => [...(props.device.recentReports ?? [])].rev
               <td class="mono">{{ formatTime(report.at) }}</td>
               <td v-if="device.numberedReports">{{ report.reportId }}</td>
               <td class="mono nowrap">{{ report.hex }}</td>
-              <td>{{ report.changes.length ? report.changes.join(', ') : 'first report with this ID' }}</td>
+              <td>{{ report.changes.length ? report.changes.join(', ') : $t('deviceCard.firstReport') }}</td>
             </tr>
           </tbody>
         </table>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { LiveInstance, Participant, ParticipantsResponse, ResultsResponse, RunResult, ServerMessage } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import { formatDuration, parseInstant } from '../format';
@@ -16,6 +17,8 @@ const CLOCK_INTERVAL_MS = 100;
 const IDLE_INTERVAL_MS = 1000;
 // A finished run stays highlighted in the ranking for this long
 const RECENT_MS = 15_000;
+
+const { t } = useI18n();
 
 const instances = ref<LiveInstance[]>([]);
 const results = ref<RunResult[]>([]);
@@ -97,9 +100,9 @@ const bestOf = computed(() => new Map(ranking.value.map((entry) => [entry.bib, e
 /** The best time so far of a participant on track, e.g. "Best: 2.378 (3rd)". */
 function bestText(bib: string): string {
   const best = bestOf.value.get(bib);
-  if (best === undefined || best === null) return 'No time yet';
+  if (best === undefined || best === null) return t('live.noTime');
   const rank = ranking.value.findIndex((entry) => entry.best === best) + 1;
-  return `Best: ${formatDuration(best)} (rank ${rank})`;
+  return t('live.best', { time: formatDuration(best), rank });
 }
 
 // Rank among the participants with a valid time (equal times share a rank)
@@ -117,7 +120,7 @@ async function loadLive(): Promise<void> {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     instances.value = (await response.json()).instances;
   } catch (e) {
-    error.value = `Cannot load the live activity: ${e instanceof Error ? e.message : String(e)}`;
+    error.value = t('live.loadError', { error: e instanceof Error ? e.message : String(e) });
   }
 }
 
@@ -139,7 +142,7 @@ async function loadResults(): Promise<void> {
     participants.value = participantsBody.participants ?? [];
     error.value = null;
   } catch (e) {
-    if (request === resultsRequest) error.value = `Cannot load the results: ${e instanceof Error ? e.message : String(e)}`;
+    if (request === resultsRequest) error.value = t('race.errors.loadResults', { error: e instanceof Error ? e.message : String(e) });
   }
 }
 
@@ -171,13 +174,13 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
     <p v-if="error" class="alert error">{{ error }}</p>
 
     <div v-if="eventsLoaded && !disciplineExists" class="alert hint choose">
-      <span>Choose the event and discipline to show.</span>
-      <button type="button" @click.stop="switcherOpen = true">Choose</button>
+      <span>{{ $t('live.choose') }}</span>
+      <button type="button" @click.stop="switcherOpen = true">{{ $t('common.choose') }}</button>
     </div>
 
     <template v-else-if="disciplineExists">
-      <section class="track" aria-label="On track">
-        <p v-if="onTrack.length === 0" class="muted empty">No computer shows {{ eventName }} · {{ discipline }} on its race page.</p>
+      <section class="track" :aria-label="$t('live.onTrack')">
+        <p v-if="onTrack.length === 0" class="muted empty">{{ $t('live.nobody', { event: eventName, discipline }) }}</p>
         <article v-for="instance in onTrack" :key="instance.id" class="lane" :class="cardState(instance).kind">
           <div class="lane-name">{{ instance.name }}</div>
           <template v-for="state in [cardState(instance)]" :key="state.kind">
@@ -188,7 +191,7 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
             </template>
             <template v-else-if="state.kind === 'ready'">
               <div class="who"><span class="bib">{{ state.bib }}</span> {{ state.name }}</div>
-              <div class="status-text">Ready</div>
+              <div class="status-text">{{ $t('live.ready') }}</div>
               <div class="best">{{ bestText(state.bib) }}</div>
             </template>
             <template v-else-if="state.kind === 'finished'">
@@ -196,26 +199,26 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
               <div v-if="state.result.status === 'ok' && state.result.timeMs !== null" class="clock mono done">
                 {{ formatDuration(state.result.timeMs) }}
               </div>
-              <div v-else class="status-text void">{{ state.result.status === 'dq' ? 'DQ' : 'Invalid' }}</div>
+              <div v-else class="status-text void">{{ $t(`common.status.${state.result.status}`) }}</div>
               <div class="best">{{ bestText(state.result.bib) }}</div>
             </template>
-            <div v-else class="status-text muted">Waiting</div>
+            <div v-else class="status-text muted">{{ $t('live.waiting') }}</div>
           </template>
         </article>
       </section>
 
-      <section class="ranking" aria-label="Ranking">
-        <h2>Ranking</h2>
-        <p v-if="ranking.length === 0" class="muted">No result yet.</p>
+      <section class="ranking" :aria-label="$t('live.ranking')">
+        <h2>{{ $t('live.ranking') }}</h2>
+        <p v-if="ranking.length === 0" class="muted">{{ $t('live.noResult') }}</p>
         <table v-else>
           <thead>
             <tr>
               <th class="rank">#</th>
-              <th>Bib</th>
-              <th>Name</th>
-              <th>Category</th>
-              <th class="time">Best time</th>
-              <th class="runs">Runs</th>
+              <th>{{ $t('live.bib') }}</th>
+              <th>{{ $t('live.name') }}</th>
+              <th>{{ $t('live.category') }}</th>
+              <th class="time">{{ $t('live.bestTime') }}</th>
+              <th class="runs">{{ $t('live.runs') }}</th>
             </tr>
           </thead>
           <tbody>

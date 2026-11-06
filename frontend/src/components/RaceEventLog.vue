@@ -6,16 +6,16 @@ defineProps<{ events: RaceUpdateMessage[] }>();
 </script>
 
 <template>
-  <p v-if="events.length === 0" class="muted">No crossing received since this page was opened.</p>
+  <p v-if="events.length === 0" class="muted">{{ $t('eventLog.none') }}</p>
   <div v-else class="scroll">
     <table>
       <thead>
         <tr>
-          <th>Time</th>
-          <th>Device</th>
-          <th>Action</th>
-          <th>Crossings for device</th>
-          <th>Exact timestamp</th>
+          <th>{{ $t('hid.time') }}</th>
+          <th>{{ $t('hid.device') }}</th>
+          <th>{{ $t('eventLog.action') }}</th>
+          <th>{{ $t('eventLog.crossings') }}</th>
+          <th>{{ $t('eventLog.timestamp') }}</th>
         </tr>
       </thead>
       <tbody>

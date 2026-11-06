@@ -20,39 +20,38 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
   <article class="card">
     <header class="card-header">
       <h3>{{ name }}</h3>
-      <span class="badge">not configured</span>
-      <RouterLink :to="addLink" class="add-link">+ Add to configuration</RouterLink>
+      <span class="badge">{{ $t('hid.notConfigured') }}</span>
+      <RouterLink :to="addLink" class="add-link">{{ $t('unconfigured.add') }}</RouterLink>
     </header>
 
     <dl class="facts">
-      <dt>Manufacturer</dt>
+      <dt>{{ $t('unconfigured.manufacturer') }}</dt>
       <dd>{{ first.manufacturer || '?' }}</dd>
-      <dt>Vendor / product ID</dt>
+      <dt>{{ $t('unconfigured.vendorProduct') }}</dt>
       <dd class="mono">{{ first.vendorId }}:{{ first.productId }}</dd>
     </dl>
-    <p class="muted">
-      The app does not open devices that are not in the configuration, so no report is shown. To see which bits its
-      buttons change, add it to the configuration, or run <code>npm run diagnose -- --listen {{ first.vendorId }}:{{ first.productId }}</code>.
-    </p>
+    <i18n-t keypath="unconfigured.explain" tag="p" class="muted">
+      <template #command><code>npm run diagnose -- --listen {{ first.vendorId }}:{{ first.productId }}</code></template>
+    </i18n-t>
 
-    <h4>HID interfaces</h4>
+    <h4>{{ $t('unconfigured.interfaces') }}</h4>
     <div class="scroll">
       <table>
         <thead>
           <tr>
-            <th>Usage(s)</th>
-            <th>Interface</th>
-            <th>Serial</th>
-            <th>USB port</th>
-            <th>Path</th>
+            <th>{{ $t('hid.usages') }}</th>
+            <th>{{ $t('hid.interface') }}</th>
+            <th>{{ $t('hid.serial') }}</th>
+            <th>{{ $t('hid.usbPort') }}</th>
+            <th>{{ $t('hid.path') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in interfaces" :key="item.path">
             <td>
               <div v-for="usage in item.usages" :key="usage">{{ usage }}</div>
-              <div v-if="item.usages.length > 1" class="muted">several collections: byte 0 is the report ID</div>
-              <div v-if="item.osOwned && osOwnedUnreadable" class="warn-text">mouse/keyboard: not readable on {{ platform }}</div>
+              <div v-if="item.usages.length > 1" class="muted">{{ $t('hid.severalCollections') }}</div>
+              <div v-if="item.osOwned && osOwnedUnreadable" class="warn-text">{{ $t('hid.osOwned', { platform }) }}</div>
             </td>
             <td>{{ item.interfaceNumber }}</td>
             <td class="mono">{{ item.serialNumber || '—' }}</td>

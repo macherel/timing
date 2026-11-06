@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 import type { ConfigFileResponse } from '../types';
 import { useHardwareStatus } from '../composables/useHardwareStatus';
 import {
@@ -20,6 +21,8 @@ const VALIDATE_DELAY_MS = 300;
 const SAVED_MESSAGE_MS = 4000;
 // Suggestions for trigger actions; only actions containing start, finish or click are recorded as crossings
 const SUGGESTED_ACTIONS = ['start_crossed', 'finish_crossed'];
+
+const { t } = useI18n();
 
 const path = ref('');
 const form = ref<ConfigForm>(emptyForm());
@@ -61,7 +64,7 @@ const canSave = computed(
 );
 
 async function load(): Promise<void> {
-  if (isDirty.value && !confirm('Discard your unsaved changes and reload the file?')) return;
+  if (isDirty.value && !confirm(t('config.confirmDiscard'))) return;
   try {
     const response = await fetch('/api/config');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -88,7 +91,7 @@ function setForm(newForm: ConfigForm): void {
 
 /** The file on disk is invalid: edit it in the form from scratch, overwriting it on save. */
 function startOver(): void {
-  if (!confirm('Start from an empty form? Saving will replace the current config.yaml.')) return;
+  if (!confirm(t('config.confirmStartOver'))) return;
   invalidFile.value = null;
   savedSnapshot.value = '';
 }
@@ -108,26 +111,23 @@ async function save(): Promise<void> {
       modifiedAt.value = body.modifiedAt;
       fileExists.value = true;
       savedSnapshot.value = JSON.stringify(config.value);
-      message.value = { kind: 'ok', text: 'Saved. The app applies the new configuration within a second.' };
+      message.value = { kind: 'ok', text: t('config.saved') };
     } else if (response.status === 409) {
       conflict.value = true;
-      message.value = {
-        kind: 'warn',
-        text: 'config.yaml was changed outside this page since it was loaded. Reload it, then redo your changes.',
-      };
+      message.value = { kind: 'warn', text: t('config.conflict') };
     } else {
       problems.value = body.problems ?? [];
-      message.value = { kind: 'error', text: `Not saved (HTTP ${response.status}).` };
+      message.value = { kind: 'error', text: t('config.notSavedHttp', { status: response.status }) };
     }
   } catch (e) {
-    message.value = { kind: 'error', text: `Not saved: ${e instanceof Error ? e.message : String(e)}` };
+    message.value = { kind: 'error', text: t('config.notSaved', { error: e instanceof Error ? e.message : String(e) }) };
   } finally {
     saving.value = false;
   }
 }
 
 function addDevice(): void {
-  form.value.devices.push(emptyDevice(`Device ${form.value.devices.length + 1}`));
+  form.value.devices.push(emptyDevice(t('config.defaultDeviceName', { n: form.value.devices.length + 1 })));
 }
 
 const route = useRoute();
@@ -141,7 +141,7 @@ function addDeviceFromLink(): void {
   const [vendorId, productId] = String(route.query.add ?? '').split(':');
   if (!vendorId || !productId) return;
 
-  const device = emptyDevice(String(route.query.name || `Device ${form.value.devices.length + 1}`));
+  const device = emptyDevice(String(route.query.name || t('config.defaultDeviceName', { n: form.value.devices.length + 1 })));
   device.vendorId = vendorId;
   device.productId = productId;
   form.value.devices.push(device);
@@ -151,7 +151,7 @@ function addDeviceFromLink(): void {
 
 function removeDevice(index: number): void {
   const name = form.value.devices[index].name || `#${index + 1}`;
-  if (confirm(`Remove device "${name}"?`)) form.value.devices.splice(index, 1);
+  if (confirm(t('config.confirmRemove', { name }))) form.value.devices.splice(index, 1);
 }
 
 function moveDevice(index: number, delta: number): void {
@@ -179,7 +179,7 @@ watch(
         // An older request answering late must not overwrite a newer result
         if (run === validationRun) problems.value = body.problems ?? [];
       } catch (e) {
-        if (run === validationRun) problems.value = [`Cannot validate: ${e instanceof Error ? e.message : String(e)}`];
+        if (run === validationRun) problems.value = [t('config.cannotValidate', { error: e instanceof Error ? e.message : String(e) })];
       } finally {
         if (run === validationRun) validating.value = false;
       }
@@ -199,7 +199,7 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
   if (isDirty.value) event.preventDefault();
 }
 
-onBeforeRouteLeave(() => !isDirty.value || confirm('You have unsaved changes. Leave this page anyway?'));
+onBeforeRouteLeave(() => !isDirty.value || confirm(t('config.confirmLeave')));
 onMounted(async () => {
   await load();
   if (loaded.value && !invalidFile.value) addDeviceFromLink();
@@ -219,26 +219,26 @@ onUnmounted(() => {
     <!-- The page title is in the navigation bar -->
     <header class="page-header">
       <div class="actions">
-        <button type="button" class="secondary" @click="load">Reload from disk</button>
+        <button type="button" class="secondary" @click="load">{{ $t('config.reloadFromDisk') }}</button>
         <button type="button" :disabled="!canSave" title="Ctrl+S" @click="save">
-          {{ saving ? 'Saving…' : 'Save' }}
+          {{ saving ? $t('config.saving') : $t('common.save') }}
         </button>
       </div>
     </header>
 
-    <p v-if="loadError" class="alert error">Cannot load the configuration: {{ loadError }}</p>
+    <p v-if="loadError" class="alert error">{{ $t('config.loadError', { error: loadError }) }}</p>
 
     <template v-if="loaded">
       <p class="muted">
         <span class="mono">{{ path }}</span>
-        <span v-if="!fileExists"> · does not exist yet: saving creates it</span>
-        <span v-else-if="isDirty"> · unsaved changes</span>
-        <span v-else> · saved</span>
+        <span v-if="!fileExists"> · {{ $t('config.fileMissing') }}</span>
+        <span v-else-if="isDirty"> · {{ $t('config.unsaved') }}</span>
+        <span v-else> · {{ $t('config.savedState') }}</span>
         <span v-if="!invalidFile">
           ·
-          <span v-if="validating">checking…</span>
-          <span v-else-if="problems.length === 0" class="ok-text">✔ valid</span>
-          <span v-else class="error-text">✘ {{ problems.length }} problem(s)</span>
+          <span v-if="validating">{{ $t('config.checking') }}</span>
+          <span v-else-if="problems.length === 0" class="ok-text">{{ $t('config.valid') }}</span>
+          <span v-else class="error-text">{{ $t('config.problems', problems.length) }}</span>
         </span>
       </p>
 
@@ -246,89 +246,83 @@ onUnmounted(() => {
         <Transition name="toast">
           <ToastMessage v-if="message" :kind="message.kind" @close="message = null">
             {{ message.text }}
-            <button v-if="conflict" type="button" class="secondary inline" @click="load">Reload</button>
+            <button v-if="conflict" type="button" class="secondary inline" @click="load">{{ $t('common.reload') }}</button>
           </ToastMessage>
         </Transition>
       </Teleport>
 
       <section v-if="invalidFile">
         <div class="alert error">
-          <p>config.yaml cannot be shown in the form because it is invalid:</p>
+          <p>{{ $t('config.invalidFile') }}</p>
           <ul>
             <li v-for="problem in invalidFile.problems" :key="problem">{{ problem }}</li>
           </ul>
-          <p>Fix it in a text editor and click "Reload from disk", or start over in the form.</p>
-          <button type="button" class="secondary inline" @click="startOver">Start from an empty form</button>
+          <p>{{ $t('config.invalidFileFix', { button: $t('config.reloadFromDisk') }) }}</p>
+          <button type="button" class="secondary inline" @click="startOver">{{ $t('config.startOver') }}</button>
         </div>
         <pre class="raw">{{ invalidFile.content }}</pre>
       </section>
 
       <template v-else>
-        <p class="muted small">Saving rewrites config.yaml in a standard layout: comments in the file are not kept.</p>
+        <p class="muted small">{{ $t('config.rewriteNote') }}</p>
 
         <ul v-if="groupedProblems.general.length > 0 && !validating" class="alert error problems">
           <li v-for="problem in groupedProblems.general" :key="problem">{{ problem }}</li>
         </ul>
 
         <section>
-          <h2>Port</h2>
+          <h2>{{ $t('config.port.title') }}</h2>
           <div class="row">
             <label class="field">
-              <span>Port of the app</span>
+              <span>{{ $t('config.port.label') }}</span>
               <input v-model="form.port" type="text" inputmode="numeric" class="short" placeholder="3001" />
             </label>
-            <span class="muted small">
-              Used when the app starts: restart it after a change, then open it at the new address. Empty for 3001.
-              The --port option and the PORT environment variable take precedence.
-            </span>
+            <span class="muted small">{{ $t('config.port.hint') }}</span>
           </div>
         </section>
 
         <section>
-          <h2>Sync</h2>
+          <h2>{{ $t('config.sync.title') }}</h2>
           <label class="switch">
             <input v-model="form.useSync" type="checkbox" />
-            Sync the events with the other computers on the local network that have the same key
+            {{ $t('config.sync.enable') }}
           </label>
           <div v-if="form.useSync" class="row">
             <label class="field">
-              <span>Key</span>
-              <input v-model="form.syncKey" type="text" placeholder="e.g. amber-otter-glide" />
+              <span>{{ $t('config.sync.key') }}</span>
+              <input v-model="form.syncKey" type="text" :placeholder="$t('config.sync.keyPlaceholder')" />
             </label>
             <label class="field">
-              <span>Name of this computer</span>
-              <input v-model="form.syncName" type="text" placeholder="The computer name" />
+              <span>{{ $t('config.sync.name') }}</span>
+              <input v-model="form.syncName" type="text" :placeholder="$t('config.sync.namePlaceholder')" />
             </label>
-            <span class="muted small">Applied a few seconds after saving, no restart needed.</span>
+            <span class="muted small">{{ $t('config.sync.hint') }}</span>
           </div>
         </section>
 
         <section>
-          <h2>Default interface</h2>
+          <h2>{{ $t('config.discovery.title') }}</h2>
           <label class="switch">
             <input v-model="form.useDiscoveryFilter" type="checkbox" />
-            Only use one HID interface of each device, unless the device below says otherwise
+            {{ $t('config.discovery.enable') }}
           </label>
           <div v-if="form.useDiscoveryFilter" class="row">
             <label class="field">
-              <span>Usage page</span>
+              <span>{{ $t('hid.usagePage') }}</span>
               <input v-model="form.discoveryUsagePage" type="text" inputmode="numeric" class="short" />
             </label>
             <label class="field">
-              <span>Usage</span>
+              <span>{{ $t('hid.usage') }}</span>
               <input v-model="form.discoveryUsage" type="text" inputmode="numeric" class="short" />
             </label>
-            <span class="muted small">1 / 2 is a mouse, 1 / 6 a keyboard, 1 / 5 a gamepad.</span>
+            <span class="muted small">{{ $t('config.discovery.hint') }}</span>
           </div>
         </section>
 
         <section>
-          <h2>Devices</h2>
-          <p v-if="form.devices.length === 0" class="muted">No device yet.</p>
-          <p v-else class="muted small">
-            When several entries match the same HID interface, the first one in this list is used. The device name
-            identifies it in race events, so it must be unique.
-          </p>
+          <h2>{{ $t('config.devices') }}</h2>
+          <p v-if="form.devices.length === 0" class="muted">{{ $t('config.noDevice') }}</p>
+          <p v-else class="muted small">{{ $t('config.devicesHint') }}</p>
           <DeviceEditor
             v-for="(device, index) in form.devices"
             :key="device.key"
@@ -340,7 +334,7 @@ onUnmounted(() => {
             @remove="removeDevice(index)"
             @move="moveDevice(index, $event)"
           />
-          <button type="button" class="secondary" @click="addDevice">+ Add device</button>
+          <button type="button" class="secondary" @click="addDevice">{{ $t('config.addDevice') }}</button>
         </section>
       </template>
     </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type {
   DisciplineSettings,
   RunStatus,
@@ -31,6 +32,8 @@ import {
   workDir,
 } from '../selection';
 
+const { t, locale } = useI18n();
+
 const loadError = ref<string | null>(null);
 
 const participants = ref<Participant[]>([]);
@@ -46,15 +49,15 @@ onUnmounted(() => clearInterval(clockTimer));
 // Why the start - end period closes the discipline now, or null when it is within the period
 const outsidePeriod = computed(() => {
   const { start, end } = settings.value;
-  if (start && now.value < Date.parse(start)) return `it opens on ${showDateTime(start)}`;
-  if (end && now.value >= Date.parse(end)) return `it closed on ${showDateTime(end)}`;
+  if (start && now.value < Date.parse(start)) return t('race.reason.notStarted', { date: showDateTime(start) });
+  if (end && now.value >= Date.parse(end)) return t('race.reason.ended', { date: showDateTime(end) });
   return null;
 });
 
 // Why runs and result changes are disabled (locked, or outside the period unless access is open), or null.
 // The backend checks it too: this only avoids offering actions that would be refused.
 const closedReason = computed(() => {
-  if (settings.value.access === 'locked') return 'its results are locked';
+  if (settings.value.access === 'locked') return t('race.reason.locked');
   if (settings.value.access === 'open') return null;
   return outsidePeriod.value;
 });
@@ -72,8 +75,8 @@ const busy = ref(false);
 // While a participant is ready or running, the event, discipline and participant cannot change
 const locked = computed(() => run.value.status !== 'idle');
 watch(
-  locked,
-  (isLocked) => (selectionLock.value = isLocked ? 'A run is in progress: the event and discipline cannot change.' : null),
+  [locked, locale],
+  ([isLocked]) => (selectionLock.value = isLocked ? t('race.runInProgress') : null),
   { immediate: true },
 );
 onUnmounted(() => (selectionLock.value = null));
@@ -110,7 +113,7 @@ async function loadResults(): Promise<void> {
   try {
     results.value = (await getJson<ResultsResponse>(`${disciplinePath()}/results`)).results;
   } catch (e) {
-    loadError.value = `Cannot load the results: ${errorText(e)}`;
+    loadError.value = t('race.errors.loadResults', { error: errorText(e) });
   }
 }
 
@@ -130,7 +133,7 @@ async function loadRun(): Promise<void> {
     run.value = await getJson<RunState>('/api/run');
     showRun();
   } catch (e) {
-    loadError.value = `Cannot load the current run: ${errorText(e)}`;
+    loadError.value = t('race.errors.loadRun', { error: errorText(e) });
   }
 }
 
@@ -173,7 +176,7 @@ async function setStatus(result: RunResult, status: RunStatus): Promise<void> {
     );
     loadError.value = null;
   } catch (e) {
-    loadError.value = `Cannot change the result: ${errorText(e)}`;
+    loadError.value = t('race.errors.changeResult', { error: errorText(e) });
   } finally {
     busy.value = false;
   }
@@ -209,20 +212,14 @@ async function postRun(action: 'ready' | 'cancel' | 'invalidate' | 'disqualify')
     if (action === 'ready') lastResult.value = null;
     loadError.value = null;
   } catch (e) {
-    const what = {
-      ready: 'get the participant ready',
-      cancel: 'cancel the run',
-      invalidate: 'invalidate the run',
-      disqualify: 'disqualify the participant',
-    }[action];
-    loadError.value = `Cannot ${what}: ${errorText(e)}`;
+    loadError.value = t(`race.errors.${action}`, { error: errorText(e) });
   } finally {
     busy.value = false;
   }
 }
 
 function cancel(): void {
-  if (run.value.status === 'running' && !confirm('Cancel this run? Its time will not be saved.')) return;
+  if (run.value.status === 'running' && !confirm(t('race.confirmCancel'))) return;
   postRun('cancel');
 }
 
@@ -230,11 +227,7 @@ function cancel(): void {
 function voidRun(action: 'invalidate' | 'disqualify'): void {
   if (run.value.status !== 'running') return;
   const { bib, name } = run.value.participant;
-  const question =
-    action === 'disqualify'
-      ? `Disqualify ${bib} ${name}? The run ends now and is saved as disqualified (DQ).`
-      : `Invalidate this run of ${bib} ${name}? The run ends now and is saved as invalid (not a disqualification).`;
-  if (!confirm(question)) return;
+  if (!confirm(t(action === 'disqualify' ? 'race.confirmDisqualify' : 'race.confirmInvalidate', { bib, name }))) return;
   postRun(action);
 }
 
@@ -262,7 +255,7 @@ async function loadParticipants(): Promise<void> {
     selected.value = list.participants.find((p) => p.bib === wanted?.bib && p.name === wanted?.name) ?? null;
   } catch (e) {
     if (request !== participantsRequest) return;
-    loadError.value = `Cannot load the participants: ${errorText(e)}`;
+    loadError.value = t('race.errors.loadParticipants', { error: errorText(e) });
   } finally {
     if (request === participantsRequest) loadingParticipants.value = false;
   }
@@ -291,26 +284,30 @@ onMounted(reload);
     <p v-if="loadError || eventsError" class="alert error">{{ loadError ?? eventsError }}</p>
 
     <div v-if="eventsLoaded && events.length === 0 && !eventsError" class="alert hint">
-      <p>No event yet. Create one folder per event in <code>{{ workDir }}</code>, one subfolder per discipline, and put the participant CSV files in it:</p>
+      <i18n-t keypath="race.noEvent" tag="p">
+        <template #dir><code>{{ workDir }}</code></template>
+      </i18n-t>
       <pre class="tree">CFM26/
   100m/
     femmes.csv     bib;name
     hommes.csv     1;Hugo Guérin</pre>
-      <p>Then click <em>↻ Reload lists</em> in the menu of the title.</p>
+      <i18n-t keypath="race.noEventThen" tag="p">
+        <template #button><em>{{ $t('switcher.reload') }}</em></template>
+      </i18n-t>
     </div>
 
     <div v-else-if="eventsLoaded && !disciplineExists" class="alert hint choose">
-      <span>{{ currentEvent ? `Choose a discipline of ${eventName}` : 'Choose an event and a discipline' }} to time runs.</span>
-      <button type="button" @click.stop="switcherOpen = true">Choose</button>
+      <span>{{ currentEvent ? $t('race.chooseDisciplineOf', { event: eventName }) : $t('race.chooseEventAndDiscipline') }}</span>
+      <button type="button" @click.stop="switcherOpen = true">{{ $t('common.choose') }}</button>
     </div>
 
     <section v-else-if="disciplineExists" class="card">
       <div class="field participant">
         <span>
-          Participant
+          {{ $t('race.participant') }}
           <span v-if="!loadingParticipants" class="muted">
-            <template v-if="settings.attempts !== null">({{ remainingCount }} remaining / {{ participants.length }})</template>
-            <template v-else>({{ participants.length }})</template>
+            <template v-if="settings.attempts !== null">{{ $t('race.remaining', { remaining: remainingCount, total: participants.length }) }}</template>
+            <template v-else>{{ $t('race.count', { total: participants.length }) }}</template>
           </span>
         </span>
         <ParticipantPicker
@@ -324,21 +321,26 @@ onMounted(reload);
     </section>
 
     <p v-if="disciplineExists && forcedOpen" class="alert hint">
-      {{ eventName }} / {{ discipline }} is open although {{ outsidePeriod }}: access is forced open in the
-      discipline settings (title menu).
+      {{ $t('race.forcedOpen', { event: eventName, discipline, reason: outsidePeriod }) }}
     </p>
 
     <p v-if="disciplineExists && closedReason" class="alert warn">
-      {{ eventName }} / {{ discipline }} is closed: {{ closedReason }}. Runs and result changes are disabled (see
-      the discipline settings in the title menu).
+      {{ $t('race.closed', { event: eventName, discipline, reason: closedReason }) }}
     </p>
 
-    <p v-if="disciplineExists && !loadingParticipants && participants.length === 0" class="alert warn">
-      No participant in {{ eventName }} / {{ discipline }}: add CSV files with <code>bib;name</code> lines to its folder.
-    </p>
+    <i18n-t
+      v-if="disciplineExists && !loadingParticipants && participants.length === 0"
+      keypath="race.noParticipant"
+      tag="p"
+      class="alert warn"
+    >
+      <template #event>{{ eventName }}</template>
+      <template #discipline>{{ discipline }}</template>
+      <template #format><code>bib;name</code></template>
+    </i18n-t>
 
     <details v-if="problems.length > 0" class="alert warn">
-      <summary>{{ problems.length }} problem(s) in the files of {{ discipline }}</summary>
+      <summary>{{ $t('race.problems', { discipline }, problems.length) }}</summary>
       <ul>
         <li v-for="problem in problems" :key="problem">{{ problem }}</li>
       </ul>

@@ -14,6 +14,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 - **Several Computers**: Instances on the same network with the same sync key in `config.yaml` find each other and keep their events, participants and results in sync (see `backend/README.md`).
 - **Live Display**: The *Live* page shows the public what every synced computer is timing in a discipline (running clocks, last times) and the ranking by best time.
 - **Real-Time UI Synchronization**: Low-latency WebSocket event distribution to connected Vue.js clients.
+- **English and French**: The interface language is chosen in the title menu and remembered by the browser (the browser's language the first time). See *Translations* below to add one.
 
 ---
 
@@ -37,9 +38,13 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   │   ├── components/       # Navigation menu & event switcher, device cards, race panels, config editor...
 │   │   ├── composables/      # Hardware status polling, race WebSocket, dropdowns
 │   │   ├── config/           # Configuration form state
+│   │   ├── locales/          # Interface texts: en.ts (the reference) and fr.ts
+│   │   ├── i18n.ts           # Languages, the language choice and its memory
 │   │   ├── selection.ts      # Selected event & discipline, shared by the navigation bar and the race pages
-│   │   ├── pages/            # Diagnostics and configuration pages
+│   │   ├── pages/            # Race, live, diagnostics and configuration pages
 │   │   └── main.ts           # Entry point
+│   ├── scripts/
+│   │   └── check-i18n.mjs    # Checks that the text keys used in the code exist (run by npm run build)
 │   └── package.json
 ├── scripts/
 │   └── package.mjs           # Builds standalone release packages (npm run package)
@@ -103,3 +108,16 @@ The script runs on Linux and Windows, but build the Linux package on Linux: arch
 ## 📄 License
 
 MIT
+
+---
+
+## 🌐 Translations
+
+The interface texts are in `frontend/src/locales`, with [vue-i18n](https://vue-i18n.intlify.dev/): `en.ts` is the reference and `fr.ts` the French translation. Components use `$t('race.participant')` in templates, `useI18n().t` in scripts, and `t` from `i18n.ts` in plain modules.
+
+- **Change a text**: edit it in each language file. `{name}` is replaced by a value, `one | many` picks a form by count, and `{ } @ $ |` cannot be used as plain text.
+- **Add a text**: add its key to `en.ts` and to every other language. `npm run build` fails when a key used in the code is missing from `en.ts` (`npm run check:i18n`), or when a language misses a key of `en.ts` (type check).
+- **Add a language**: copy `en.ts` to `<code>.ts` (e.g. `de.ts`), translate it, then add it to `LOCALES` and `messages` in `frontend/src/i18n.ts` (and a plural rule if it differs from English), and its flag to `frontend/src/components/nav/LanguageFlag.vue`. It then appears in the title menu.
+
+Texts sent by the backend (validation problems, device errors and hints) are not translated.
+

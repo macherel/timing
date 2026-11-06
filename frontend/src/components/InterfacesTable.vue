@@ -25,21 +25,21 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
 <template>
   <label class="toggle">
     <input v-model="onlyConfigured" type="checkbox" />
-    Only interfaces used by a rule
+    {{ $t('interfaces.onlyConfigured') }}
   </label>
-  <p v-if="rows.length === 0" class="muted">No HID interface found.</p>
+  <p v-if="rows.length === 0" class="muted">{{ $t('interfaces.none') }}</p>
   <div v-else class="scroll">
     <table>
       <thead>
         <tr>
-          <th>Device</th>
-          <th>VID:PID</th>
-          <th>Usage(s)</th>
-          <th>Interface</th>
-          <th>Serial</th>
-          <th>USB port</th>
-          <th>Path</th>
-          <th>Rule</th>
+          <th>{{ $t('hid.device') }}</th>
+          <th>{{ $t('interfaces.vidPid') }}</th>
+          <th>{{ $t('hid.usages') }}</th>
+          <th>{{ $t('hid.interface') }}</th>
+          <th>{{ $t('hid.serial') }}</th>
+          <th>{{ $t('hid.usbPort') }}</th>
+          <th>{{ $t('hid.path') }}</th>
+          <th>{{ $t('interfaces.rule') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -51,8 +51,8 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
           <td class="mono">{{ item.vendorId }}:{{ item.productId }}</td>
           <td>
             <div v-for="usage in item.usages" :key="usage">{{ usage }}</div>
-            <div v-if="item.usages.length > 1" class="muted">several collections: byte 0 is the report ID</div>
-            <div v-if="item.osOwned && osOwnedUnreadable" class="warn-text">mouse/keyboard: not readable on {{ platform }}</div>
+            <div v-if="item.usages.length > 1" class="muted">{{ $t('hid.severalCollections') }}</div>
+            <div v-if="item.osOwned && osOwnedUnreadable" class="warn-text">{{ $t('hid.osOwned', { platform }) }}</div>
           </td>
           <td>{{ item.interfaceNumber }}</td>
           <td class="mono">{{ item.serialNumber || '—' }}</td>
@@ -61,8 +61,8 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
           <td>
             <div v-for="rule in item.rules" :key="rule.name">
               {{ rule.name }}
-              <span v-if="!rule.enabled" class="badge">disabled</span>
-              <span v-if="rule.conflict" class="badge error" title="Another interface already uses this rule">ignored</span>
+              <span v-if="!rule.enabled" class="badge">{{ $t('interfaces.disabled') }}</span>
+              <span v-if="rule.conflict" class="badge error" :title="$t('interfaces.conflict')">{{ $t('interfaces.ignored') }}</span>
             </div>
             <span v-if="item.rules.length === 0" class="muted">—</span>
           </td>

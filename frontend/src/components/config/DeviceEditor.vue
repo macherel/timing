@@ -59,33 +59,33 @@ const hasAdvanced = computed(
     <header class="device-header">
       <span class="device-number">#{{ index + 1 }}</span>
       <label class="field grow">
-        <span>Device name</span>
-        <input v-model="device.name" type="text" placeholder="Start gate" />
+        <span>{{ $t('device.name') }}</span>
+        <input v-model="device.name" type="text" :placeholder="$t('device.namePlaceholder')" />
       </label>
       <label class="switch">
         <input v-model="device.enabled" type="checkbox" />
-        Enabled
+        {{ $t('device.enabled') }}
       </label>
       <div class="device-actions">
-        <button type="button" class="icon" :disabled="index === 0" title="Move up" @click="$emit('move', -1)">↑</button>
-        <button type="button" class="icon" :disabled="index === count - 1" title="Move down" @click="$emit('move', 1)">↓</button>
-        <button type="button" class="icon danger" title="Remove device" @click="$emit('remove')">✕</button>
+        <button type="button" class="icon" :disabled="index === 0" :title="$t('device.moveUp')" @click="$emit('move', -1)">↑</button>
+        <button type="button" class="icon" :disabled="index === count - 1" :title="$t('device.moveDown')" @click="$emit('move', 1)">↓</button>
+        <button type="button" class="icon danger" :title="$t('device.remove')" @click="$emit('remove')">✕</button>
       </div>
     </header>
 
     <div class="row">
       <label class="field">
-        <span>Vendor ID (hex)</span>
+        <span>{{ $t('device.vendorId') }}</span>
         <input v-model="device.vendorId" type="text" class="mono short" placeholder="0x046d" />
       </label>
       <label class="field">
-        <span>Product ID (hex)</span>
+        <span>{{ $t('device.productId') }}</span>
         <input v-model="device.productId" type="text" class="mono short" placeholder="0xc548" />
       </label>
       <label class="field">
-        <span>Connected device</span>
+        <span>{{ $t('device.connected') }}</span>
         <select :value="matchingModel ? modelKey(matchingModel) : ''" @change="fillFromConnected">
-          <option value="">{{ hasIds ? 'Not connected: choose one to use its IDs…' : 'Choose one to use its IDs…' }}</option>
+          <option value="">{{ hasIds ? $t('device.notConnected') : $t('device.chooseConnected') }}</option>
           <option v-for="model in connectedModels" :key="modelKey(model)" :value="modelKey(model)">
             {{ model.manufacturer }} {{ model.product || '?' }} ({{ model.vendorId }}:{{ model.productId }})
           </option>
@@ -94,69 +94,65 @@ const hasAdvanced = computed(
     </div>
 
     <details class="advanced" :open="hasAdvanced">
-      <summary>Interface and unit selection, debugging</summary>
+      <summary>{{ $t('device.advanced') }}</summary>
       <div class="row">
         <label class="field">
-          <span>Usage page</span>
-          <input v-model="device.usagePage" type="text" inputmode="numeric" class="short" placeholder="default" />
+          <span>{{ $t('hid.usagePage') }}</span>
+          <input v-model="device.usagePage" type="text" inputmode="numeric" class="short" :placeholder="$t('device.default')" />
         </label>
         <label class="field">
-          <span>Usage</span>
-          <input v-model="device.usage" type="text" inputmode="numeric" class="short" placeholder="default" />
+          <span>{{ $t('hid.usage') }}</span>
+          <input v-model="device.usage" type="text" inputmode="numeric" class="short" :placeholder="$t('device.default')" />
         </label>
         <label class="field">
-          <span>Serial number</span>
-          <input v-model="device.serialNumber" type="text" placeholder="any" />
+          <span>{{ $t('device.serialNumber') }}</span>
+          <input v-model="device.serialNumber" type="text" :placeholder="$t('common.any')" />
         </label>
         <label class="field">
-          <span>USB port (Linux)</span>
-          <input v-model="device.usbPort" type="text" class="mono short" placeholder="any, e.g. 3-5" />
+          <span>{{ $t('device.usbPortLinux') }}</span>
+          <input v-model="device.usbPort" type="text" class="mono short" :placeholder="$t('device.usbPortPlaceholder')" />
         </label>
         <label class="switch">
           <input v-model="device.logReports" type="checkbox" />
-          Log raw reports
+          {{ $t('device.logReports') }}
         </label>
       </div>
-      <p class="muted small">
-        Usage page and usage pick one interface of the device (otherwise the default interface applies). Serial
-        number or USB port tell identical devices apart. The Diagnostics page lists these values for every device.
-      </p>
+      <p class="muted small">{{ $t('device.advancedHint') }}</p>
     </details>
 
-    <h4>Triggers</h4>
-    <p class="muted small">
-      A trigger fires its press action when <code>(report[byte] &amp; mask) == value</code> starts being true, and its
-      release action when it stops. Mask and value are hex.
-    </p>
+    <h4>{{ $t('hid.triggers') }}</h4>
+    <i18n-t keypath="device.triggersHint" tag="p" class="muted small">
+      <template #condition><code>(report[byte] &amp; mask) == value</code></template>
+    </i18n-t>
     <div class="scroll">
       <table class="triggers">
         <thead>
           <tr>
-            <th>Report ID</th>
-            <th>Byte</th>
-            <th>Mask</th>
-            <th>Value</th>
-            <th>Press action</th>
-            <th>Release action</th>
+            <th>{{ $t('hid.reportId') }}</th>
+            <th>{{ $t('hid.byte') }}</th>
+            <th>{{ $t('hid.mask') }}</th>
+            <th>{{ $t('hid.value') }}</th>
+            <th>{{ $t('hid.pressAction') }}</th>
+            <th>{{ $t('hid.releaseAction') }}</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(trigger, j) in device.triggers" :key="j">
-            <td><input v-model="trigger.reportId" type="text" inputmode="numeric" class="tiny" placeholder="any" /></td>
+            <td><input v-model="trigger.reportId" type="text" inputmode="numeric" class="tiny" :placeholder="$t('common.any')" /></td>
             <td><input v-model="trigger.byteIndex" type="text" inputmode="numeric" class="tiny" placeholder="1" /></td>
             <td><input v-model="trigger.mask" type="text" class="mono tiny" placeholder="0x01" /></td>
             <td><input v-model="trigger.value" type="text" class="mono tiny" placeholder="0x01" /></td>
             <td><input v-model="trigger.action" type="text" list="trigger-actions" placeholder="start_crossed" /></td>
-            <td><input v-model="trigger.releaseAction" type="text" list="trigger-actions" placeholder="none" /></td>
+            <td><input v-model="trigger.releaseAction" type="text" list="trigger-actions" :placeholder="$t('device.noAction')" /></td>
             <td>
-              <button type="button" class="icon danger" title="Remove trigger" @click="device.triggers.splice(j, 1)">✕</button>
+              <button type="button" class="icon danger" :title="$t('device.removeTrigger')" @click="device.triggers.splice(j, 1)">✕</button>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
-    <button type="button" class="secondary small-button" @click="device.triggers.push(emptyTrigger())">+ Add trigger</button>
+    <button type="button" class="secondary small-button" @click="device.triggers.push(emptyTrigger())">{{ $t('device.addTrigger') }}</button>
 
     <ul v-if="problems.length > 0" class="alert error problems">
       <li v-for="problem in problems" :key="problem">{{ problem }}</li>

@@ -1,0 +1,386 @@
+/**
+ * English texts, the reference: every other language has the same keys (checked by the type of fr.ts).
+ *
+ * Syntax (vue-i18n): {name} is replaced by a value, "one | many" picks a form by count ({n} is the count), and the
+ * characters { } @ $ | must not appear as plain text. Text with markup (code, emphasis) is built with <i18n-t> in
+ * the component, the markup being one of the {values}.
+ */
+export default {
+  common: {
+    close: 'Close',
+    choose: 'Choose',
+    cancel: 'Cancel',
+    save: 'Save',
+    reload: 'Reload',
+    clear: 'Clear',
+    loading: 'Loading…',
+    any: 'any',
+    status: {
+      ok: 'OK',
+      invalid: 'Invalid',
+      dq: 'DQ',
+    },
+  },
+
+  pages: {
+    race: 'Race',
+    live: 'Live',
+    diagnostics: 'Diagnostics',
+    config: 'Hardware configuration',
+  },
+
+  nav: {
+    sections: {
+      race: 'Race',
+      admin: 'Administration',
+    },
+    syncProblem: 'Sync problem: open the menu for details',
+    syncProblemLabel: 'Sync problem',
+    sync: 'Sync',
+    language: 'Language',
+  },
+
+  sync: {
+    off: 'Sync off',
+    alone: 'Sync: no other computer',
+    syncedWith: 'Synced with {n} computer | Synced with {n} computers',
+    failing: '· failing',
+    clocksDiffer: '· clocks differ',
+    unavailable: 'Sync status unavailable',
+    disabledHint: 'Set a sync key on the configuration page to sync with other computers.',
+    thisComputer: 'This computer: {name}',
+    peerFailing: '— sync failing: {error}',
+    clockDiffers: '— clock differs by {seconds} s',
+    noPeer: 'No other computer with the same key found on the network.',
+  },
+
+  switcher: {
+    chooseEvent: 'Choose an event',
+    chooseDisciplineOf: '{event} · choose a discipline',
+    buttonTitle: 'Event, discipline and its settings',
+    panelLabel: 'Event and discipline',
+    noEvent: 'No event in the working directory yet.',
+    event: 'Event',
+    discipline: 'Discipline',
+    chooseDiscipline: 'Choose a discipline',
+    noDiscipline: 'No discipline in this event',
+    settings: '⚙ Discipline settings',
+    settingsTitle: 'Attempts, period and access of this discipline',
+    reload: '↻ Reload lists',
+    reloadTitle: 'Read the folders and CSV files again',
+    settingsOf: 'Settings of {event} · {discipline}',
+    loadError: 'Cannot load the events: {error}',
+  },
+
+  settings: {
+    access: {
+      auto: 'Auto',
+      autoHint: 'Open during the period above',
+      open: 'Open',
+      openHint: 'Always open, ignores the period (e.g. to correct a result)',
+      locked: 'Locked',
+      lockedHint: 'Never open: results are final',
+    },
+    attempts: 'Attempts per participant',
+    unlimited: 'Unlimited',
+    attemptsHint: 'Invalid runs do not use up an attempt. Leave empty for unlimited attempts.',
+    start: 'Start',
+    end: 'End',
+    periodHint:
+      "Runs can be timed and results changed only from the start until the end (this computer's time, saved in UTC). Leave empty for no limit.",
+    accessLegend: 'Runs and result changes',
+    loadError: 'Cannot load the settings: {error}',
+    attemptsInvalid: 'Attempts must be a whole number from 1, or empty for unlimited.',
+    startAfterEnd: 'The start must be before the end.',
+    saveError: 'Cannot save the settings: {error}',
+  },
+
+  race: {
+    // Why a discipline is closed (or would be): completes "is closed: …" and "is open although …"
+    reason: {
+      notStarted: 'its period starts on {date}',
+      ended: 'its period ended on {date}',
+      locked: 'its results are locked',
+    },
+    runInProgress: 'A run is in progress: the event and discipline cannot change.',
+    errors: {
+      loadResults: 'Cannot load the results: {error}',
+      loadRun: 'Cannot load the current run: {error}',
+      changeResult: 'Cannot change the result: {error}',
+      loadParticipants: 'Cannot load the participants: {error}',
+      ready: 'Cannot get the participant ready: {error}',
+      cancel: 'Cannot cancel the run: {error}',
+      invalidate: 'Cannot invalidate the run: {error}',
+      disqualify: 'Cannot disqualify the participant: {error}',
+    },
+    confirmCancel: 'Cancel this run? Its time will not be saved.',
+    confirmDisqualify: 'Disqualify {bib} {name}? The run ends now and is saved as disqualified (DQ).',
+    confirmInvalidate:
+      'Invalidate this run of {bib} {name}? The run ends now and is saved as invalid (not a disqualification).',
+    // {dir} is the working directory
+    noEvent:
+      'No event yet. Create one folder per event in {dir}, one subfolder per discipline, and put the participant CSV files in it:',
+    // {button} is switcher.reload
+    noEventThen: 'Then click {button} in the menu of the title.',
+    chooseDisciplineOf: 'Choose a discipline of {event} to time runs.',
+    chooseEventAndDiscipline: 'Choose an event and a discipline to time runs.',
+    participant: 'Participant',
+    remaining: '({remaining} remaining / {total})',
+    count: '({total})',
+    forcedOpen:
+      '{event} / {discipline} is open although {reason}: access is forced open in the discipline settings (title menu).',
+    closed:
+      '{event} / {discipline} is closed: {reason}. Runs and result changes are disabled (see the discipline settings in the title menu).',
+    // {format} is the line format, bib;name
+    noParticipant: 'No participant in {event} / {discipline}: add CSV files with {format} lines to its folder.',
+    problems: '{n} problem in the files of {discipline} | {n} problems in the files of {discipline}',
+  },
+
+  run: {
+    hints: {
+      ok: 'Valid run',
+      invalid: 'Invalid: this run does not count (not the participant’s fault)',
+      dq: 'Disqualified: this run does not count',
+    },
+    allUsed: 'Its only attempt is used | All {n} attempts used',
+    attempt: 'Attempt {n}',
+    attemptOf: 'Attempt {n} of {total}',
+    waitingStart: 'Waiting for the start…',
+    cancelRun: 'Cancel run',
+    cancelRunTitle: 'Abandon the run, nothing is saved',
+    invalidate: 'Invalidate',
+    invalidateTitle: "End the run now and save it as invalid (not the participant's fault)",
+    disqualify: 'Disqualify',
+    disqualifyTitle: 'End the run now and save it as disqualified',
+    justFinished: 'Time of the run that just finished',
+    closedTitle: 'Closed: {reason}',
+    noAttemptLeft: 'No attempt left',
+    ready: 'Ready to start',
+    otherWaiting: '{bib} {name} ({event} / {discipline}) is waiting for the start.',
+    otherRunning: '{bib} {name} ({event} / {discipline}) is running.',
+    results: 'Results',
+    run: 'Run',
+    time: 'Time',
+    startedAt: 'Started at',
+    status: 'Status',
+    noRun: 'No run yet.',
+    noTime: 'Ended before the finish: no time',
+    best: 'best',
+    statusOf: 'Status of run {n}',
+  },
+
+  picker: {
+    placeholder: 'Bib number or name',
+    allUsed: 'All attempts used',
+    done: 'done',
+    noMatch: 'No participant matches “{query}”',
+  },
+
+  live: {
+    loadError: 'Cannot load the live activity: {error}',
+    noTime: 'No time yet',
+    best: 'Best: {time} (rank {rank})',
+    choose: 'Choose the event and discipline to show.',
+    onTrack: 'On track',
+    nobody: 'No computer shows {event} · {discipline} on its race page.',
+    ready: 'Ready',
+    waiting: 'Waiting',
+    ranking: 'Ranking',
+    noResult: 'No result yet.',
+    bib: 'Bib',
+    name: 'Name',
+    category: 'Category',
+    bestTime: 'Best time',
+    runs: 'Runs',
+  },
+
+  config: {
+    confirmDiscard: 'Discard your unsaved changes and reload the file?',
+    confirmStartOver: 'Start from an empty form? Saving will replace the current config.yaml.',
+    confirmLeave: 'You have unsaved changes. Leave this page anyway?',
+    confirmRemove: 'Remove device "{name}"?',
+    saved: 'Saved. The app applies the new configuration within a second.',
+    conflict: 'config.yaml was changed outside this page since it was loaded. Reload it, then redo your changes.',
+    notSavedHttp: 'Not saved (HTTP {status}).',
+    notSaved: 'Not saved: {error}',
+    cannotValidate: 'Cannot validate: {error}',
+    loadError: 'Cannot load the configuration: {error}',
+    defaultDeviceName: 'Device {n}',
+    reloadFromDisk: 'Reload from disk',
+    saving: 'Saving…',
+    fileMissing: 'does not exist yet: saving creates it',
+    unsaved: 'unsaved changes',
+    savedState: 'saved',
+    checking: 'checking…',
+    valid: '✔ valid',
+    problems: '✘ {n} problem | ✘ {n} problems',
+    invalidFile: 'config.yaml cannot be shown in the form because it is invalid:',
+    // {button} is config.reloadFromDisk
+    invalidFileFix: 'Fix it in a text editor and click "{button}", or start over in the form.',
+    startOver: 'Start from an empty form',
+    rewriteNote: 'Saving rewrites config.yaml in a standard layout: comments in the file are not kept.',
+    port: {
+      title: 'Port',
+      label: 'Port of the app',
+      hint: 'Used when the app starts: restart it after a change, then open it at the new address. Empty for 3001. The --port option and the PORT environment variable take precedence.',
+    },
+    sync: {
+      title: 'Sync',
+      enable: 'Sync the events with the other computers on the local network that have the same key',
+      key: 'Key',
+      keyPlaceholder: 'e.g. amber-otter-glide',
+      name: 'Name of this computer',
+      namePlaceholder: 'The computer name',
+      hint: 'Applied a few seconds after saving, no restart needed.',
+    },
+    discovery: {
+      title: 'Default interface',
+      enable: 'Only use one HID interface of each device, unless the device below says otherwise',
+      hint: '1 / 2 is a mouse, 1 / 6 a keyboard, 1 / 5 a gamepad.',
+    },
+    devices: 'Devices',
+    noDevice: 'No device yet.',
+    devicesHint:
+      'When several entries match the same HID interface, the first one in this list is used. The device name identifies it in race events, so it must be unique.',
+    addDevice: '+ Add device',
+    // Prefix of a problem of a trigger, e.g. "Trigger 2: mask must be…"
+    triggerProblem: 'Trigger {n}: {problem}',
+  },
+
+  device: {
+    name: 'Device name',
+    namePlaceholder: 'Start gate',
+    enabled: 'Enabled',
+    moveUp: 'Move up',
+    moveDown: 'Move down',
+    remove: 'Remove device',
+    vendorId: 'Vendor ID (hex)',
+    productId: 'Product ID (hex)',
+    connected: 'Connected device',
+    notConnected: 'Not connected: choose one to use its IDs…',
+    chooseConnected: 'Choose one to use its IDs…',
+    advanced: 'Interface and unit selection, debugging',
+    default: 'default',
+    serialNumber: 'Serial number',
+    usbPortLinux: 'USB port (Linux)',
+    usbPortPlaceholder: 'any, e.g. 3-5',
+    logReports: 'Log raw reports',
+    advancedHint:
+      'Usage page and usage pick one interface of the device (otherwise the default interface applies). Serial number or USB port tell identical devices apart. The Diagnostics page lists these values for every device.',
+    // {condition} is the formula, (report[byte] & mask) == value
+    triggersHint:
+      'A trigger fires its press action when {condition} starts being true, and its release action when it stops. Mask and value are hex.',
+    noAction: 'none',
+    removeTrigger: 'Remove trigger',
+    addTrigger: '+ Add trigger',
+  },
+
+  // Words shared by the HID tables of the configuration and diagnostics pages
+  hid: {
+    triggers: 'Triggers',
+    usagePage: 'Usage page',
+    usage: 'Usage',
+    usages: 'Usage(s)',
+    reportId: 'Report ID',
+    byte: 'Byte',
+    mask: 'Mask',
+    value: 'Value',
+    pressAction: 'Press action',
+    releaseAction: 'Release action',
+    interface: 'Interface',
+    serial: 'Serial',
+    usbPort: 'USB port',
+    path: 'Path',
+    time: 'Time',
+    device: 'Device',
+    severalCollections: 'several collections: byte 0 is the report ID',
+    osOwned: 'mouse/keyboard: not readable on {platform}',
+    notConfigured: 'not configured',
+    states: {
+      listening: 'listening',
+      failing: 'failing',
+    },
+  },
+
+  diagnostics: {
+    pause: 'Pause updates',
+    resume: 'Resume updates',
+    backend: 'Backend',
+    unreachable: 'unreachable ({error})',
+    online: 'online',
+    connecting: 'connecting…',
+    liveEvents: 'Live events',
+    connected: 'connected',
+    disconnected: 'disconnected',
+    platform: 'Platform',
+    configValid: 'valid',
+    configInvalid: 'invalid or missing: see backend logs',
+    editConfig: 'Edit configuration',
+    lastScan: 'Last device scan',
+    pageUpdated: 'Page updated',
+    paused: '(paused)',
+    devices: 'Devices',
+    noHid: 'No HID device found, and no configured device is open.',
+    noneOpen: 'No configured device is open. Check the problems below, or add a connected device to the configuration.',
+    configProblems: 'Configuration problems',
+    raceEvents: 'Race events',
+    hidTitle: 'HID interfaces on this computer',
+    // {config} is config.yaml, {command} the diagnose command
+    hidHint:
+      'Everything the last scan found. Use the VID/PID, usage, serial number or USB port in {config}. To find which bits a button changes, open a device above or run {command} in the backend.',
+  },
+
+  deviceCard: {
+    since: 'Since',
+    reportsReceived: 'Reports received',
+    lastReport: 'Last report',
+    noneYet: 'none yet',
+    attempts: 'Attempts',
+    noTrigger: 'No trigger configured for this device.',
+    state: 'State',
+    pressed: 'pressed',
+    idle: 'idle',
+    noReport: 'No report received yet. Press a button on the device.',
+    watchedHint: 'Bits outlined in orange are read by a trigger.',
+    recentChanges: 'Recent changes',
+    recentHint: 'Reports that differ from the previous one with the same report ID, newest first.',
+    noChange: 'None yet.',
+    bytes: 'Bytes',
+    changedBits: 'Changed bits',
+    firstReport: 'first report with this ID',
+  },
+
+  unconfigured: {
+    add: '+ Add to configuration',
+    manufacturer: 'Manufacturer',
+    vendorProduct: 'Vendor / product ID',
+    // {command} is the diagnose command
+    explain:
+      'The app does not open devices that are not in the configuration, so no report is shown. To see which bits its buttons change, add it to the configuration, or run {command}.',
+    interfaces: 'HID interfaces',
+  },
+
+  interfaces: {
+    onlyConfigured: 'Only interfaces used by a rule',
+    none: 'No HID interface found.',
+    vidPid: 'VID:PID',
+    rule: 'Rule',
+    disabled: 'disabled',
+    ignored: 'ignored',
+    conflict: 'Another interface already uses this rule',
+  },
+
+  report: {
+    hex: 'Hex',
+    reportId: 'report ID',
+    bit: 'byte {byte} bit {bit} (mask {mask})',
+    usedByTrigger: '— used by a trigger',
+  },
+
+  eventLog: {
+    none: 'No crossing received since this page was opened.',
+    action: 'Action',
+    crossings: 'Crossings for device',
+    timestamp: 'Exact timestamp',
+  },
+};

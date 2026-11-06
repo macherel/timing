@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { DisciplineSettings } from '../../types';
 import { fromLocalInput, toLocalInput } from '../../race/dateTime';
 
@@ -10,11 +11,15 @@ import { fromLocalInput, toLocalInput } from '../../race/dateTime';
 const props = defineProps<{ event: string; discipline: string }>();
 const emit = defineEmits<{ done: [] }>();
 
-const ACCESS_OPTIONS: { value: DisciplineSettings['access']; label: string; hint: string }[] = [
-  { value: 'auto', label: 'Auto', hint: 'Open during the period above' },
-  { value: 'open', label: 'Open', hint: 'Always open, ignores the period (e.g. to correct a result)' },
-  { value: 'locked', label: 'Locked', hint: 'Never open: results are final' },
-];
+const { t } = useI18n();
+
+const ACCESS_OPTIONS = computed(() =>
+  (['auto', 'open', 'locked'] as const).map((value) => ({
+    value,
+    label: t(`settings.access.${value}`),
+    hint: t(`settings.access.${value}Hint`),
+  })),
+);
 
 // The attempts as typed, empty for unlimited (Vue gives a number input's value as a number)
 const attemptsInput = ref<string | number>('');
@@ -45,7 +50,7 @@ onMounted(async () => {
     accessInput.value = settings.access;
     loaded.value = true;
   } catch (e) {
-    error.value = `Cannot load the settings: ${errorText(e)}`;
+    error.value = t('settings.loadError', { error: errorText(e) });
   }
 });
 
@@ -53,11 +58,11 @@ async function save(): Promise<void> {
   const text = String(attemptsInput.value ?? '').trim();
   const attempts = text === '' ? null : Number(text);
   if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
-    error.value = 'Attempts must be a whole number from 1, or empty for unlimited.';
+    error.value = t('settings.attemptsInvalid');
     return;
   }
   if (startInput.value && endInput.value && startInput.value >= endInput.value) {
-    error.value = 'The start must be before the end.';
+    error.value = t('settings.startAfterEnd');
     return;
   }
   saving.value = true;
@@ -71,7 +76,7 @@ async function save(): Promise<void> {
     });
     emit('done');
   } catch (e) {
-    error.value = `Cannot save the settings: ${errorText(e)}`;
+    error.value = t('settings.saveError', { error: errorText(e) });
   } finally {
     saving.value = false;
   }
@@ -82,26 +87,23 @@ async function save(): Promise<void> {
   <form class="settings" @submit.prevent="save">
     <template v-if="loaded">
       <label class="field">
-        Attempts per participant
-        <input v-model="attemptsInput" type="number" min="1" step="1" placeholder="Unlimited" class="attempts" />
+        {{ $t('settings.attempts') }}
+        <input v-model="attemptsInput" type="number" min="1" step="1" :placeholder="$t('settings.unlimited')" class="attempts" />
       </label>
-      <p class="muted small">Invalid runs do not use up an attempt. Leave empty for unlimited attempts.</p>
+      <p class="muted small">{{ $t('settings.attemptsHint') }}</p>
       <div class="period">
         <label class="field">
-          Start
+          {{ $t('settings.start') }}
           <input v-model="startInput" type="datetime-local" :max="endInput || undefined" />
         </label>
         <label class="field">
-          End
+          {{ $t('settings.end') }}
           <input v-model="endInput" type="datetime-local" :min="startInput || undefined" />
         </label>
       </div>
-      <p class="muted small">
-        Runs can be timed and results changed only from the start until the end (this computer's time, saved in UTC).
-        Leave empty for no limit.
-      </p>
+      <p class="muted small">{{ $t('settings.periodHint') }}</p>
       <fieldset class="access">
-        <legend>Runs and result changes</legend>
+        <legend>{{ $t('settings.accessLegend') }}</legend>
         <div class="segmented" role="radiogroup">
           <label v-for="option in ACCESS_OPTIONS" :key="option.value" :class="[option.value, { checked: accessInput === option.value }]" :title="option.hint">
             <input v-model="accessInput" type="radio" name="access" :value="option.value" />
@@ -111,11 +113,11 @@ async function save(): Promise<void> {
         <p class="muted small">{{ ACCESS_OPTIONS.find((option) => option.value === accessInput)?.hint }}</p>
       </fieldset>
     </template>
-    <p v-else-if="!error" class="muted small">Loading…</p>
+    <p v-else-if="!error" class="muted small">{{ $t('common.loading') }}</p>
     <p v-if="error" class="alert error">{{ error }}</p>
     <div class="actions">
-      <button type="submit" :disabled="saving || !loaded">Save</button>
-      <button type="button" class="secondary" @click="emit('done')">Cancel</button>
+      <button type="submit" :disabled="saving || !loaded">{{ $t('common.save') }}</button>
+      <button type="button" class="secondary" @click="emit('done')">{{ $t('common.cancel') }}</button>
     </div>
   </form>
 </template>

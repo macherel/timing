@@ -4,10 +4,13 @@ import DiagnosticsPage from './pages/DiagnosticsPage.vue';
 import RacePage from './pages/RacePage.vue';
 import LivePage from './pages/LivePage.vue';
 import { installSelection } from './selection';
+import { locale, t } from './i18n';
+import { watch } from 'vue';
 
 declare module 'vue-router' {
   interface RouteMeta {
-    title?: string;
+    // Key of the page name in the texts (pages.<page>), shown in the menu and the browser tab
+    page?: 'race' | 'live' | 'diagnostics' | 'config';
     // Menu group: race pages work on the selected event and discipline, administration pages on the computer
     section?: 'race' | 'admin';
   }
@@ -18,16 +21,19 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     // The order of the routes is the order of the menu
-    { path: '/', component: RacePage, meta: { title: 'Race', section: 'race' } },
-    { path: '/live', component: LivePage, meta: { title: 'Live', section: 'race' } },
-    { path: '/diagnostics', component: DiagnosticsPage, meta: { title: 'Diagnostics', section: 'admin' } },
-    { path: '/config', component: ConfigPage, meta: { title: 'Hardware configuration', section: 'admin' } },
+    { path: '/', component: RacePage, meta: { page: 'race', section: 'race' } },
+    { path: '/live', component: LivePage, meta: { page: 'live', section: 'race' } },
+    { path: '/diagnostics', component: DiagnosticsPage, meta: { page: 'diagnostics', section: 'admin' } },
+    { path: '/config', component: ConfigPage, meta: { page: 'config', section: 'admin' } },
     { path: '/:unknown(.*)*', redirect: '/' },
   ],
 });
 
 installSelection(router);
 
-router.afterEach((to) => {
-  document.title = to.meta.title ? `${to.meta.title} · Timing` : 'Timing';
-});
+// The browser tab shows the page name, in the current language
+watch(
+  [router.currentRoute, locale],
+  ([route]) => (document.title = route.meta.page ? `${t(`pages.${route.meta.page}`)} · Timing` : 'Timing'),
+  { immediate: true },
+);

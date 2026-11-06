@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { usePopover } from '../../composables/usePopover';
 import DisciplineSettingsForm from './DisciplineSettingsForm.vue';
 import {
@@ -25,10 +26,11 @@ const button = ref<HTMLButtonElement | null>(null);
 const eventSelect = ref<HTMLSelectElement | null>(null);
 const { toggle, close } = usePopover(root, button, switcherOpen);
 const editingSettings = ref(false);
+const { t } = useI18n();
 
 const label = computed(() => {
-  if (!eventName.value) return 'Choose an event';
-  return discipline.value ? `${eventName.value} · ${discipline.value}` : `${eventName.value} · choose a discipline`;
+  if (!eventName.value) return t('switcher.chooseEvent');
+  return discipline.value ? `${eventName.value} · ${discipline.value}` : t('switcher.chooseDisciplineOf', { event: eventName.value });
 });
 const incomplete = computed(() => !eventName.value || !discipline.value);
 
@@ -68,39 +70,39 @@ function reload(): void {
       :class="{ incomplete }"
       aria-haspopup="dialog"
       :aria-expanded="switcherOpen"
-      title="Event, discipline and its settings"
+      :title="$t('switcher.buttonTitle')"
       @click="toggle"
     >
       {{ label }}
       <span class="caret" aria-hidden="true">▾</span>
     </button>
 
-    <div v-if="switcherOpen" class="panel" :class="{ wide: editingSettings }" role="dialog" aria-label="Event and discipline">
-      <p v-if="eventsLoaded && events.length === 0" class="muted">No event in the working directory yet.</p>
+    <div v-if="switcherOpen" class="panel" :class="{ wide: editingSettings }" role="dialog" :aria-label="$t('switcher.panelLabel')">
+      <p v-if="eventsLoaded && events.length === 0" class="muted">{{ $t('switcher.noEvent') }}</p>
       <template v-else>
         <p v-if="selectionLock" class="lock muted">{{ selectionLock }}</p>
         <div class="choices">
           <label class="field">
-            Event
+            {{ $t('switcher.event') }}
             <select
               ref="eventSelect"
               :value="eventName"
               :disabled="selectionLock !== null"
               @change="onEvent(($event.target as HTMLSelectElement).value)"
             >
-              <option value="" disabled>Choose an event</option>
+              <option value="" disabled>{{ $t('switcher.chooseEvent') }}</option>
               <option v-for="event in events" :key="event.name" :value="event.name">{{ event.name }}</option>
             </select>
           </label>
           <label class="field">
-            Discipline
+            {{ $t('switcher.discipline') }}
             <select
               :value="discipline"
               :disabled="selectionLock !== null || !currentEvent || currentEvent.disciplines.length === 0"
               @change="onDiscipline(($event.target as HTMLSelectElement).value)"
             >
               <option value="" disabled>
-                {{ currentEvent && currentEvent.disciplines.length === 0 ? 'No discipline in this event' : 'Choose a discipline' }}
+                {{ currentEvent && currentEvent.disciplines.length === 0 ? $t('switcher.noDiscipline') : $t('switcher.chooseDiscipline') }}
               </option>
               <option v-for="name in currentEvent?.disciplines ?? []" :key="name" :value="name">{{ name }}</option>
             </select>
@@ -114,16 +116,16 @@ function reload(): void {
           type="button"
           class="link"
           :aria-expanded="editingSettings"
-          title="Attempts, period and access of this discipline"
+          :title="$t('switcher.settingsTitle')"
           @click="editingSettings = !editingSettings"
         >
-          ⚙ Discipline settings
+          {{ $t('switcher.settings') }}
         </button>
-        <button type="button" class="link" title="Read the folders and CSV files again" @click="reload">↻ Reload lists</button>
+        <button type="button" class="link" :title="$t('switcher.reloadTitle')" @click="reload">{{ $t('switcher.reload') }}</button>
       </div>
 
       <section v-if="editingSettings && disciplineExists" class="settings-section">
-        <h3>Settings of {{ eventName }} · {{ discipline }}</h3>
+        <h3>{{ $t('switcher.settingsOf', { event: eventName, discipline }) }}</h3>
         <DisciplineSettingsForm :event="eventName" :discipline="discipline" @done="editingSettings = false" />
       </section>
     </div>

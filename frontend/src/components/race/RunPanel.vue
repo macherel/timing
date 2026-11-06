@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { Participant, RunResult, RunState, RunStatus } from '../../types';
 import { formatDuration, formatTime, parseInstant } from '../../format';
 import { countsAsAttempt, sameRun } from '../../race/results';
@@ -22,12 +23,11 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ ready: []; cancel: []; invalidate: []; disqualify: []; setStatus: [result: RunResult, status: RunStatus] }>();
 
-const STATUS_LABELS: Record<RunStatus, string> = { ok: 'OK', invalid: 'Invalid', dq: 'DQ' };
-const STATUS_HINTS: Record<RunStatus, string> = {
-  ok: 'Valid run',
-  invalid: 'Invalid: this run does not count (not the participant’s fault)',
-  dq: 'Disqualified: this run does not count',
-};
+const { t } = useI18n();
+
+const STATUSES: RunStatus[] = ['ok', 'invalid', 'dq'];
+const statusLabel = (status: RunStatus) => t(`common.status.${status}`);
+const statusHint = (status: RunStatus) => t(`run.hints.${status}`);
 
 const isThisRun = computed(() => props.run.status !== 'idle' && props.run.participant.bib === props.participant.bib);
 // Best time among the valid runs; invalid and disqualified runs never count
@@ -40,9 +40,9 @@ const usedAttempts = computed(() => props.results.filter(countsAsAttempt).length
 const noAttemptLeft = computed(() => props.attempts !== null && usedAttempts.value >= props.attempts);
 // The attempt being run or about to be run, e.g. "Attempt 2 of 3"
 const attemptLabel = computed(() => {
-  if (noAttemptLeft.value && !isThisRun.value) return `All ${props.attempts} attempt(s) used`;
+  if (noAttemptLeft.value && !isThisRun.value) return t('run.allUsed', props.attempts ?? 0);
   const next = usedAttempts.value + 1;
-  return props.attempts === null ? `Attempt ${next}` : `Attempt ${next} of ${props.attempts}`;
+  return props.attempts === null ? t('run.attempt', { n: next }) : t('run.attemptOf', { n: next, total: props.attempts });
 });
 
 // The select shows the saved status until the change is saved (then the new result comes back), so a failed save
@@ -83,55 +83,61 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
 
     <div class="status">
       <template v-if="isThisRun && run.status === 'ready'">
-        <span class="state">Waiting for the start…</span>
-        <button type="button" class="secondary" :disabled="busy" @click="$emit('cancel')">Cancel</button>
+        <span class="state">{{ $t('run.waitingStart') }}</span>
+        <button type="button" class="secondary" :disabled="busy" @click="$emit('cancel')">{{ $t('common.cancel') }}</button>
       </template>
       <template v-else-if="isThisRun && run.status === 'running'">
         <span class="clock mono" role="timer">{{ formatDuration(elapsed, 1) }}</span>
-        <button type="button" class="secondary" :disabled="busy" title="Abandon the run, nothing is saved" @click="$emit('cancel')">
-          Cancel run
+        <button type="button" class="secondary" :disabled="busy" :title="$t('run.cancelRunTitle')" @click="$emit('cancel')">
+          {{ $t('run.cancelRun') }}
         </button>
-        <button type="button" class="warn" :disabled="busy" title="End the run now and save it as invalid (not the participant's fault)" @click="$emit('invalidate')">
-          Invalidate
+        <button type="button" class="warn" :disabled="busy" :title="$t('run.invalidateTitle')" @click="$emit('invalidate')">
+          {{ $t('run.invalidate') }}
         </button>
-        <button type="button" class="danger" :disabled="busy" title="End the run now and save it as disqualified" @click="$emit('disqualify')">
-          Disqualify
+        <button type="button" class="danger" :disabled="busy" :title="$t('run.disqualifyTitle')" @click="$emit('disqualify')">
+          {{ $t('run.disqualify') }}
         </button>
       </template>
       <template v-else>
-        <span v-if="lastResult && lastResult.status !== 'ok'" class="clock" :class="lastResult.status" :title="STATUS_HINTS[lastResult.status]">
-          {{ STATUS_LABELS[lastResult.status] }}
+        <span v-if="lastResult && lastResult.status !== 'ok'" class="clock" :class="lastResult.status" :title="statusHint(lastResult.status)">
+          {{ statusLabel(lastResult.status) }}
         </span>
-        <span v-else-if="lastResult?.timeMs != null" class="clock mono done" title="Time of the run that just finished">
+        <span v-else-if="lastResult?.timeMs != null" class="clock mono done" :title="$t('run.justFinished')">
           {{ formatDuration(lastResult.timeMs) }}
         </span>
         <button
           type="button"
           class="ready"
           :disabled="busy || run.status !== 'idle' || noAttemptLeft || closed !== null"
-          :title="closed ? `Closed: ${closed}` : noAttemptLeft ? 'No attempt left' : undefined"
+          :title="closed ? $t('run.closedTitle', { reason: closed }) : noAttemptLeft ? $t('run.noAttemptLeft') : undefined"
           @click="$emit('ready')"
         >
-          Ready to start
+          {{ $t('run.ready') }}
         </button>
       </template>
     </div>
 
     <p v-if="!isThisRun && run.status !== 'idle'" class="alert warn other">
-      {{ run.participant.bib }} {{ run.participant.name }} ({{ run.event }} / {{ run.discipline }}) is
-      {{ run.status === 'ready' ? 'waiting for the start' : 'running' }}.
+      {{
+        $t(run.status === 'ready' ? 'run.otherWaiting' : 'run.otherRunning', {
+          bib: run.participant.bib,
+          name: run.participant.name,
+          event: run.event,
+          discipline: run.discipline,
+        })
+      }}
     </p>
 
     <div class="results">
-      <h3>Results <span class="muted">({{ results.length }})</span></h3>
-      <p v-if="results.length === 0" class="muted">No run yet.</p>
+      <h3>{{ $t('run.results') }} <span class="muted">({{ results.length }})</span></h3>
+      <p v-if="results.length === 0" class="muted">{{ $t('run.noRun') }}</p>
       <table v-else>
         <thead>
           <tr>
-            <th>Run</th>
-            <th>Time</th>
-            <th>Started at</th>
-            <th>Status</th>
+            <th>{{ $t('run.run') }}</th>
+            <th>{{ $t('run.time') }}</th>
+            <th>{{ $t('run.startedAt') }}</th>
+            <th>{{ $t('run.status') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -148,8 +154,8 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
             <td class="mono time">
               <s v-if="result.status !== 'ok' && result.timeMs !== null">{{ formatDuration(result.timeMs) }}</s>
               <template v-else-if="result.timeMs !== null">{{ formatDuration(result.timeMs) }}</template>
-              <span v-else class="muted" title="Ended before the finish: no time">—</span>
-              <span v-if="result.status === 'ok' && result.timeMs === bestMs && validCount > 1" class="badge ok">best</span>
+              <span v-else class="muted" :title="$t('run.noTime')">—</span>
+              <span v-if="result.status === 'ok' && result.timeMs === bestMs && validCount > 1" class="badge ok">{{ $t('run.best') }}</span>
             </td>
             <td class="mono muted">{{ formatTime(result.start) }}</td>
             <td>
@@ -158,12 +164,12 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
                 :class="result.status"
                 :value="result.status"
                 :disabled="busy || closed !== null"
-                :title="STATUS_HINTS[result.status]"
-                :aria-label="`Status of run ${index + 1}`"
+                :title="statusHint(result.status)"
+                :aria-label="$t('run.statusOf', { n: index + 1 })"
                 @change="onStatusChange($event, result)"
               >
-                <option v-for="(label, status) in STATUS_LABELS" :key="status" :value="status" :disabled="status === 'ok' && result.timeMs === null">
-                  {{ label }}
+                <option v-for="status in STATUSES" :key="status" :value="status" :disabled="status === 'ok' && result.timeMs === null">
+                  {{ statusLabel(status) }}
                 </option>
               </select>
             </td>

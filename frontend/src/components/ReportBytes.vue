@@ -32,8 +32,8 @@ function isSet(value: number, bit: number): boolean {
   <table class="report-bytes">
     <thead>
       <tr>
-        <th>Byte</th>
-        <th>Hex</th>
+        <th>{{ $t('hid.byte') }}</th>
+        <th>{{ $t('report.hex') }}</th>
         <th v-for="bit in BITS" :key="bit" class="bit-head">{{ bit }}</th>
       </tr>
     </thead>
@@ -41,7 +41,7 @@ function isSet(value: number, bit: number): boolean {
       <tr v-for="(value, byteIndex) in bytes" :key="byteIndex">
         <td>
           {{ byteIndex }}
-          <span v-if="numberedReports && byteIndex === 0" class="muted">report ID</span>
+          <span v-if="numberedReports && byteIndex === 0" class="muted">{{ $t('report.reportId') }}</span>
         </td>
         <td class="mono">{{ hexByte(value) }}</td>
         <td
@@ -49,7 +49,10 @@ function isSet(value: number, bit: number): boolean {
           :key="bit"
           class="bit"
           :class="{ set: isSet(value, bit), watched: isWatched(byteIndex, bit) }"
-          :title="`byte ${byteIndex} bit ${bit} (mask ${hexByte(1 << bit)})${isWatched(byteIndex, bit) ? ' — used by a trigger' : ''}`"
+          :title="
+            $t('report.bit', { byte: byteIndex, bit, mask: hexByte(1 << bit) }) +
+            (isWatched(byteIndex, bit) ? ` ${$t('report.usedByTrigger')}` : '')
+          "
         >
           {{ isSet(value, bit) ? 1 : 0 }}
         </td>

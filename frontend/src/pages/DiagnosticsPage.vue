@@ -71,51 +71,49 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
   <main class="page">
     <!-- The page title is in the navigation bar -->
     <header class="page-header">
-      <button type="button" @click="paused = !paused">{{ paused ? 'Resume updates' : 'Pause updates' }}</button>
+      <button type="button" @click="paused = !paused">{{ paused ? $t('diagnostics.resume') : $t('diagnostics.pause') }}</button>
     </header>
 
     <section class="summary">
       <div>
-        <span class="label">Backend</span>
+        <span class="label">{{ $t('diagnostics.backend') }}</span>
         <span class="badge" :class="error ? 'error' : status ? 'ok' : ''">
-          {{ error ? `unreachable (${error})` : status ? 'online' : 'connecting…' }}
+          {{ error ? $t('diagnostics.unreachable', { error }) : status ? $t('diagnostics.online') : $t('diagnostics.connecting') }}
         </span>
       </div>
       <div>
-        <span class="label">Live events</span>
-        <span class="badge" :class="connected ? 'ok' : 'error'">{{ connected ? 'connected' : 'disconnected' }}</span>
+        <span class="label">{{ $t('diagnostics.liveEvents') }}</span>
+        <span class="badge" :class="connected ? 'ok' : 'error'">{{ connected ? $t('diagnostics.connected') : $t('diagnostics.disconnected') }}</span>
       </div>
       <div v-if="status">
-        <span class="label">Platform</span>
+        <span class="label">{{ $t('diagnostics.platform') }}</span>
         <span class="badge">{{ status.platform }}</span>
       </div>
       <div v-if="status">
         <span class="label">config.yaml</span>
         <span class="badge" :class="status.configValid ? 'ok' : 'error'">
-          {{ status.configValid ? 'valid' : 'invalid or missing: see backend logs' }}
+          {{ status.configValid ? $t('diagnostics.configValid') : $t('diagnostics.configInvalid') }}
         </span>
         <span class="mono muted">{{ status.configPath }}</span>
-        <RouterLink to="/config">Edit configuration</RouterLink>
+        <RouterLink to="/config">{{ $t('diagnostics.editConfig') }}</RouterLink>
       </div>
       <div v-if="status?.lastScanAt">
-        <span class="label">Last device scan</span>
+        <span class="label">{{ $t('diagnostics.lastScan') }}</span>
         <span>{{ formatTime(status.lastScanAt) }}</span>
       </div>
       <div v-if="lastUpdate">
-        <span class="label">Page updated</span>
-        <span>{{ lastUpdate.toLocaleTimeString() }}{{ paused ? ' (paused)' : '' }}</span>
+        <span class="label">{{ $t('diagnostics.pageUpdated') }}</span>
+        <span>{{ lastUpdate.toLocaleTimeString($i18n.locale) }}{{ paused ? ` ${$t('diagnostics.paused')}` : '' }}</span>
       </div>
     </section>
 
     <template v-if="status">
       <section>
-        <h2>Devices</h2>
-        <p v-if="tabs.length === 0" class="muted">No HID device found, and no configured device is open.</p>
+        <h2>{{ $t('diagnostics.devices') }}</h2>
+        <p v-if="tabs.length === 0" class="muted">{{ $t('diagnostics.noHid') }}</p>
         <template v-else>
-          <p v-if="status.devices.length === 0" class="muted">
-            No configured device is open. Check the problems below, or add a connected device to the configuration.
-          </p>
-          <div ref="tabList" class="tabs" role="tablist" aria-label="Devices">
+          <p v-if="status.devices.length === 0" class="muted">{{ $t('diagnostics.noneOpen') }}</p>
+          <div ref="tabList" class="tabs" role="tablist" :aria-label="$t('diagnostics.devices')">
             <button
               v-for="(tab, index) in tabs"
               :id="`device-tab-${index}`"
@@ -133,7 +131,7 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
               <span
                 class="dot"
                 :class="tab.kind === 'configured' ? tab.device.state : ''"
-                :title="tab.kind === 'configured' ? tab.device.state : 'not configured'"
+                :title="tab.kind === 'configured' ? $t(`hid.states.${tab.device.state}`) : $t('hid.notConfigured')"
               ></span>
               {{ tab.label }}
             </button>
@@ -152,23 +150,22 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
       </section>
 
       <section v-if="status.unmatchedRules.length > 0">
-        <h2>Configuration problems</h2>
+        <h2>{{ $t('diagnostics.configProblems') }}</h2>
         <pre v-for="explanation in status.unmatchedRules" :key="explanation" class="alert warn">{{ explanation }}</pre>
       </section>
 
       <section>
-        <h2>Race events</h2>
-        <button v-if="events.length > 0" type="button" class="secondary" @click="clear">Clear</button>
+        <h2>{{ $t('diagnostics.raceEvents') }}</h2>
+        <button v-if="events.length > 0" type="button" class="secondary" @click="clear">{{ $t('common.clear') }}</button>
         <RaceEventLog :events="events" />
       </section>
 
       <section>
-        <h2>HID interfaces on this computer</h2>
-        <p class="muted">
-          Everything the last scan found. Use the VID/PID, usage, serial number or USB port in
-          <code>config.yaml</code>. To find which bits a button changes, open a device above or run
-          <code>npm run diagnose -- --listen &lt;vid:pid&gt;</code> in the backend.
-        </p>
+        <h2>{{ $t('diagnostics.hidTitle') }}</h2>
+        <i18n-t keypath="diagnostics.hidHint" tag="p" class="muted">
+          <template #config><code>config.yaml</code></template>
+          <template #command><code>npm run diagnose -- --listen &lt;vid:pid&gt;</code></template>
+        </i18n-t>
         <InterfacesTable :interfaces="status.interfaces" :platform="status.platform" />
       </section>
     </template>

@@ -1,4 +1,5 @@
 import type { DevicesConfig, DeviceRule, TriggerRule } from '../types';
+import { t } from '../i18n';
 
 /**
  * Editable form state for config.yaml. Every number is kept as the text typed by the user, so a half-typed
@@ -165,7 +166,7 @@ function optionalText(text: string): string | undefined {
 
 /**
  * Splits the backend's problems by device. "devices[1].triggers[0].mask must be…" goes to device 1 as
- * "Trigger 1: mask must be…"; problems outside a device stay in `general`.
+ * "Trigger 1: mask must be…" (in the current language); problems outside a device stay in `general`.
  */
 export function groupProblems(problems: string[]): { general: string[]; byDevice: Map<number, string[]> } {
   const general: string[] = [];
@@ -178,7 +179,8 @@ export function groupProblems(problems: string[]): { general: string[]; byDevice
       continue;
     }
     const index = Number(match[1]);
-    const text = match[2].replace(/^triggers\[(\d+)\]\.?\s*/, (_, j) => `Trigger ${Number(j) + 1}: `);
+    const trigger = /^triggers\[(\d+)\]\.?\s*(.*)$/s.exec(match[2]);
+    const text = trigger ? t('config.triggerProblem', { n: Number(trigger[1]) + 1, problem: trigger[2] }) : match[2];
     byDevice.set(index, [...(byDevice.get(index) ?? []), text]);
   }
   return { general, byDevice };
