@@ -271,6 +271,39 @@ onUnmounted(() => {
         </ul>
 
         <section>
+          <h2>Port</h2>
+          <div class="row">
+            <label class="field">
+              <span>Port of the app</span>
+              <input v-model="form.port" type="text" inputmode="numeric" class="short" placeholder="3001" />
+            </label>
+            <span class="muted small">
+              Used when the app starts: restart it after a change, then open it at the new address. Empty for 3001.
+              The --port option and the PORT environment variable take precedence.
+            </span>
+          </div>
+        </section>
+
+        <section>
+          <h2>Sync</h2>
+          <label class="switch">
+            <input v-model="form.useSync" type="checkbox" />
+            Sync the events with the other computers on the local network that have the same key
+          </label>
+          <div v-if="form.useSync" class="row">
+            <label class="field">
+              <span>Key</span>
+              <input v-model="form.syncKey" type="text" placeholder="e.g. amber-otter-glide" />
+            </label>
+            <label class="field">
+              <span>Name of this computer</span>
+              <input v-model="form.syncName" type="text" placeholder="The computer name" />
+            </label>
+            <span class="muted small">Applied a few seconds after saving, no restart needed.</span>
+          </div>
+        </section>
+
+        <section>
           <h2>Default interface</h2>
           <label class="switch">
             <input v-model="form.useDiscoveryFilter" type="checkbox" />

@@ -46,7 +46,7 @@ const label = computed(() => {
 });
 const details = computed(() => {
   if (!status.value) return 'Sync status unavailable';
-  if (!status.value.enabled) return 'Add sync.yaml with a key to the working directory to sync with other computers.';
+  if (!status.value.enabled) return 'Set a sync key on the configuration page to sync with other computers.';
   const lines = [`This computer: ${status.value.name}`];
   for (const peer of status.value.peers) {
     const offset = peer.clockOffsetMs !== null && Math.abs(peer.clockOffsetMs) > CLOCK_WARNING_MS;

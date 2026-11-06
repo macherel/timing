@@ -199,6 +199,10 @@ export interface DeviceRule {
 }
 
 export interface DevicesConfig {
+  // Port of the app, used when it starts
+  port?: number;
+  // Sync with the computers on the local network that have the same key
+  sync?: { key: string | number; name?: string };
   discoveryFilter?: { usagePage: number; usage: number };
   devices: DeviceRule[];
 }

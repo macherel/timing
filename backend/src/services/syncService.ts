@@ -10,6 +10,7 @@ import { createLogger, errorMessage } from '../utils/logger.js';
 import { onActivityChange, onLocalChange } from '../utils/localChanges.js';
 import { WORK_DIR, workDirPath } from '../utils/workDir.js';
 import { RESULTS_FILE } from './eventService.js';
+import { CONFIG_PATH } from './hardware/deviceConfig.js';
 import { getLastResult, getRunState, mergeResultRows, readResultRows, type ResultRow } from './runService.js';
 
 const log = createLogger('Sync');
@@ -28,15 +29,15 @@ const log = createLogger('Sync');
  * - Live: each instance also shares its activity (the event and discipline open on its race pages, its run in
  *   progress and its last result), pushed to the peers when it changes and repeated in every announcement. The live
  *   page shows the activity of every computer.
- * - Not synced: the device config.yaml and sync.yaml at the root of the working directory, and runs in progress.
+ * - Not synced: config.yaml at the root of the working directory, and runs in progress.
  *   A deleted file or result line comes back from a peer that still has it.
  *
- * Enabled by sync.yaml in the working directory, read again every few seconds:
- *   key: cfm26          # only instances with the same key sync together
- *   name: Finish line   # optional, shown to the other instances (the computer name by default)
+ * Enabled by the sync section of config.yaml (also editable on the config page), read again every few seconds:
+ *   sync:
+ *     key: amber-otter-glide   # only instances with the same key sync together
+ *     name: Finish line        # optional, shown to the other instances (the computer name by default)
  */
 
-export const SYNC_FILE = 'sync.yaml';
 const UDP_PORT = 41234;
 const ANNOUNCE_INTERVAL_MS = 3000;
 // A peer is forgotten when it has not announced itself for this long
@@ -53,6 +54,9 @@ interface SyncConfig {
     keyHash: string;
     name: string;
 }
+
+// The last error reading config.yaml, so it is logged once rather than every few seconds
+let lastReadError: string | null = null;
 
 interface Peer {
     id: string;
@@ -98,18 +102,26 @@ const peers = new Map<string, Peer>();
 const hashKey = (key: string) => crypto.createHash('sha256').update(`timing-sync\n${key}`).digest('hex');
 const sha256 = (data: Buffer | string) => crypto.createHash('sha256').update(data).digest('hex');
 
-/** sync.yaml, or null when it is missing or has no key (sync disabled). */
+/** The sync section of config.yaml, or null when there is no key (sync disabled). */
 async function readSyncConfig(): Promise<SyncConfig | null> {
     let parsed: any;
     try {
-        parsed = yaml.parse(await fs.promises.readFile(workDirPath(SYNC_FILE), 'utf8'));
+        parsed = yaml.parse(await fs.promises.readFile(CONFIG_PATH, 'utf8'));
     } catch (error: any) {
-        if (error.code !== 'ENOENT') log.error(`${SYNC_FILE} cannot be read, sync is off:`, errorMessage(error));
+        if (error.code === 'ENOENT') return null;
+        const message = `config.yaml cannot be read, sync is off: ${errorMessage(error)}`;
+        if (message !== lastReadError) log.error(message);
+        lastReadError = message;
         return null;
     }
-    const key = parsed?.key;
+    lastReadError = null;
+    return toSyncConfig(parsed?.sync);
+}
+
+function toSyncConfig(section: any): SyncConfig | null {
+    const key = section?.key;
     if ((typeof key !== 'string' && typeof key !== 'number') || String(key).trim() === '') return null;
-    const name = typeof parsed?.name === 'string' && parsed.name.trim() ? parsed.name.trim() : os.hostname();
+    const name = typeof section?.name === 'string' && section.name.trim() ? section.name.trim() : os.hostname();
     return { keyHash: hashKey(String(key).trim()), name };
 }
 
@@ -172,11 +184,11 @@ export function stopSyncService(): void {
     socket = null;
 }
 
-/** Re-reads sync.yaml, announces this instance, forgets silent peers and pulls from the others. */
+/** Re-reads the sync settings, announces this instance, forgets silent peers and pulls from the others. */
 async function tick(): Promise<void> {
     const next = await readSyncConfig();
     if ((next === null) !== (config === null) || (next && config && next.keyHash !== config.keyHash)) {
-        log.info(next ? `Sync on as "${next.name}" (${SYNC_FILE} found with a key).` : `Sync off (no key in ${SYNC_FILE}).`);
+        log.info(next ? `Sync on as "${next.name}" (key in config.yaml).` : 'Sync off (no sync key in config.yaml).');
         peers.clear();
         config = next;
         broadcastLive();

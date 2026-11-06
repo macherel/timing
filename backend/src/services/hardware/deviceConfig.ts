@@ -36,7 +36,16 @@ export interface DeviceRule {
     triggers?: TriggerRule[];
 }
 
+export interface SyncSettings {
+    key: string | number;   // Only instances with the same key sync together
+    name?: string;          // Shown to the other instances (the computer name by default)
+}
+
 export interface DevicesConfig {
+    // Optional HTTP port of the app, read at startup (--port and the PORT environment variable take precedence)
+    port?: number;
+    // Optional: sync with the instances on the local network that have the same key
+    sync?: SyncSettings;
     // Optional default HID interface for all rules (usagePage 1 / usage 2 = mouse)
     discoveryFilter?: {
         usagePage: number;
@@ -109,6 +118,16 @@ export function stringifyDevicesConfig(config: DevicesConfig): string {
     // JSON strings are valid YAML double-quoted strings
     const text = (value: string) => JSON.stringify(value);
     const lines = ['# Saved from the configuration page. Field reference: backend/README.md', ''];
+
+    if (config.port !== undefined) {
+        lines.push('# Port of the app, used when the app starts (--port or PORT override it)', `port: ${config.port}`, '');
+    }
+
+    if (config.sync) {
+        lines.push('# Sync with the computers on the local network that have the same key', 'sync:', `  key: ${text(String(config.sync.key))}`);
+        if (config.sync.name !== undefined) lines.push(`  name: ${text(config.sync.name)}`);
+        lines.push('');
+    }
 
     if (config.discoveryFilter) {
         lines.push(
@@ -197,6 +216,25 @@ export function unwatchDevicesConfig(): void {
 // ---------------------------------------------------------------------------
 
 const isInteger = (v: unknown): v is number => Number.isInteger(v);
+export const isPort = (v: unknown): v is number => isInteger(v) && v >= 1 && v <= 65535;
+
+/**
+ * The port set in config.yaml, read synchronously at startup. Undefined when the file, or its port, is missing or
+ * invalid (an invalid port is logged).
+ */
+export function readConfiguredPort(): number | undefined {
+    let parsed: any;
+    try {
+        parsed = yaml.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    } catch {
+        return undefined;
+    }
+    const port = parsed?.port;
+    if (port === undefined || port === null) return undefined;
+    if (isPort(port)) return port;
+    log.error(`config.yaml: port ${JSON.stringify(port)} is not a whole number from 1 to 65535, ignored.`);
+    return undefined;
+}
 
 /**
  * Lists what is wrong with a config object, e.g. one sent by the config page. Empty when it is valid.
@@ -206,6 +244,16 @@ export function validateDevicesConfig(config: any): string[] {
 
     const problems: string[] = [];
 
+    if (config.port !== undefined && !isPort(config.port)) {
+        problems.push('port must be a whole number from 1 to 65535');
+    }
+    if (config.sync !== undefined) {
+        const { key, name } = config.sync ?? {};
+        if (!((typeof key === 'string' || typeof key === 'number') && String(key).trim() !== '')) {
+            problems.push('sync.key must be a non-empty text');
+        }
+        if (name !== undefined && typeof name !== 'string') problems.push('sync.name must be a text');
+    }
     if (
         config.discoveryFilter !== undefined &&
         (!isInteger(config.discoveryFilter?.usagePage) || !isInteger(config.discoveryFilter?.usage))

@@ -38,6 +38,8 @@ function onClientMessage(ws: WebSocket, data: unknown): void {
  */
 export function setupWebSocketServer(httpServer: HTTPServer): WebSocketServer {
     wss = new WebSocketServer({ server: httpServer });
+    // ws repeats the HTTP server's errors (e.g. port already used), which server.ts reports: without a listener they would crash
+    wss.on('error', () => {});
 
     wss.on('connection', (ws: WebSocket) => {
         log.info('Frontend client connected');

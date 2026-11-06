@@ -98,6 +98,9 @@ A relative path is resolved against the directory the command is started from. T
 ### Example `config.yaml`
 
 ```yaml
+port: 3001           # Optional port of the app, read at startup (default 3001)
+sync:                # Optional: sync with other computers, see "Syncing Several Computers"
+  key: amber-otter-glide
 discoveryFilter:     # Optional default interface for all rules (1/2 = mouse)
   usagePage: 1
   usage: 2
@@ -237,21 +240,22 @@ On the race page, select a participant and click *Ready to start*. The next cros
 
 ## 🔄 Syncing Several Computers
 
-Instances of the app on the same local network (e.g. one computer at the start line, one at the finish) find each other and keep their event folders in sync. It is enabled by a `sync.yaml` in the working directory, next to the device `config.yaml`:
+Instances of the app on the same local network (e.g. one computer at the start line, one at the finish) find each other and keep their event folders in sync. It is enabled by the `sync` section of the device `config.yaml`, also editable on the configuration page:
 
 ```yaml
-# Only instances with the same key sync together
-key: cfm26
-# Optional: the name shown to the other computers (the computer name by default)
-name: Finish line
+sync:
+  # Only instances with the same key sync together
+  key: amber-otter-glide
+  # Optional: the name shown to the other computers (the computer name by default)
+  name: Finish line
 ```
 
-- Without `sync.yaml`, or without a key, sync is off. The file is read again every few seconds, so sync can be turned on or off without restarting.
-- **Discovery**: every instance announces itself every 3 s by UDP broadcast on port 41234 (its name, HTTP port and a hash of its key, never the key itself). The firewall must let UDP 41234 and the HTTP port (`PORT`, 3001 by default) through; Windows asks the first time.
+- Without a `sync` section, or without a key, sync is off. The file is read again every few seconds, so sync can be turned on or off without restarting.
+- **Discovery**: every instance announces itself every 3 s by UDP broadcast on port 41234 (its name, HTTP port and a hash of its key, never the key itself). The firewall must let UDP 41234 and the HTTP port (3001 by default) through; Windows asks the first time.
 - **What is synced**: everything in the event folders.
   - Participant CSV files and discipline `config.yaml`: the most recently modified copy wins, and keeps its modification time on the other computers.
   - `results.csv`: merged line by line. A run is identified by its bib and start; when a line was changed on both computers, the most recently changed (`updated` column) wins. The page of every computer updates live.
-  - Not synced: the device `config.yaml` (devices differ per computer), `sync.yaml`, and the run in progress (each computer times its own runs).
+  - Not synced: the root `config.yaml` (devices, port and name differ per computer), and the run in progress (each computer times its own runs).
 - Changes are sent at once to the other computers, which also check every 3 s, so a computer that was off catches up when it comes back.
 - The latest change wins, so the computers' clocks must roughly agree: the navigation bar warns when they differ by more than 2 s.
 - A deleted file or result line comes back from a computer that still has it: delete it on every computer while they are not connected, or mark the run `INVALID` instead.
@@ -278,7 +282,7 @@ Each computer shares its activity (the event and discipline open on its race pag
 
 ## 🔌 API & WebSocket Documentation
 
-HTTP and WebSocket share the same port: `PORT`, default `3001`.
+HTTP and WebSocket share the same port, chosen at startup in this order: the `--port <n>` option, the `PORT` environment variable, `port` in `config.yaml` (also editable on the config page, applied after a restart), then `3001`. If the port is already used, the server logs it and stops.
 
 ### WebSocket Events
 

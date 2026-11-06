@@ -29,6 +29,12 @@ export interface DeviceForm {
 }
 
 export interface ConfigForm {
+  // Empty for the default port
+  port: string;
+  useSync: boolean;
+  syncKey: string;
+  // Empty for the computer name
+  syncName: string;
   useDiscoveryFilter: boolean;
   discoveryUsagePage: string;
   discoveryUsage: string;
@@ -62,12 +68,16 @@ export function emptyDevice(name: string): DeviceForm {
 }
 
 export function emptyForm(): ConfigForm {
-  return { useDiscoveryFilter: false, discoveryUsagePage: '1', discoveryUsage: '2', devices: [] };
+  return { port: '', useSync: false, syncKey: '', syncName: '', useDiscoveryFilter: false, discoveryUsagePage: '1', discoveryUsage: '2', devices: [] };
 }
 
 export function toForm(config: DevicesConfig): ConfigForm {
   const text = (value: number | undefined) => (value === undefined ? '' : String(value));
   return {
+    port: text(config.port),
+    useSync: config.sync !== undefined,
+    syncKey: config.sync === undefined ? '' : String(config.sync.key),
+    syncName: config.sync?.name ?? '',
     useDiscoveryFilter: config.discoveryFilter !== undefined,
     discoveryUsagePage: text(config.discoveryFilter?.usagePage ?? 1),
     discoveryUsage: text(config.discoveryFilter?.usage ?? 2),
@@ -99,7 +109,8 @@ export function toForm(config: DevicesConfig): ConfigForm {
  * NaN (null in JSON), which the backend reports as a problem on that field.
  */
 export function toConfig(form: ConfigForm): DevicesConfig {
-  const config: DevicesConfig = { devices: form.devices.map(toRule) };
+  const config: DevicesConfig = { port: parseDecimal(form.port), devices: form.devices.map(toRule) };
+  if (form.useSync) config.sync = { key: form.syncKey.trim(), name: optionalText(form.syncName) };
   if (form.useDiscoveryFilter) {
     config.discoveryFilter = {
       usagePage: parseDecimal(form.discoveryUsagePage) as number,
