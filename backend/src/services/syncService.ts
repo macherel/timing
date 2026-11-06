@@ -26,7 +26,7 @@ const log = createLogger('Sync');
  *       sent back.
  *     - results.csv is merged line by line (bib + start identify a run), the most recently changed line wins.
  *   Peers are told when something changes here, so they pull at once; they also pull every few seconds.
- * - Live: each instance also shares its activity (the event and discipline open on its race pages, its run in
+ * - Live: each instance also shares its activity (the event, discipline and participant selected on its race pages, its run in
  *   progress and its last result), pushed to the peers when it changes and repeated in every announcement. The live
  *   page shows the activity of every computer.
  * - Not synced: config.yaml at the root of the working directory, and runs in progress.
@@ -478,7 +478,12 @@ function isActivity(value: any): value is Activity {
         value !== null &&
         typeof value === 'object' &&
         Array.isArray(value.viewing) &&
-        value.viewing.every((v: any) => typeof v?.event === 'string' && typeof v?.discipline === 'string') &&
+        value.viewing.every(
+            (v: any) =>
+                typeof v?.event === 'string' &&
+                typeof v?.discipline === 'string' &&
+                (v.participant == null || (typeof v.participant.bib === 'string' && typeof v.participant.name === 'string')),
+        ) &&
         typeof value.run?.status === 'string'
     );
 }

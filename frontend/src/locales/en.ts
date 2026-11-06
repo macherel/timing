@@ -183,6 +183,7 @@ export default {
     choose: 'Choose the event and discipline to show.',
     onTrack: 'On track',
     nobody: 'No computer shows {event} · {discipline} on its race page.',
+    nextUp: 'Next up',
     ready: 'Ready',
     waiting: 'Waiting',
     ranking: 'Ranking',

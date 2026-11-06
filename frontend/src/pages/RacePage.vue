@@ -183,12 +183,13 @@ async function setStatus(result: RunResult, status: RunStatus): Promise<void> {
 }
 
 // Reloads the run on each WebSocket (re)connection, so a run that changed while disconnected is shown
-// Tells the backend which event and discipline this race page shows, for the live page of every synced computer
+// Tells the backend which event, discipline and participant this race page shows, for the live page of every synced computer
 function sendViewing(): void {
   send({
     type: 'VIEWING',
     event: disciplineExists.value ? eventName.value : null,
     discipline: disciplineExists.value ? discipline.value : null,
+    participant: disciplineExists.value && selected.value ? { bib: selected.value.bib, name: selected.value.name } : null,
   });
 }
 const { send } = useRaceSocket({
@@ -198,7 +199,7 @@ const { send } = useRaceSocket({
     sendViewing();
   },
 });
-watch([eventName, discipline, disciplineExists], sendViewing);
+watch([eventName, discipline, disciplineExists, selected], sendViewing);
 
 async function postRun(action: 'ready' | 'cancel' | 'invalidate' | 'disqualify'): Promise<void> {
   busy.value = true;

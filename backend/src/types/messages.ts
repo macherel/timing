@@ -91,9 +91,16 @@ export interface SyncUpdateMessage {
 }
 
 /** What an instance is doing, shown on the live pages of every synced computer. */
+export interface Viewing {
+    event: string;
+    discipline: string;
+    participant?: { bib: string; name: string } | null;
+}
+
 export interface Activity {
-    // Event and discipline open on its race pages (several browsers may show different ones)
-    viewing: { event: string; discipline: string }[];
+    // Event and discipline open on its race pages (several browsers may show different ones), with the participant
+    // selected there, before they are ready (null: none; missing from older versions)
+    viewing: Viewing[];
     run: RunState;
     // The last run it ended, shown until the next participant is ready
     lastResult: { event: string; discipline: string; result: RunResult; endedAt: string } | null;
@@ -114,8 +121,16 @@ export interface LiveUpdateMessage {
     instances: LiveInstance[];
 }
 
-/** Messages a page sends to its backend. VIEWING: the event and discipline its race page shows (null: none). */
-export type ClientMessage = { type: 'VIEWING'; event: string | null; discipline: string | null };
+/**
+ * Messages a page sends to its backend. VIEWING: the event and discipline its race page shows (null: none), and the
+ * participant selected there (null: none).
+ */
+export type ClientMessage = {
+    type: 'VIEWING';
+    event: string | null;
+    discipline: string | null;
+    participant?: { bib: string; name: string } | null;
+};
 
 export type ServerMessage =
     | LiveUpdateMessage

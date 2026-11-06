@@ -175,6 +175,7 @@ const fr: Messages = {
     choose: 'Choisissez la compétition et la discipline à afficher.',
     onTrack: 'En piste',
     nobody: 'Aucun ordinateur n’affiche {event} · {discipline} sur sa page de course.',
+    nextUp: 'Au départ',
     ready: 'Prêt',
     waiting: 'En attente',
     ranking: 'Classement',

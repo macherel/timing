@@ -1,6 +1,6 @@
 import { Server as HTTPServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import type { ClientMessage, ServerMessage } from '../types/messages.js';
+import type { ClientMessage, ServerMessage, Viewing } from '../types/messages.js';
 import { createLogger } from '../utils/logger.js';
 import { notifyActivityChange } from '../utils/localChanges.js';
 
@@ -8,14 +8,18 @@ const log = createLogger('WebSocket');
 
 let wss: WebSocketServer | null = null;
 
-// The event and discipline each connected race page shows
-const views = new Map<WebSocket, { event: string; discipline: string }>();
+// The event, discipline and selected participant each connected race page shows
+const views = new Map<WebSocket, Viewing>();
 
-/** Event and discipline shown by the race pages connected now, without duplicates. */
-export function getViewing(): { event: string; discipline: string }[] {
-    const unique = new Map([...views.values()].map((view) => [`${view.event}\n${view.discipline}`, view]));
+/** What the race pages connected now show, without duplicates. */
+export function getViewing(): Viewing[] {
+    const key = (view: Viewing) => `${view.event}\n${view.discipline}\n${view.participant?.bib ?? ''}`;
+    const unique = new Map([...views.values()].map((view) => [key(view), view]));
     return [...unique.values()];
 }
+
+const isParticipant = (value: any): value is { bib: string; name: string } =>
+    typeof value?.bib === 'string' && typeof value?.name === 'string';
 
 function onClientMessage(ws: WebSocket, data: unknown): void {
     let message: ClientMessage;
@@ -26,7 +30,10 @@ function onClientMessage(ws: WebSocket, data: unknown): void {
     }
     if (message?.type !== 'VIEWING') return;
     if (typeof message.event === 'string' && typeof message.discipline === 'string' && message.event && message.discipline) {
-        views.set(ws, { event: message.event, discipline: message.discipline });
+        const participant = isParticipant(message.participant)
+            ? { bib: message.participant.bib, name: message.participant.name }
+            : null;
+        views.set(ws, { event: message.event, discipline: message.discipline, participant });
     } else {
         views.delete(ws);
     }

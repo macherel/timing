@@ -4,12 +4,12 @@ import { useI18n } from 'vue-i18n';
 import type { LiveInstance, Participant, ParticipantsResponse, ResultsResponse, RunResult, ServerMessage } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import { formatDuration, parseInstant } from '../format';
-import { sameRun } from '../race/results';
+import { countsAsAttempt, sameRun } from '../race/results';
 import { discipline, disciplineExists, eventName, eventsLoaded, loadEvents, switcherOpen } from '../selection';
 
 /**
  * Public display of the selected event and discipline: what every synced computer showing it on its race page is
- * doing (participant ready, running clock, last time), and the ranking by best time.
+ * doing (participant selected or ready, running clock, last time), and the ranking by best time.
  */
 
 // Refresh rate of the running clocks, and otherwise of the "just finished" highlight
@@ -23,6 +23,8 @@ const { t } = useI18n();
 const instances = ref<LiveInstance[]>([]);
 const results = ref<RunResult[]>([]);
 const participants = ref<Participant[]>([]);
+// Runs allowed per participant in the discipline, null: unlimited
+const attempts = ref<number | null>(null);
 const error = ref<string | null>(null);
 
 const isHere = (item: { event: string; discipline: string } | null | undefined) =>
@@ -38,6 +40,7 @@ const onTrack = computed(() =>
 type CardState =
   | { kind: 'running'; bib: string; name: string; startedAt: string }
   | { kind: 'ready'; bib: string; name: string }
+  | { kind: 'selected'; bib: string; name: string }
   | { kind: 'finished'; result: RunResult }
   | { kind: 'waiting' };
 
@@ -47,11 +50,24 @@ function cardState(instance: LiveInstance): CardState {
     return { kind: 'running', bib: run.participant.bib, name: run.participant.name, startedAt: run.startedAt };
   }
   if (run.status === 'ready' && isHere(run)) return { kind: 'ready', bib: run.participant.bib, name: run.participant.name };
-  if (lastResult && isHere(lastResult)) {
+  // A participant selected on its race page, before they are ready, unless they have no attempt left (they
+  // cannot run again). The last result stays while the same participant is selected (e.g. just after their run)
+  const selected = instance.viewing.find(
+    (view) => isHere(view) && view.participant && !noAttemptLeft(view.participant.bib),
+  )?.participant;
+  const last = lastResult && isHere(lastResult) ? lastResult : null;
+  if (selected && selected.bib !== last?.result.bib) return { kind: 'selected', bib: selected.bib, name: selected.name };
+  if (last) {
     // The saved result, so a status changed since (DQ, invalid, valid again) shows here too
-    return { kind: 'finished', result: results.value.find((r) => sameRun(r, lastResult.result)) ?? lastResult.result };
+    return { kind: 'finished', result: results.value.find((r) => sameRun(r, last.result)) ?? last.result };
   }
   return { kind: 'waiting' };
+}
+
+/** Whether a participant used all the attempts of the discipline (same rule as the race page). */
+function noAttemptLeft(bib: string): boolean {
+  if (attempts.value === null) return false;
+  return results.value.filter((result) => result.bib === bib && countsAsAttempt(result)).length >= attempts.value;
 }
 
 // Running clocks: this computer's time corrected by each computer's clock offset
@@ -130,6 +146,7 @@ async function loadResults(): Promise<void> {
   if (!disciplineExists.value) {
     results.value = [];
     participants.value = [];
+    attempts.value = null;
     return;
   }
   try {
@@ -140,6 +157,7 @@ async function loadResults(): Promise<void> {
     if (request !== resultsRequest) return;
     results.value = resultsBody.results ?? [];
     participants.value = participantsBody.participants ?? [];
+    attempts.value = participantsBody.settings?.attempts ?? null;
     error.value = null;
   } catch (e) {
     if (request === resultsRequest) error.value = t('race.errors.loadResults', { error: e instanceof Error ? e.message : String(e) });
@@ -192,6 +210,11 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
             <template v-else-if="state.kind === 'ready'">
               <div class="who"><span class="bib">{{ state.bib }}</span> {{ state.name }}</div>
               <div class="status-text">{{ $t('live.ready') }}</div>
+              <div class="best">{{ bestText(state.bib) }}</div>
+            </template>
+            <template v-else-if="state.kind === 'selected'">
+              <div class="who"><span class="bib">{{ state.bib }}</span> {{ state.name }}</div>
+              <div class="status-text muted">{{ $t('live.nextUp') }}</div>
               <div class="best">{{ bestText(state.bib) }}</div>
             </template>
             <template v-else-if="state.kind === 'finished'">

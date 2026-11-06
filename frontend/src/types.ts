@@ -89,7 +89,8 @@ export interface SyncStatus {
 /** What an instance is doing (keep in sync with backend/src/types/messages.ts) */
 export interface Activity {
   // Event and discipline open on its race pages
-  viewing: { event: string; discipline: string }[];
+  // What its race pages show, with the participant selected there (null or missing: none)
+  viewing: { event: string; discipline: string; participant?: { bib: string; name: string } | null }[];
   run: RunState;
   // The last run it ended, until the next participant is ready
   lastResult: { event: string; discipline: string; result: RunResult; endedAt: string } | null;
