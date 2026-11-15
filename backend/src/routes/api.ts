@@ -23,6 +23,7 @@ import {
     cancelRun,
     getRunState,
     loadResults,
+    resetRuns,
     prepareRun,
     readResultRows,
     RUN_STATUSES,
@@ -30,6 +31,8 @@ import {
     voidRun,
 } from '../services/runService.js';
 import { WORK_DIR } from '../utils/workDir.js';
+import { createLogger } from '../utils/logger.js';
+import { handleRaceEvent } from '../services/raceService.js';
 import { notifyLocalChange } from '../utils/localChanges.js';
 import {
     buildManifest,
@@ -43,6 +46,12 @@ import {
 } from '../services/syncService.js';
 
 const router = Router();
+const log = createLogger('API');
+
+// Gate crossings sent over HTTP instead of by the USB gates, for the end-to-end tests and for training without
+// hardware. Off unless the server is started with TIMING_SIMULATE_GATES=1, so it cannot fire during a real race.
+export const SIMULATE_GATES = process.env.TIMING_SIMULATE_GATES === '1';
+const SIMULATED_ACTIONS = ['start_crossed', 'finish_crossed'];
 
 // Server health check route
 router.get('/status', (req: Request, res: Response) => {
@@ -176,6 +185,26 @@ router.post('/run/cancel', (req: Request, res: Response) => {
     cancelRun();
     res.json(getRunState());
 });
+
+// Simulated gates (see SIMULATE_GATES): fires a start_crossed or finish_crossed action now, as a gate would
+if (SIMULATE_GATES) {
+    log.warn('Simulated gates are on (TIMING_SIMULATE_GATES=1): POST /api/simulate/crossing fires crossings, POST /api/simulate/reset starts over.');
+    router.post('/simulate/crossing', (req: Request, res: Response) => {
+        const action = req.body?.action;
+        if (!SIMULATED_ACTIONS.includes(action)) {
+            res.status(400).json({ problems: [`action must be ${SIMULATED_ACTIONS.join(' or ')}.`] });
+            return;
+        }
+        handleRaceEvent('simulator', 'Simulator', action, Temporal.Now.instant());
+        res.json(getRunState());
+    });
+
+    // Starts over: no run in progress and no last result on the live pages (between end-to-end tests)
+    router.post('/simulate/reset', (req: Request, res: Response) => {
+        resetRuns();
+        res.json(getRunState());
+    });
+}
 
 // Live page: what this computer and the synced ones are doing
 router.get('/live', (req: Request, res: Response) => {

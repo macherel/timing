@@ -10,7 +10,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "diagnose": "tsx src/tools/diagnose.ts",
-    "format": "prettier --write \"**/*.md\""
+    "format": "prettier --write \"**/*.md\"",
+    "test": "vitest run && tsc -p tsconfig.test.json",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -30,7 +32,8 @@
     "prettier": "^3.9.10",
     "temporal-spec": "^1.0.1",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "5.0.5"
   },
   "engines": {
     "node": ">=26.0.0"

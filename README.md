@@ -32,6 +32,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   │   ├── utils/            # Logger, working directory, browser opening
 │   │   ├── websocket/        # Real-time WebSocket broadcasting server
 │   │   └── server.ts         # Entry point
+│   ├── test/                 # Unit and API tests (Vitest)
 │   └── package.json
 ├── frontend/                 # Vue + TypeScript frontend (Vite)
 │   ├── src/
@@ -45,7 +46,9 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   │   └── main.ts           # Entry point
 │   ├── scripts/
 │   │   └── check-i18n.mjs    # Checks that the text keys used in the code exist (run by npm run build)
+│   ├── test/                 # Unit and component tests (Vitest)
 │   └── package.json
+├── e2e/                      # End-to-end tests in a browser (Playwright), with simulated gates
 ├── scripts/
 │   └── package.mjs           # Builds standalone release packages (npm run package)
 ├── workdir/                  # Working directory in dev mode, not in git: config.yaml and the events
@@ -56,7 +59,8 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │           ├── femmes.csv    # ...with participant CSV files (bib;name)
 │           └── results.csv   # Timed runs, written by the app
 ├── release/                  # Release packages, not in git
-├── package.json              # Root scripts: dev, build, start, package
+├── playwright.config.ts      # End-to-end test settings: server, browser
+├── package.json              # Root scripts: dev, build, start, package, test, test:e2e
 └── README.md                 # Root documentation
 ```
 
@@ -102,6 +106,21 @@ Each package runs on a computer without Node.js or npm. It contains the built ap
 The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and `results.csv` files are written there. `workdir/config.yaml` is copied into it when it exists; without it, the app starts with no devices and the file is created from the configuration page. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.
 
 The script runs on Linux and Windows, but build the Linux package on Linux: archives made on Windows lose the executable permissions. Building the Windows zip on Linux needs `zip`.
+
+---
+
+## 🧪 Tests
+
+```bash
+npm test            # Unit tests of the backend and the frontend, then a type check of the tests
+npm run test:e2e    # Builds the app, then runs the end-to-end tests in Chrome
+```
+
+- **Backend** (`backend/test`, Vitest): CSV and participant files, discipline settings and periods, the run from ready to result, attempts, `results.csv` and its merge between computers, HID trigger edges, device matching, `config.yaml`, and the HTTP API. Each test file works in its own temporary working directory.
+- **Frontend** (`frontend/test`, Vitest in a simulated browser): participant search, time formats, the configuration form, the texts of every language (same keys and placeholders, plurals, language choice), and the participant picker and run panel components.
+- **End-to-end** (`e2e`, Playwright): the built app in a browser against a server with its own temporary working directory: timing a run, cancel, disqualify and invalid runs, attempts, locked disciplines, the live page and ranking, the configuration page, the language, and two computers syncing. There are no USB gates: the server is started with `TIMING_SIMULATE_GATES=1`, and the tests fire the start and finish crossings over HTTP.
+
+`npm run test:watch` in `backend` or `frontend` reruns the tests on each change. The end-to-end tests use the installed Google Chrome; with `E2E_CHANNEL=chromium` they use Playwright's Chromium instead (`npx playwright install chromium` once). On a failure, `npx playwright show-trace test-results/<test>/trace.zip` replays it step by step.
 
 ---
 

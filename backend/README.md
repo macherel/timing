@@ -28,6 +28,7 @@ src/
 ├── utils/workDir.ts             # Working directory (--work-dir / TIMING_WORK_DIR) holding config.yaml
 ├── utils/openBrowser.ts         # Opens the default browser (--open)
 ├── tools/diagnose.ts            # `npm run diagnose`: find and test devices without the server
+test/                            # Vitest tests (`npm test`), each file with its own temporary working directory
 └── services/
     ├── raceService.ts           # Records crossings per lane and broadcasts them
     ├── eventService.ts          # Events, disciplines and participant CSV files of the working directory
@@ -328,6 +329,7 @@ HTTP and WebSocket share the same port, chosen at startup in this order: the `--
 - `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress, when the participant has no attempt left, or when the discipline is closed.
 - `POST /api/run/invalidate`, `POST /api/run/disqualify`: ends the running run now and saves it as `INVALID` or `DQ`. `409` when no run is in progress.
 - `POST /api/run/cancel`: abandons the current run, nothing is saved.
+- `POST /api/simulate/crossing` `{ action: "start_crossed" | "finish_crossed" }`, `POST /api/simulate/reset`: simulated gates, only when the server is started with `TIMING_SIMULATE_GATES=1` (the end-to-end tests do, and it can be used for training without hardware). A crossing acts as if a gate fired it now; reset forgets the run in progress and the last result. The server logs a warning when they are on.
 - `GET /api/live`: the `instances` shown on the live page: this computer and the synced ones, each with its `name`, `viewing` (event and discipline open on its race pages), `run`, `lastResult` and `clockOffsetMs`.
 - `GET /api/sync`: whether sync is on, this computer's `name`, and the `peers` found (name, address, port, last sync, error, clock offset).
 - `GET /api/sync/manifest`, `GET /api/sync/file?path=`, `GET /api/sync/results?event=&discipline=`, `POST /api/sync/notify`, `POST /api/sync/activity`: used between instances, only with the hash of the same key in the `x-timing-sync` header (`403` otherwise).

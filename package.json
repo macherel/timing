@@ -5,9 +5,12 @@
     "dev": "TIMING_WORK_DIR=$(pwd)/workdir concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
     "build": "npm run build --prefix frontend && npm run build --prefix backend",
     "start": "node backend/dist/server.js",
-    "package": "node scripts/package.mjs"
+    "package": "node scripts/package.mjs",
+    "test": "npm test --prefix backend && npm test --prefix frontend",
+    "test:e2e": "npm run build && playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "concurrently": "^9.0.0"
   },
   "engines": {

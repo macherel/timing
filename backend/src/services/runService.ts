@@ -60,6 +60,12 @@ export function countsAsAttempt(result: RunResult): boolean {
     return result.status !== 'invalid';
 }
 
+/** Forgets the run in progress and the last result, as when the app starts (simulated gates only, see api.ts). */
+export function resetRuns(): void {
+    lastResult = null;
+    setState({ status: 'idle' });
+}
+
 export function cancelRun(): void {
     if (state.status === 'idle') return;
     log.info(`Run of ${state.participant.bib} ${state.participant.name} cancelled.`);
