@@ -29,6 +29,7 @@ src/
 ├── utils/openBrowser.ts         # Opens the default browser (--open)
 ├── tools/diagnose.ts            # `npm run diagnose`: find and test devices without the server
 test/                            # Vitest tests (`npm test`), each file with its own temporary working directory
+openapi.yaml                     # OpenAPI 3.1 reference of the REST API
 └── services/
     ├── raceService.ts           # Records crossings per lane and broadcasts them
     ├── eventService.ts          # Events, disciplines and participant CSV files of the working directory
@@ -314,6 +315,8 @@ HTTP and WebSocket share the same port, chosen at startup in this order: the `--
 - From the page: `VIEWING` `{ event, discipline }` tells which event and discipline a race page shows (`null` for none).
 
 ### REST Endpoints
+
+The full reference, with every request and response schema, is [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1): open it in any OpenAPI viewer (e.g. the Swagger Editor, or an editor extension). `npm test` checks that it lists exactly the routes of `src/routes/api.ts`, so a new or removed route must be documented there too. To lint it with the rules of `redocly.yaml` (at the repository root), run `npx @redocly/cli lint` from the repository root. In short:
 
 - `GET /api/status`: Health check (status, uptime, server time).
 - `GET /api/config`: `config.yaml` parsed as `config`, with its path and modification time. `config` is `null` when the file is missing, or invalid (then `problems` says why and `content` holds the text).

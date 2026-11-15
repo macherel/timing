@@ -1,0 +1,11 @@
+# Settings of the Redocly linter for the API reference. From this folder: npx @redocly/cli lint
+apis:
+  timing:
+    root: backend/openapi.yaml
+extends:
+  - recommended
+rules:
+  # Some routes cannot fail (health check, current run, live activity...): they have no 4xx response to document
+  operation-4xx-response: off
+  # The app only runs on the local computer or network: its server is localhost
+  no-server-example.com: off

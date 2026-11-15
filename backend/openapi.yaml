@@ -1,0 +1,1003 @@
+openapi: 3.1.0
+info:
+  title: Timing API
+  version: 1.0.0
+  description: |
+    HTTP API of the timing app, served by the backend under `/api` on the app's port (3001 by default).
+    The frontend uses it for the race, live, diagnostics and configuration pages; instances of the app on the same
+    network use the `/sync` routes between themselves.
+
+    - Errors answer `{ "problems": ["…"] }` with a 4xx status: messages in English, to show as they are.
+    - Instants are ISO 8601 in UTC. Run starts and finishes come from the hardware and have up to nanosecond
+      precision (e.g. `2026-11-05T10:00:12.345678901Z`); discipline periods are to the minute
+      (e.g. `2026-11-05T07:00Z`).
+    - Changes are also pushed to the pages over a WebSocket on the same port (see backend/README.md): this API
+      returns the state, the WebSocket tells when it changed.
+    - The routes are listed in backend/src/routes/api.ts. `npm test` checks that this file lists the same routes.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:3001/api
+    description: Local app (the port is set by --port, PORT or port in config.yaml)
+# No authentication: the app is used on a local network. Only the sync routes between instances need the sync key
+security: []
+tags:
+  - name: Status
+    description: Whether the server runs, and the state of the devices (diagnostics page)
+  - name: Events
+    description: Events, disciplines, participants and discipline settings, read from the working directory
+  - name: Results
+    description: Saved runs of a discipline (results.csv)
+  - name: Run
+    description: The timed run, one at a time on a computer
+  - name: Live
+    description: What this computer and the synced ones are doing
+  - name: Device configuration
+    description: The device config.yaml at the root of the working directory
+  - name: Simulated gates
+    description: Gate crossings over HTTP, only when the server is started with `TIMING_SIMULATE_GATES=1`
+  - name: Sync
+    description: |
+      Between instances with the same sync key. Except `GET /sync`, these routes need the hash of the key in the
+      `x-timing-sync` header, and answer 403 otherwise.
+
+paths:
+  /status:
+    get:
+      tags: [Status]
+      summary: Health check
+      operationId: getStatus
+      responses:
+        '200':
+          description: The server is running
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, uptime, timestamp]
+                properties:
+                  status: { type: string, const: online }
+                  uptime: { type: number, description: Seconds since the server started }
+                  timestamp: { type: integer, description: 'Server time, milliseconds since the epoch' }
+
+  /hardware/status:
+    get:
+      tags: [Status]
+      summary: Devices, HID interfaces and configuration problems (diagnostics page)
+      operationId: getHardwareStatus
+      responses:
+        '200':
+          description: Snapshot of the hardware state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HardwareStatus' }
+
+  /events:
+    get:
+      tags: [Events]
+      summary: Events of the working directory, with their disciplines
+      operationId: listEvents
+      responses:
+        '200':
+          description: Every event folder and its discipline subfolders, sorted by name (numbers by value)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workDir, events]
+                properties:
+                  workDir: { type: string, description: Absolute path of the working directory }
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/EventSummary' }
+
+  /events/{event}/{discipline}/participants:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+    get:
+      tags: [Events]
+      summary: Participants of a discipline, merged from its CSV files
+      operationId: getParticipants
+      responses:
+        '200':
+          description: The participants sorted by bib, the discipline settings, and the problems found in its files
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ParticipantList' }
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
+
+  /events/{event}/{discipline}/settings:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+    get:
+      tags: [Events]
+      summary: Settings of a discipline, from its config.yaml
+      operationId: getDisciplineSettings
+      responses:
+        '200':
+          description: The settings (defaults for what is missing or wrong) and the problems found in the file
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SettingsResponse' }
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
+    put:
+      tags: [Events]
+      summary: Saves the settings of a discipline
+      description: |
+        Rewrites the discipline's config.yaml in a standard layout (comments are not kept, other settings are),
+        then returns the settings as read back from it. Pages get them through a `SETTINGS_UPDATE` message.
+      operationId: saveDisciplineSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings: { $ref: '#/components/schemas/DisciplineSettingsInput' }
+            example:
+              settings: { attempts: 3, start: '2026-11-05T08:00+01:00', end: null, access: auto }
+      responses:
+        '200':
+          description: Saved; the settings as stored (start and end in UTC)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SettingsResponse' }
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
+        '422': { $ref: '#/components/responses/Invalid' }
+
+  /events/{event}/{discipline}/results:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+    get:
+      tags: [Results]
+      summary: Every saved run of a discipline, oldest first
+      description: Valid lines without a readable time are left out.
+      operationId: getResults
+      responses:
+        '200':
+          description: The runs (empty before the first one)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: '#/components/schemas/RunResult' }
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
+    patch:
+      tags: [Results]
+      summary: Changes the status of a saved run
+      description: |
+        The run is identified by its bib and start together. Pages get the change through a `RESULT_UPDATE` message.
+      operationId: setResultStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bib, start, status]
+              properties:
+                bib: { type: string }
+                start: { type: string, format: date-time, description: "The run's start, exactly as in the result" }
+                status: { $ref: '#/components/schemas/RunStatus' }
+      responses:
+        '200':
+          description: The run with its new status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Unknown event or discipline, or the run is not in results.csv any more
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '409':
+          description: The discipline is closed, or the run has no time and cannot become `ok`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+
+  /run:
+    get:
+      tags: [Run]
+      summary: The current run
+      operationId: getRun
+      responses:
+        '200':
+          description: Idle, ready (waiting for a start crossing) or running (waiting for a finish crossing)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunState' }
+
+  /run/ready:
+    post:
+      tags: [Run]
+      summary: A participant is ready
+      description: The next start crossing starts their run, the next finish crossing ends it and saves the result.
+      operationId: prepareRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, discipline, bib]
+              properties:
+                event: { type: string }
+                discipline: { type: string }
+                bib: { type: string }
+            example: { event: CFM26, discipline: 100m, bib: '7' }
+      responses:
+        '200':
+          description: The run is ready
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunState' }
+        '404':
+          description: Unknown event, discipline or participant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '409':
+          description: A run is in progress, the participant has no attempt left, or the discipline is closed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+
+  /run/invalidate:
+    post:
+      tags: [Run]
+      summary: Ends the running run now and saves it as invalid
+      description: An invalid run is not the participant's fault and does not use up an attempt. It has no time.
+      operationId: invalidateRun
+      responses:
+        '200': { $ref: '#/components/responses/Idle' }
+        '409': { $ref: '#/components/responses/NoRun' }
+
+  /run/disqualify:
+    post:
+      tags: [Run]
+      summary: Ends the running run now and saves it as disqualified (DQ)
+      operationId: disqualifyRun
+      responses:
+        '200': { $ref: '#/components/responses/Idle' }
+        '409': { $ref: '#/components/responses/NoRun' }
+
+  /run/cancel:
+    post:
+      tags: [Run]
+      summary: Abandons the ready or running run, nothing is saved
+      operationId: cancelRun
+      responses:
+        '200': { $ref: '#/components/responses/Idle' }
+
+  /simulate/crossing:
+    post:
+      tags: [Simulated gates]
+      summary: Fires a gate crossing now
+      description: |
+        Acts as if a gate fired the action now. Only when the server is started with `TIMING_SIMULATE_GATES=1`
+        (end-to-end tests, training without hardware); the route does not exist otherwise (404).
+      operationId: simulateCrossing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start_crossed, finish_crossed] }
+      responses:
+        '200':
+          description: The run after the crossing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunState' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /simulate/reset:
+    post:
+      tags: [Simulated gates]
+      summary: Starts over
+      description: |
+        Forgets the run in progress and the last result shown on the live pages, as when the app starts. Only with
+        `TIMING_SIMULATE_GATES=1`.
+      operationId: simulateReset
+      responses:
+        '200': { $ref: '#/components/responses/Idle' }
+
+  /live:
+    get:
+      tags: [Live]
+      summary: What this computer and the synced ones are doing (live page)
+      operationId: getLive
+      responses:
+        '200':
+          description: This computer first, then the peers whose activity is known
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instances]
+                properties:
+                  instances:
+                    type: array
+                    items: { $ref: '#/components/schemas/LiveInstance' }
+
+  /config:
+    get:
+      tags: [Device configuration]
+      summary: The device config.yaml, parsed
+      operationId: getConfig
+      responses:
+        '200':
+          description: |
+            `config` is null when the file is missing (`modifiedAt` null too) or invalid (`problems` says why and
+            `content` holds its text).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [path, modifiedAt, config, problems]
+                properties:
+                  path: { type: string, description: Absolute path of config.yaml }
+                  modifiedAt:
+                    type: [number, 'null']
+                    description: Modification time of the file (ms since the epoch), to send back when saving
+                  config:
+                    oneOf:
+                      - $ref: '#/components/schemas/DevicesConfig'
+                      - type: 'null'
+                  problems: { type: array, items: { type: string } }
+                  content: { type: [string, 'null'], description: Text of an invalid file }
+    put:
+      tags: [Device configuration]
+      summary: Saves config.yaml
+      description: |
+        Writes the config in a standard layout (comments are not kept). The app applies it within a second; the port
+        is applied when the app restarts. `modifiedAt` must be the modification time read with GET (null for a new
+        file): if the file changed since, nothing is saved (409).
+      operationId: saveConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config, modifiedAt]
+              properties:
+                config: { $ref: '#/components/schemas/DevicesConfig' }
+                modifiedAt: { type: [number, 'null'] }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [modifiedAt]
+                properties:
+                  modifiedAt: { type: number, description: The new modification time }
+        '409':
+          description: config.yaml was changed by someone else since it was loaded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '422': { $ref: '#/components/responses/Invalid' }
+
+  /config/validate:
+    post:
+      tags: [Device configuration]
+      summary: Checks a config without saving it
+      description: Always 200; `problems` is empty when the config is valid. Problems of a device start with `devices[<index>]`.
+      operationId: validateConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config]
+              properties:
+                config: { $ref: '#/components/schemas/DevicesConfig' }
+      responses:
+        '200':
+          description: The problems found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+
+  /sync:
+    get:
+      tags: [Sync]
+      summary: Whether sync is on, and the other computers found
+      description: Public, unlike the other sync routes (shown in the page menu).
+      operationId: getSyncStatus
+      responses:
+        '200':
+          description: The sync state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncStatus' }
+
+  /sync/manifest:
+    get:
+      tags: [Sync]
+      summary: The event files and results digests this instance offers
+      operationId: getSyncManifest
+      security: [{ syncKey: [] }]
+      responses:
+        '200':
+          description: The manifest
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Manifest' }
+        '403': { $ref: '#/components/responses/NotAPeer' }
+
+  /sync/file:
+    get:
+      tags: [Sync]
+      summary: One event file
+      operationId: getSyncFile
+      security: [{ syncKey: [] }]
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: '`<event>/<discipline>/<file>`, a CSV or YAML file other than results.csv'
+          schema: { type: string, examples: [CFM26/100m/men.csv] }
+      responses:
+        '200':
+          description: The file as it is on disk
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/NotAPeer' }
+        '404':
+          description: Not a synced file name, or no such file
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+
+  /sync/results:
+    get:
+      tags: [Sync]
+      summary: Every results.csv line of a discipline
+      operationId: getSyncResults
+      security: [{ syncKey: [] }]
+      parameters:
+        - name: event
+          in: query
+          required: true
+          schema: { type: string }
+        - name: discipline
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The lines as written in results.csv
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows]
+                properties:
+                  rows:
+                    type: array
+                    items: { $ref: '#/components/schemas/ResultRow' }
+        '403': { $ref: '#/components/responses/NotAPeer' }
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
+
+  /sync/activity:
+    post:
+      tags: [Sync]
+      summary: A peer's activity changed
+      description: A peer pushes its activity (race pages shown, run, last result) as soon as it changes.
+      operationId: postSyncActivity
+      security: [{ syncKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, activity]
+              properties:
+                id: { type: string, description: The peer's instance ID }
+                activity: { $ref: '#/components/schemas/Activity' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '403': { $ref: '#/components/responses/NotAPeer' }
+
+  /sync/notify:
+    post:
+      tags: [Sync]
+      summary: A peer changed something; this instance pulls from it now
+      operationId: postSyncNotify
+      security: [{ syncKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string, description: The peer's instance ID }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '403': { $ref: '#/components/responses/NotAPeer' }
+
+components:
+  securitySchemes:
+    syncKey:
+      type: apiKey
+      in: header
+      name: x-timing-sync
+      description: |
+        SHA-256 (hex) of `timing-sync\n<key>`, where `<key>` is the sync key of config.yaml. It only keeps instances
+        of other events apart: it is not a protection against someone on the network.
+
+  parameters:
+    Event:
+      name: event
+      in: path
+      required: true
+      description: Name of an event folder of the working directory
+      schema: { type: string, examples: [CFM26] }
+    Discipline:
+      name: discipline
+      in: path
+      required: true
+      description: Name of a discipline folder of the event
+      schema: { type: string, examples: [100m] }
+
+  responses:
+    UnknownDiscipline:
+      description: Unknown event or discipline
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problems' }
+    BadRequest:
+      description: Missing or wrong fields in the request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problems' }
+    Invalid:
+      description: Invalid values; `problems` lists each one
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problems' }
+    NoRun:
+      description: No run in progress
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problems' }
+    NotAPeer:
+      description: Sync is off, or the sync key differs
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problems' }
+    Idle:
+      description: No run in progress any more
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/RunState' }
+    Ok:
+      description: Received
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ok]
+            properties:
+              ok: { type: boolean, const: true }
+
+  schemas:
+    Problems:
+      type: object
+      required: [problems]
+      properties:
+        problems:
+          type: array
+          items: { type: string }
+          examples: [['Unknown event or discipline.']]
+
+    EventSummary:
+      type: object
+      required: [name, disciplines]
+      properties:
+        name: { type: string, examples: [CFM26] }
+        disciplines:
+          type: array
+          items: { type: string }
+          examples: [['10km', '100m']]
+
+    Participant:
+      type: object
+      required: [bib, name, file]
+      properties:
+        bib: { type: string, pattern: '^\d+$', examples: ['7'] }
+        name: { type: string, examples: [Hugo Guérin] }
+        file: { type: string, description: 'CSV file name without extension, e.g. the category', examples: [men] }
+
+    ParticipantList:
+      type: object
+      required: [participants, settings, problems]
+      properties:
+        participants:
+          type: array
+          items: { $ref: '#/components/schemas/Participant' }
+        settings: { $ref: '#/components/schemas/DisciplineSettings' }
+        problems:
+          type: array
+          description: Settings that were ignored and CSV rows that were skipped, and why
+          items: { type: string }
+          examples: [['men.csv, line 3: bib "x" is not a number']]
+
+    Access:
+      type: string
+      enum: [auto, open, locked]
+      description: |
+        When runs can be timed and results changed: during the start - end period (auto), always (open) or never
+        (locked).
+
+    DisciplineSettings:
+      type: object
+      required: [attempts, start, end, access]
+      properties:
+        attempts:
+          type: [integer, 'null']
+          minimum: 1
+          description: Runs allowed per participant (invalid runs do not count). null for unlimited
+        start:
+          type: [string, 'null']
+          description: Start of the period (included), UTC to the minute. null for no limit
+          examples: ['2026-11-05T07:00Z']
+        end:
+          type: [string, 'null']
+          description: End of the period (excluded), UTC to the minute. null for no limit
+          examples: ['2026-11-05T17:00Z']
+        access: { $ref: '#/components/schemas/Access' }
+
+    DisciplineSettingsInput:
+      type: object
+      description: |
+        Every field is optional (null, or auto for access). start and end accept any ISO 8601 date-time with an offset;
+        without an offset they are read in the server's time zone, and a date alone means the start of that day (start)
+        or the next midnight (end). The start must be before the end.
+      properties:
+        attempts: { type: [integer, 'null'], minimum: 1 }
+        start: { type: [string, 'null'], examples: ['2026-11-05T08:00+01:00'] }
+        end: { type: [string, 'null'], examples: ['2026-11-05'] }
+        access: { $ref: '#/components/schemas/Access' }
+
+    SettingsResponse:
+      type: object
+      required: [settings, problems]
+      properties:
+        settings: { $ref: '#/components/schemas/DisciplineSettings' }
+        problems: { type: array, items: { type: string } }
+
+    RunStatus:
+      type: string
+      enum: [ok, invalid, dq]
+      description: |
+        ok: a valid run. invalid: does not count and does not use up an attempt (not the participant's fault).
+        dq: the participant is disqualified for this run.
+
+    RunResult:
+      type: object
+      required: [bib, name, start, finish, timeMs, status]
+      properties:
+        bib: { type: string, examples: ['7'] }
+        name: { type: string, examples: [Hugo Guérin] }
+        start: { type: string, format: date-time, examples: ['2026-11-05T10:00:00.123456789Z'] }
+        finish:
+          type: [string, 'null']
+          format: date-time
+          description: null when the run was ended before the finish (invalidated or disqualified)
+        timeMs:
+          type: [integer, 'null']
+          description: Finish - start in milliseconds (rounded). null without a finish
+          examples: [12345]
+        status: { $ref: '#/components/schemas/RunStatus' }
+
+    RunState:
+      description: The run of this computer, told apart by `status`
+      oneOf:
+        - $ref: '#/components/schemas/RunIdle'
+        - $ref: '#/components/schemas/RunReady'
+        - $ref: '#/components/schemas/RunRunning'
+      discriminator:
+        propertyName: status
+        mapping:
+          idle: '#/components/schemas/RunIdle'
+          ready: '#/components/schemas/RunReady'
+          running: '#/components/schemas/RunRunning'
+
+    RunIdle:
+      type: object
+      description: No run in progress
+      required: [status]
+      properties:
+        status: { type: string, const: idle }
+
+    RunReady:
+      type: object
+      description: A participant is ready, waiting for a start crossing
+      required: [status, event, discipline, participant]
+      properties:
+        status: { type: string, const: ready }
+        event: { type: string }
+        discipline: { type: string }
+        participant: { $ref: '#/components/schemas/Participant' }
+
+    RunRunning:
+      type: object
+      description: The run started, waiting for a finish crossing
+      required: [status, event, discipline, participant, startedAt]
+      properties:
+        status: { type: string, const: running }
+        event: { type: string }
+        discipline: { type: string }
+        participant: { $ref: '#/components/schemas/Participant' }
+        startedAt: { type: string, format: date-time, description: Instant of the start crossing }
+
+    Activity:
+      type: object
+      description: What an instance is doing, shown on the live pages
+      required: [viewing, run, lastResult]
+      properties:
+        viewing:
+          type: array
+          description: Event and discipline open on its race pages, with the participant selected there
+          items:
+            type: object
+            required: [event, discipline]
+            properties:
+              event: { type: string }
+              discipline: { type: string }
+              participant:
+                description: Selected on the race page, not ready yet. null or missing for none
+                oneOf:
+                  - type: object
+                    required: [bib, name]
+                    properties:
+                      bib: { type: string }
+                      name: { type: string }
+                  - type: 'null'
+        run: { $ref: '#/components/schemas/RunState' }
+        lastResult:
+          description: The last run it ended, shown until the next participant is ready. null for none
+          oneOf:
+            - type: object
+              required: [event, discipline, result, endedAt]
+              properties:
+                event: { type: string }
+                discipline: { type: string }
+                result: { $ref: '#/components/schemas/RunResult' }
+                endedAt: { type: string, format: date-time }
+            - type: 'null'
+
+    LiveInstance:
+      allOf:
+        - $ref: '#/components/schemas/Activity'
+        - type: object
+          required: [id, name, self, clockOffsetMs]
+          properties:
+            id: { type: string, description: 'Instance ID, new at each start of the app' }
+            name: { type: string, description: 'Sync name of the computer, or its host name' }
+            self: { type: boolean, description: Whether it is this computer }
+            clockOffsetMs:
+              type: number
+              description: Its clock minus this computer's clock, to show its running clock right
+
+    TriggerRule:
+      type: object
+      required: [byteIndex, mask, value]
+      description: Fires `action` when `(report[byteIndex] & mask) == value` starts being true, `releaseAction` when it stops
+      properties:
+        reportId: { type: integer, description: Only reports with this report ID (byte 0) }
+        byteIndex: { type: integer, minimum: 0 }
+        mask: { type: integer, minimum: 0, maximum: 255 }
+        value: { type: integer, minimum: 0, maximum: 255 }
+        action: { type: string, examples: [start_crossed] }
+        releaseAction: { type: string }
+
+    DeviceRule:
+      type: object
+      required: [name, vendorId, productId, enabled]
+      properties:
+        name: { type: string, description: 'Unique, identifies the device in race events', examples: [Start gate] }
+        vendorId: { type: integer, examples: [1133] }
+        productId: { type: integer, examples: [50504] }
+        usagePage: { type: integer, description: 'HID interface to use, with usage (overrides discoveryFilter)' }
+        usage: { type: integer }
+        serialNumber: { type: string, description: Only the unit with this serial number }
+        usbPort: { type: string, description: Only the device on this USB port (Linux), examples: ['3-5'] }
+        enabled: { type: boolean }
+        logReports: { type: boolean, description: Log every changed raw report }
+        triggers:
+          type: array
+          items: { $ref: '#/components/schemas/TriggerRule' }
+
+    DevicesConfig:
+      type: object
+      required: [devices]
+      description: The device config.yaml. Field reference in backend/README.md
+      properties:
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Port of the app, read at startup (--port and PORT take precedence)
+        sync:
+          type: object
+          required: [key]
+          description: Sync with the instances on the network that have the same key
+          properties:
+            key: { type: [string, number], examples: [amber-otter-glide] }
+            name: { type: string, description: Shown to the other computers (the host name by default) }
+        discoveryFilter:
+          type: object
+          required: [usagePage, usage]
+          description: Default HID interface for the rules without usagePage and usage (1 / 2 is a mouse)
+          properties:
+            usagePage: { type: integer }
+            usage: { type: integer }
+        devices:
+          type: array
+          items: { $ref: '#/components/schemas/DeviceRule' }
+
+    HardwareStatus:
+      type: object
+      required: [platform, configPath, configValid, devices, interfaces, lastScanAt, unmatchedRules]
+      properties:
+        platform: { type: string, description: Node.js platform, examples: [linux, win32] }
+        configPath: { type: string }
+        configValid: { type: boolean }
+        devices:
+          type: array
+          description: Configured devices that are open (listening) or cannot be opened or read (failing)
+          items:
+            type: object
+            required: [deviceName, path, state, since]
+            properties:
+              deviceName: { type: string }
+              path: { type: string, description: OS path of the HID interface }
+              state: { type: string, enum: [listening, failing] }
+              since: { type: string, format: date-time }
+              reportCount: { type: integer }
+              numberedReports: { type: boolean, description: Whether byte 0 of its reports is a report ID }
+              lastReportAt: { type: string, format: date-time }
+              lastReportHex: { type: string, examples: ['01 00 00 00'] }
+              recentReports:
+                type: array
+                description: The last 50 reports that differ from the previous one with the same report ID
+                items:
+                  type: object
+                  required: [at, reportId, hex, changes]
+                  properties:
+                    at: { type: string, format: date-time }
+                    reportId: { type: [integer, 'null'] }
+                    hex: { type: string }
+                    changes:
+                      type: array
+                      items: { type: string }
+                      examples: [['byte 1 bit 0 ↑ (mask 0x01)']]
+              triggers:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/TriggerRule'
+                    - type: object
+                      required: [isMatched]
+                      properties:
+                        isMatched: { type: boolean, description: Whether its pattern matches now (pressed) }
+              error: { type: string }
+              hint: { type: string }
+              attempts: { type: integer, description: Opening attempts so far }
+        interfaces:
+          type: array
+          description: Every HID interface found by the last scan
+          items:
+            type: object
+            required: [path, vendorId, productId, manufacturer, product, serialNumber, usbPort, interfaceNumber, usages, osOwned, rules]
+            properties:
+              path: { type: string }
+              vendorId: { type: string, examples: ['0x046d'] }
+              productId: { type: string, examples: ['0xc548'] }
+              manufacturer: { type: string }
+              product: { type: string }
+              serialNumber: { type: string }
+              usbPort: { type: [string, 'null'] }
+              interfaceNumber: { type: integer }
+              usages:
+                type: array
+                items: { type: string }
+                examples: [['1/2 (Mouse)']]
+              osOwned: { type: boolean, description: 'A mouse or keyboard, not readable on Windows and macOS' }
+              rules:
+                type: array
+                items:
+                  type: object
+                  required: [name, enabled, conflict]
+                  properties:
+                    name: { type: string }
+                    enabled: { type: boolean }
+                    conflict: { type: boolean, description: Another interface already uses this rule }
+        lastScanAt: { type: [string, 'null'], format: date-time }
+        unmatchedRules:
+          type: array
+          description: Why each enabled rule matches no device
+          items: { type: string }
+
+    SyncStatus:
+      type: object
+      required: [enabled, name, peers]
+      properties:
+        enabled: { type: boolean }
+        name: { type: [string, 'null'], description: "This computer's sync name, null when sync is off" }
+        peers:
+          type: array
+          items:
+            type: object
+            required: [name, address, port, lastSeen, lastSyncAt, error, clockOffsetMs]
+            properties:
+              name: { type: string }
+              address: { type: string }
+              port: { type: integer }
+              lastSeen: { type: string, format: date-time }
+              lastSyncAt: { type: [string, 'null'], format: date-time }
+              error: { type: [string, 'null'], description: Why the last sync with it failed }
+              clockOffsetMs: { type: [number, 'null'], description: Its clock minus this computer's clock }
+
+    Manifest:
+      type: object
+      required: [protocol, serverTime, files, results]
+      properties:
+        protocol: { type: string, const: timing-sync/1 }
+        serverTime: { type: string, format: date-time }
+        files:
+          type: array
+          items:
+            type: object
+            required: [path, mtimeMs, hash]
+            properties:
+              path: { type: string, examples: [CFM26/100m/men.csv] }
+              mtimeMs: { type: number }
+              hash: { type: string, description: 'SHA-256 of the content, hex' }
+        results:
+          type: array
+          items:
+            type: object
+            required: [event, discipline, digest]
+            properties:
+              event: { type: string }
+              discipline: { type: string }
+              digest: { type: string, description: 'SHA-256 of its lines in a fixed order, hex' }
+
+    ResultRow:
+      type: object
+      description: A results.csv line as written (text columns)
+      required: [bib, name, start, finish, status, updated]
+      properties:
+        bib: { type: string }
+        name: { type: string }
+        start: { type: string }
+        finish: { type: string, description: Empty without a finish }
+        status: { type: string, examples: [OK, INVALID, DQ] }
+        updated: { type: string, description: When the line was last changed (UTC); the latest change wins }

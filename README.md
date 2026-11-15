@@ -33,6 +33,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   │   ├── websocket/        # Real-time WebSocket broadcasting server
 │   │   └── server.ts         # Entry point
 │   ├── test/                 # Unit and API tests (Vitest)
+│   ├── openapi.yaml          # OpenAPI 3.1 reference of the REST API
 │   └── package.json
 ├── frontend/                 # Vue + TypeScript frontend (Vite)
 │   ├── src/
@@ -60,6 +61,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │           └── results.csv   # Timed runs, written by the app
 ├── release/                  # Release packages, not in git
 ├── playwright.config.ts      # End-to-end test settings: server, browser
+├── redocly.yaml              # Linter settings for backend/openapi.yaml (npx @redocly/cli lint)
 ├── package.json              # Root scripts: dev, build, start, package, test, test:e2e
 └── README.md                 # Root documentation
 ```
