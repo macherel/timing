@@ -355,10 +355,10 @@ export default {
     add: '+ Add to configuration',
     manufacturer: 'Manufacturer',
     vendorProduct: 'Vendor / product ID',
-    // {command} is the diagnose command
     explain:
-      'The app does not open devices that are not in the configuration, so no report is shown. To see which bits its buttons change, add it to the configuration, or run {command}.',
+      'This device is not in the configuration: it is opened only while this tab is shown, so that you can see which bits its buttons change. Its buttons do not time anything until it is added to the configuration.',
     interfaces: 'HID interfaces',
+    opening: 'opening…',
   },
 
   interfaces: {

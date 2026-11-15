@@ -152,6 +152,20 @@ export interface DeviceStatus {
   attempts?: number;
 }
 
+/** Reports of an interface opened only for the diagnostics page (its device is not in the configuration) */
+export interface MonitorStatus {
+  state: 'listening' | 'failing';
+  since: string;
+  reportCount?: number;
+  numberedReports?: boolean;
+  lastReportAt?: string;
+  lastReportHex?: string;
+  recentReports?: RecentReport[];
+  error?: string;
+  hint?: string;
+  attempts?: number;
+}
+
 export interface HidInterface {
   path: string;
   vendorId: string;
@@ -164,6 +178,8 @@ export interface HidInterface {
   usages: string[];
   osOwned: boolean;
   rules: Array<{ name: string; enabled: boolean; conflict: boolean }>;
+  // Set while the diagnostics page asks for this device (GET /api/hardware/status?monitor=vid:pid)
+  monitor?: MonitorStatus;
 }
 
 export interface HardwareStatus {

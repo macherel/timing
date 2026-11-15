@@ -346,8 +346,9 @@ const fr: Messages = {
     manufacturer: 'Fabricant',
     vendorProduct: 'Vendor / product ID',
     explain:
-      'L’application n’ouvre pas les appareils absents de la configuration : aucun rapport n’est affiché. Pour voir quels bits ses boutons modifient, ajoutez-le à la configuration, ou lancez {command}.',
+      'Cet appareil n’est pas dans la configuration : il n’est ouvert que pendant l’affichage de cet onglet, pour voir quels bits ses boutons modifient. Ses boutons ne chronomètrent rien tant qu’il n’est pas ajouté à la configuration.',
     interfaces: 'Interfaces HID',
+    opening: 'ouverture…',
   },
 
   interfaces: {

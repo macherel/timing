@@ -66,6 +66,15 @@ paths:
       tags: [Status]
       summary: Devices, HID interfaces and configuration problems (diagnostics page)
       operationId: getHardwareStatus
+      parameters:
+        - name: monitor
+          in: query
+          required: false
+          description: >-
+            Comma-separated device models (vendorId:productId, as in `interfaces`) to open even though no enabled rule
+            listens to them, so that their reports are shown. They stay open while requests keep asking for them, and
+            close 5 seconds after the last one.
+          schema: { type: string, examples: ['0x046d:0xc548'] }
       responses:
         '200':
           description: Snapshot of the hardware state
@@ -862,6 +871,18 @@ components:
           type: array
           items: { $ref: '#/components/schemas/DeviceRule' }
 
+    RecentReport:
+      type: object
+      required: [at, reportId, hex, changes]
+      properties:
+        at: { type: string, format: date-time }
+        reportId: { type: [integer, 'null'] }
+        hex: { type: string }
+        changes:
+          type: array
+          items: { type: string }
+          examples: [['byte 1 bit 0 ↑ (mask 0x01)']]
+
     HardwareStatus:
       type: object
       required: [platform, configPath, configValid, devices, interfaces, lastScanAt, unmatchedRules]
@@ -887,17 +908,7 @@ components:
               recentReports:
                 type: array
                 description: The last 50 reports that differ from the previous one with the same report ID
-                items:
-                  type: object
-                  required: [at, reportId, hex, changes]
-                  properties:
-                    at: { type: string, format: date-time }
-                    reportId: { type: [integer, 'null'] }
-                    hex: { type: string }
-                    changes:
-                      type: array
-                      items: { type: string }
-                      examples: [['byte 1 bit 0 ↑ (mask 0x01)']]
+                items: { $ref: '#/components/schemas/RecentReport' }
               triggers:
                 type: array
                 items:
@@ -939,6 +950,26 @@ components:
                     name: { type: string }
                     enabled: { type: boolean }
                     conflict: { type: boolean, description: Another interface already uses this rule }
+              monitor:
+                description: >-
+                  Only on the interfaces of a device model asked for with the `monitor` parameter that no enabled rule
+                  listens to: opened for the diagnostics page only (it fires no race event)
+                type: object
+                required: [state, since]
+                properties:
+                  state: { type: string, enum: [listening, failing] }
+                  since: { type: string, format: date-time }
+                  reportCount: { type: integer }
+                  numberedReports: { type: boolean, description: Whether byte 0 of its reports is a report ID }
+                  lastReportAt: { type: string, format: date-time }
+                  lastReportHex: { type: string, examples: ['01 00 00 00'] }
+                  recentReports:
+                    type: array
+                    description: The last 50 reports that differ from the previous one with the same report ID
+                    items: { $ref: '#/components/schemas/RecentReport' }
+                  error: { type: string }
+                  hint: { type: string }
+                  attempts: { type: integer, description: Opening attempts so far }
         lastScanAt: { type: [string, 'null'], format: date-time }
         unmatchedRules:
           type: array

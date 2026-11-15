@@ -38,6 +38,9 @@ const POLL_INTERVAL_MS = 1000;
 const REPEAT_FAILURE_LOG_EVERY = 60;
 // Changed reports kept per connection for the diagnostics page, which polls slower than reports arrive
 const RECENT_REPORTS_KEPT = 50;
+// A device that is not in the configuration is only opened while the diagnostics page shows it: each status
+// request asking for it keeps it open this long
+const MONITOR_LEASE_MS = 5000;
 
 interface Connection {
     deviceName: string;
@@ -94,7 +97,8 @@ export interface HardwareStatus {
         hint?: string;
         attempts?: number;
     }>;
-    // Every HID interface seen by the last scan, one entry per path
+    // Every HID interface seen by the last scan, one entry per path. `monitor` is set on the interfaces opened
+    // only for the diagnostics page (see the `monitor` parameter of getHardwareStatus)
     interfaces: Array<{
         path: string;
         vendorId: string;
@@ -107,14 +111,34 @@ export interface HardwareStatus {
         usages: string[];
         osOwned: boolean;
         rules: Array<{ name: string; enabled: boolean; conflict: boolean }>;
+        monitor?: MonitorStatus;
     }>;
     lastScanAt: string | null;
     unmatchedRules: string[];
 }
 
+/** Reports of an interface opened for the diagnostics page only (no rule, so no trigger). */
+export interface MonitorStatus {
+    state: 'listening' | 'failing';
+    since: string;
+    reportCount?: number;
+    numberedReports?: boolean;
+    lastReportAt?: string;
+    lastReportHex?: string;
+    recentReports?: RecentReport[];
+    error?: string;
+    hint?: string;
+    attempts?: number;
+}
+
 // Open interfaces and interfaces that failed to open or read, keyed by OS device path
 const connections = new Map<string, Connection>();
 const failures = new Map<string, Failure>();
+// Same for the interfaces opened only for the diagnostics page: they never fire race events
+const monitors = new Map<string, Connection>();
+const monitorFailures = new Map<string, Failure>();
+// Device models (e.g. "0x046d:0xc548") the diagnostics page asked to monitor -> end of the lease, in ms
+const monitorLeases = new Map<string, number>();
 
 // The config is only reloaded when config.yaml changes, not on every poll
 let config: DevicesConfig | null = null;
@@ -161,32 +185,32 @@ export function stopHardwareService(): void {
     connections.forEach((conn, devicePath) => closeQuietly(conn.device, devicePath));
     connections.clear();
     failures.clear();
+    monitors.forEach((conn, devicePath) => closeQuietly(conn.device, devicePath));
+    monitors.clear();
+    monitorFailures.clear();
+    monitorLeases.clear();
     lastSystemDevices = [];
     lastAssignments = [];
     log.info('Stopped.');
 }
 
-export function getHardwareStatus(): HardwareStatus {
+/**
+ * @param monitor Device models ("0x046d:0xc548") to open even though no rule uses them, so that the diagnostics
+ *   page can show their reports. They stay open while the page keeps asking, and close MONITOR_LEASE_MS after.
+ */
+export function getHardwareStatus(monitor: string[] = []): HardwareStatus {
+    renewMonitorLeases(monitor);
+
     const listening = [...connections].map(([path, conn]) => ({
         deviceName: conn.deviceName,
         path,
-        state: 'listening' as const,
-        since: conn.openedAt.toString(),
-        reportCount: conn.reportCount,
-        numberedReports: conn.numberedReports,
-        lastReportAt: conn.lastReportAt?.toString(),
-        lastReportHex: conn.lastReport && toHex(conn.lastReport),
-        recentReports: conn.recentReports,
+        ...describeListening(conn),
         triggers: conn.triggers,
     }));
     const failing = [...failures].map(([path, failure]) => ({
         deviceName: failure.deviceName,
         path,
-        state: 'failing' as const,
-        since: failure.since.toString(),
-        error: failure.message,
-        hint: failure.hint ?? undefined,
-        attempts: failure.attempts,
+        ...describeFailure(failure),
     }));
 
     return {
@@ -198,6 +222,35 @@ export function getHardwareStatus(): HardwareStatus {
         lastScanAt: lastScanAt?.toString() ?? null,
         unmatchedRules,
     };
+}
+
+function describeListening(conn: Connection) {
+    return {
+        state: 'listening' as const,
+        since: conn.openedAt.toString(),
+        reportCount: conn.reportCount,
+        numberedReports: conn.numberedReports,
+        lastReportAt: conn.lastReportAt?.toString(),
+        lastReportHex: conn.lastReport && toHex(conn.lastReport),
+        recentReports: conn.recentReports,
+    };
+}
+
+function describeFailure(failure: Failure) {
+    return {
+        state: 'failing' as const,
+        since: failure.since.toString(),
+        error: failure.message,
+        hint: failure.hint ?? undefined,
+        attempts: failure.attempts,
+    };
+}
+
+function describeMonitor(path: string): MonitorStatus | undefined {
+    const conn = monitors.get(path);
+    if (conn) return describeListening(conn);
+    const failure = monitorFailures.get(path);
+    return failure && describeFailure(failure);
 }
 
 function describeInterfaces(): HardwareStatus['interfaces'] {
@@ -217,8 +270,27 @@ function describeInterfaces(): HardwareStatus['interfaces'] {
             rules: lastAssignments
                 .filter((a) => a.device.path === path && a.rule)
                 .map(({ rule, conflict }) => ({ name: rule!.name, enabled: rule!.enabled, conflict })),
+            monitor: describeMonitor(path),
         };
     });
+}
+
+/** Same format as HardwareStatus['interfaces'][number].vendorId/productId. */
+function modelKey(device: Pick<HID.Device, 'vendorId' | 'productId'>): string {
+    return `${hexId(device.vendorId)}:${hexId(device.productId)}`;
+}
+
+function renewMonitorLeases(models: string[]): void {
+    const until = Date.now() + MONITOR_LEASE_MS;
+    let isNew = false;
+    for (const model of models) {
+        const key = model.trim().toLowerCase();
+        if (!/^0x[0-9a-f]{4}:0x[0-9a-f]{4}$/.test(key)) continue;
+        if (!monitorLeases.has(key)) isNew = true;
+        monitorLeases.set(key, until);
+    }
+    // Opens a newly asked device now rather than on the next poll
+    if (isNew) requestSync();
 }
 
 function onConfigChange(): void {
@@ -286,6 +358,10 @@ async function syncConnectedDevices(): Promise<void> {
 
     const collectionsByPath = groupByPath(systemDevices);
     const activeAssignments = assignments.filter(isActive);
+    const activePaths = new Set(activeAssignments.map((a) => a.device.path));
+    // Before opening the configured interfaces, so that one is never open twice (exclusive on some systems)
+    syncMonitors(collectionsByPath, activePaths);
+
     for (const { device, rule } of activeAssignments) {
         const conn = connections.get(device.path);
         if (conn) {
@@ -296,11 +372,42 @@ async function syncConnectedDevices(): Promise<void> {
         }
     }
 
-    const activePaths = new Set(activeAssignments.map((a) => a.device.path));
     closeStaleConnections(activePaths);
     // Unplugged or disabled interfaces start with a clean slate when they come back
     failures.forEach((_, devicePath) => {
         if (!activePaths.has(devicePath)) failures.delete(devicePath);
+    });
+}
+
+/**
+ * Opens the interfaces of the device models the diagnostics page asked for, except those a rule already uses,
+ * and closes the monitors that are no longer asked for, unplugged, or now used by a rule.
+ */
+function syncMonitors(collectionsByPath: Map<string, HID.Device[]>, activePaths: Set<string>): void {
+    const now = Date.now();
+    monitorLeases.forEach((until, model) => {
+        if (until <= now) monitorLeases.delete(model);
+    });
+
+    const wanted = new Map<string, HID.Device[]>();
+    collectionsByPath.forEach((collections, devicePath) => {
+        if (!activePaths.has(devicePath) && monitorLeases.has(modelKey(collections[0]))) {
+            wanted.set(devicePath, collections);
+        }
+    });
+
+    monitors.forEach((conn, devicePath) => {
+        if (wanted.has(devicePath)) return;
+        log.debug(`Stopped monitoring "${conn.deviceName}" (${devicePath})`);
+        closeQuietly(conn.device, devicePath);
+        monitors.delete(devicePath);
+    });
+    monitorFailures.forEach((_, devicePath) => {
+        if (!wanted.has(devicePath)) monitorFailures.delete(devicePath);
+    });
+
+    wanted.forEach((collections, devicePath) => {
+        if (!monitors.has(devicePath)) openMonitor({ ...collections[0], path: devicePath }, collections.length > 1);
     });
 }
 
@@ -375,36 +482,87 @@ function openConnection(rule: DeviceRule, hidDevice: HidDevice, numberedReports:
     }
     log.info(`Listening to "${rule.name}" at ${hidDevice.path}${rule.logReports ? ' (logging raw reports)' : ''}`);
 
-    const conn: Connection = {
-        deviceName: rule.name,
-        device,
-        triggers: mergeTriggers([], rule.triggers ?? []),
-        logReports: rule.logReports ?? false,
-        numberedReports,
-        lastReportById: new Map(),
-        recentReports: [],
-        openedAt: Temporal.Now.instant(),
-        reportCount: 0,
-    };
+    const conn = newConnection(rule.name, device, numberedReports, mergeTriggers([], rule.triggers ?? []));
+    conn.logReports = rule.logReports ?? false;
     connections.set(hidDevice.path, conn);
 
     device.on('data', (report: Buffer) => onReport(conn, report));
     device.on('error', (error: unknown) => onReadError(conn, hidDevice, error));
 }
 
+/**
+ * Opens an interface for the diagnostics page only: its reports are kept, but nothing fires a race event.
+ * Failures are shown on the page and retried on the next poll, without logging them as errors.
+ */
+function openMonitor(hidDevice: HidDevice, numberedReports: boolean): void {
+    const name = hidDevice.product || modelKey(hidDevice);
+    let device: HID.HID;
+    try {
+        device = new HID.HID(hidDevice.path);
+    } catch (error) {
+        recordMonitorFailure(hidDevice, name, errorMessage(error));
+        return;
+    }
+
+    monitorFailures.delete(hidDevice.path);
+    log.debug(`Monitoring "${name}" at ${hidDevice.path} for the diagnostics page`);
+
+    const conn = newConnection(name, device, numberedReports, []);
+    monitors.set(hidDevice.path, conn);
+
+    device.on('data', (report: Buffer) => trackReport(conn, report, Temporal.Now.instant()));
+    device.on('error', (error: unknown) => {
+        if (monitors.get(hidDevice.path) !== conn) return;
+        closeQuietly(conn.device, hidDevice.path);
+        monitors.delete(hidDevice.path);
+        recordMonitorFailure(hidDevice, name, `Read error: ${errorMessage(error)}`);
+    });
+}
+
+function recordMonitorFailure(hidDevice: HidDevice, deviceName: string, message: string): void {
+    const previous = monitorFailures.get(hidDevice.path);
+    const isNew = !previous || previous.message !== message;
+    monitorFailures.set(hidDevice.path, {
+        deviceName,
+        message,
+        hint: openFailureHint(hidDevice, message),
+        since: isNew ? Temporal.Now.instant() : previous.since,
+        attempts: (previous?.attempts ?? 0) + 1,
+    });
+    if (isNew) log.debug(`Cannot monitor "${deviceName}" at ${hidDevice.path}: ${message}`);
+}
+
+function newConnection(deviceName: string, device: HID.HID, numberedReports: boolean, triggers: ActiveTrigger[]): Connection {
+    return {
+        deviceName,
+        device,
+        triggers,
+        logReports: false,
+        numberedReports,
+        lastReportById: new Map(),
+        recentReports: [],
+        openedAt: Temporal.Now.instant(),
+        reportCount: 0,
+    };
+}
+
 function onReport(conn: Connection, report: Buffer): void {
     // Taken first, before any logging or race handling, so it is as close as possible to the hardware event
     const instant = Temporal.Now.instant();
 
-    trackReportChanges(conn, report, instant);
-    conn.reportCount++;
-    conn.lastReport = report;
-    conn.lastReportAt = instant;
+    trackReport(conn, report, instant);
 
     for (const { kind, action } of evaluateReport(conn.triggers, report)) {
         log.info(`${kind === 'press' ? 'Pressed' : 'Released'}: ${conn.deviceName} | Action: ${action}`);
         handleRaceEvent(conn.deviceName, conn.deviceName, action, instant);
     }
+}
+
+function trackReport(conn: Connection, report: Buffer, instant: Temporal.Instant): void {
+    trackReportChanges(conn, report, instant);
+    conn.reportCount++;
+    conn.lastReport = report;
+    conn.lastReportAt = instant;
 }
 
 /**

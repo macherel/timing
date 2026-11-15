@@ -1,52 +1,61 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, ref, watchEffect } from 'vue';
 import { useHardwareStatus } from '../composables/useHardwareStatus';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import { formatTime } from '../format';
 import InterfacesTable from '../components/InterfacesTable.vue';
 import DeviceCard from '../components/DeviceCard.vue';
 import RaceEventLog from '../components/RaceEventLog.vue';
-import UnconfiguredDeviceCard from '../components/UnconfiguredDeviceCard.vue';
 import type { DeviceStatus, HidInterface } from '../types';
 
-const { status, error, paused, lastUpdate } = useHardwareStatus();
 const { connected, events, clear } = useRaceSocket();
 
-// One tab per configured device (keyed by name), then one per connected device model that no configured device
-// uses (keyed by VID:PID). Keys survive the status refreshes, so the selected tab stays selected.
-type DeviceTab =
-  | { key: string; label: string; kind: 'configured'; device: DeviceStatus }
-  | { key: string; label: string; kind: 'unconfigured'; interfaces: HidInterface[] };
+// One tab per physical device (same VID:PID, serial number and USB port), with all its interfaces: first the devices
+// a rule listens to, named after their rules, then the others. Keys survive the status refreshes, so the selected
+// tab stays selected.
+interface DeviceTab {
+  key: string;
+  label: string;
+  interfaces: HidInterface[];
+  // Configured connections of these interfaces
+  devices: DeviceStatus[];
+}
+
+// The backend opens the interfaces of the selected device that no rule listens to, to show their reports
+const monitoredModel = ref<string | null>(null);
+const { status, error, paused, lastUpdate } = useHardwareStatus(() => (monitoredModel.value ? [monitoredModel.value] : []));
 
 const tabs = computed<DeviceTab[]>(() => {
   if (!status.value) return [];
-  const configured: DeviceTab[] = status.value.devices.map((device) => ({
-    key: `configured:${device.deviceName}`,
-    label: device.deviceName,
-    kind: 'configured',
-    device,
-  }));
+  const devicesByPath = new Map(status.value.devices.map((d) => [d.path, d]));
 
-  const models = new Map<string, HidInterface[]>();
+  const groups = new Map<string, HidInterface[]>();
   for (const item of status.value.interfaces) {
-    const id = `${item.vendorId}:${item.productId}`;
-    models.set(id, [...(models.get(id) ?? []), item]);
+    const key = `${item.vendorId}:${item.productId}|${item.serialNumber}|${item.usbPort ?? ''}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
   }
-  const unconfigured: DeviceTab[] = [...models]
-    .filter(([, interfaces]) => interfaces.every((i) => i.rules.length === 0))
-    .map(([id, interfaces]) => ({
-      key: `unconfigured:${id}`,
-      label: interfaces[0].product || id,
-      kind: 'unconfigured' as const,
-      interfaces,
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-
-  return [...configured, ...unconfigured];
+  const all = [...groups].map(([key, interfaces]): DeviceTab => {
+    const devices = interfaces.flatMap((i) => devicesByPath.get(i.path) ?? []);
+    const product = interfaces[0].product || `${interfaces[0].vendorId}:${interfaces[0].productId}`;
+    return { key, label: devices.length > 0 ? devices.map((d) => d.deviceName).join(' / ') : product, interfaces, devices };
+  });
+  const configured = all.filter((t) => t.devices.length > 0).sort((a, b) => a.label.localeCompare(b.label));
+  const others = all.filter((t) => t.devices.length === 0).sort((a, b) => a.label.localeCompare(b.label));
+  return [...configured, ...others];
 });
+
+// Dot and badge of a tab: state of its configured connections, none when no rule listens to it
+function tabState(tab: DeviceTab): 'listening' | 'failing' | null {
+  if (tab.devices.length === 0) return null;
+  return tab.devices.every((d) => d.state === 'listening') ? 'listening' : 'failing';
+}
 
 const selectedKey = ref<string | null>(null);
 const selectedTab = computed(() => tabs.value.find((t) => t.key === selectedKey.value) ?? tabs.value[0]);
+watchEffect(() => {
+  const tab = selectedTab.value;
+  monitoredModel.value = tab ? `${tab.interfaces[0].vendorId}:${tab.interfaces[0].productId}` : null;
+});
 const tabList = ref<HTMLElement | null>(null);
 
 // Arrow keys, Home and End move between tabs, as in any tab list
@@ -109,6 +118,15 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
 
     <template v-if="status">
       <section>
+        <h2>{{ $t('diagnostics.hidTitle') }}</h2>
+        <i18n-t keypath="diagnostics.hidHint" tag="p" class="muted">
+          <template #config><code>config.yaml</code></template>
+          <template #command><code>npm run diagnose -- --listen &lt;vid:pid&gt;</code></template>
+        </i18n-t>
+        <InterfacesTable :interfaces="status.interfaces" :platform="status.platform" />
+      </section>
+
+      <section>
         <h2>{{ $t('diagnostics.devices') }}</h2>
         <p v-if="tabs.length === 0" class="muted">{{ $t('diagnostics.noHid') }}</p>
         <template v-else>
@@ -121,7 +139,7 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
               type="button"
               role="tab"
               class="tab"
-              :class="{ unconfigured: tab.kind === 'unconfigured', 'first-unconfigured': tab.kind === 'unconfigured' && tabs[index - 1]?.kind === 'configured' }"
+              :class="{ unconfigured: !tabState(tab), 'first-unconfigured': !tabState(tab) && index > 0 && !!tabState(tabs[index - 1]) }"
               :aria-selected="tab === selectedTab"
               :tabindex="tab === selectedTab ? 0 : -1"
               aria-controls="device-panel"
@@ -130,8 +148,8 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
             >
               <span
                 class="dot"
-                :class="tab.kind === 'configured' ? tab.device.state : ''"
-                :title="tab.kind === 'configured' ? $t(`hid.states.${tab.device.state}`) : $t('hid.notConfigured')"
+                :class="tabState(tab) ?? ''"
+                :title="tabState(tab) ? $t(`hid.states.${tabState(tab)}`) : $t('hid.notConfigured')"
               ></span>
               {{ tab.label }}
             </button>
@@ -143,8 +161,7 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
             class="tab-panel"
             :aria-labelledby="`device-tab-${tabs.indexOf(selectedTab)}`"
           >
-            <DeviceCard v-if="selectedTab.kind === 'configured'" :device="selectedTab.device" />
-            <UnconfiguredDeviceCard v-else :interfaces="selectedTab.interfaces" :platform="status.platform" />
+            <DeviceCard :interfaces="selectedTab.interfaces" :devices="selectedTab.devices" :platform="status.platform" />
           </div>
         </template>
       </section>
@@ -160,14 +177,6 @@ async function onTabKeydown(event: KeyboardEvent, index: number): Promise<void> 
         <RaceEventLog :events="events" />
       </section>
 
-      <section>
-        <h2>{{ $t('diagnostics.hidTitle') }}</h2>
-        <i18n-t keypath="diagnostics.hidHint" tag="p" class="muted">
-          <template #config><code>config.yaml</code></template>
-          <template #command><code>npm run diagnose -- --listen &lt;vid:pid&gt;</code></template>
-        </i18n-t>
-        <InterfacesTable :interfaces="status.interfaces" :platform="status.platform" />
-      </section>
     </template>
   </main>
 </template>

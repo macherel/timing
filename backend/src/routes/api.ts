@@ -62,9 +62,11 @@ router.get('/status', (req: Request, res: Response) => {
     });
 });
 
-// Device diagnostics: which devices are listening or failing, and why
+// Device diagnostics: which devices are listening or failing, and why.
+// ?monitor=0x046d:0xc548,... also opens these devices (not in the configuration) to show their reports
 router.get('/hardware/status', (req: Request, res: Response) => {
-    res.json(getHardwareStatus());
+    const monitor = typeof req.query.monitor === 'string' ? req.query.monitor.split(',').filter(Boolean) : [];
+    res.json(getHardwareStatus(monitor));
 });
 
 // Race page: events of the working directory, with their disciplines
