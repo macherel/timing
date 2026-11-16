@@ -50,6 +50,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   ├── test/                 # Unit and component tests (Vitest)
 │   └── package.json
 ├── e2e/                      # End-to-end tests in a browser (Playwright), with simulated gates
+├── sample-data/              # Example config.yaml and event, copied into the data folder of the release packages
 ├── scripts/
 │   └── package.mjs           # Builds standalone release packages (npm run package)
 ├── workdir/                  # Working directory in dev mode, not in git: config.yaml and the events
@@ -107,7 +108,7 @@ This builds the app and creates, in `release/`:
 
 Each package runs on a computer without Node.js or npm. It contains the built app, its production dependencies, the Node runtime (the same version as the one running the script, downloaded from nodejs.org and checked against the official checksums), a `data` folder, and a `README.txt` (English) and `LISEZMOI.txt` (French) that explain how to start the app and configure a device, with the Zadig procedure for mice on Windows. Their text is in `scripts/packageReadme.mjs`. Unpack it and run `timing.sh` / `timing.cmd` (server) or `diagnose.sh` / `diagnose.cmd` (device diagnostics).
 
-The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and `results.csv` files are written there. `workdir/config.yaml` is copied into it when it exists; without it, the app starts with no devices and the file is created from the configuration page. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.
+The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and `results.csv` files are written there. It starts with the content of `sample-data/`, so the app has something to show on its first start: an example `config.yaml` (one Logitech receiver as the start and finish gates, no sync key) and an example event (`Exemple`: two disciplines with fictitious participants). Your own `workdir/` is never copied. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.
 
 The script runs on Linux and Windows, but build the Linux package on Linux: archives made on Windows lose the executable permissions. Building the Windows zip on Linux needs `zip`.
 

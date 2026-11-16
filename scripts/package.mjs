@@ -24,6 +24,8 @@ const CACHE_DIR = path.join(RELEASE_DIR, '.cache');
 const NODE_DIST_URL = 'https://nodejs.org/dist';
 // Working directory of the packaged app, beside the launchers
 const DATA_DIR = 'data';
+// Copied into DATA_DIR: an example config.yaml and example events, so the app has something to show on its first start
+const SAMPLE_DATA_DIR = 'sample-data';
 
 // The packaged runtime is the Node running this script, so it must satisfy .nvmrc
 const NODE_VERSION = process.version;
@@ -114,13 +116,9 @@ async function buildPackage(platform, checksums) {
     fs.copyFileSync(await nodeBinary(platform, checksums), runtimePath);
 
     writeLaunchers(packageDir, platform);
-    // The launchers use data/ as the working directory: config.yaml and the event folders go there
-    fs.mkdirSync(path.join(packageDir, DATA_DIR));
-    if (fs.existsSync(path.join(ROOT, 'workdir/config.yaml'))) {
-        copy('workdir/config.yaml', path.join(packageDir, DATA_DIR, 'config.yaml'));
-    } else {
-        console.log(`  workdir/config.yaml not found: ${DATA_DIR}/ has no config.yaml (create it from the configuration page).`);
-    }
+    // The launchers use data/ as the working directory: config.yaml and the event folders go there. It starts with
+    // the example data, not the developer's workdir/ (its sync key and devices are their own)
+    copy(SAMPLE_DATA_DIR, path.join(packageDir, DATA_DIR));
     const readmes = readmeFiles({ version, nodeVersion: NODE_VERSION, platformName: platform.name, dataDir: DATA_DIR });
     for (const [fileName, text] of Object.entries(readmes)) fs.writeFileSync(path.join(packageDir, fileName), text);
 

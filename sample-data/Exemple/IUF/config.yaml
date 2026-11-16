@@ -1,0 +1,13 @@
+# Settings of this discipline, also edited from the race page (saving from the page does not keep comments)
+
+# Runs allowed per participant (invalid runs do not count). Unlimited when not set.
+attempts: 2
+
+# Period when runs can be timed and results changed, from start (included) to end (excluded).
+# ISO 8601 date-times in UTC. No limit when not set.
+#start: 2026-01-31T07:00Z
+#end: 2026-01-31T17:00Z
+
+# When runs can be timed and results changed: auto (during the period above), open (always, ignores the
+# period, e.g. to correct a result) or locked (never, results are final)
+access: auto

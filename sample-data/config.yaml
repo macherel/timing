@@ -1,0 +1,26 @@
+# Saved from the configuration page. Field reference: backend/README.md
+
+# Port of the app, used when the app starts (--port or PORT override it)
+port: 3001
+
+# Default HID interface for rules without usagePage/usage (1/2 = mouse)
+discoveryFilter:
+  usagePage: 1
+  usage: 2
+
+devices:
+  - name: "Lane 1"
+    vendorId: 0x046d
+    productId: 0xc548
+    enabled: true
+    triggers:
+      - reportId: 2
+        byteIndex: 1
+        mask: 0x01
+        value: 0x01
+        action: "start_crossed"
+      - reportId: 2
+        byteIndex: 1
+        mask: 0x02
+        value: 0x02
+        action: "finish_crossed"
