@@ -103,6 +103,8 @@ This builds the app and creates, in `release/`:
 - `timing-<version>-linux-x64.tar.gz`
 - `timing-<version>-win-x64.zip`
 
+`<version>` is the date-time in UTC of the commit it was built from and that commit, e.g. `timing-20261116-1432-2beba2a-win-x64.zip`, so each package tells from which code it was made and when that code was committed; building the same commit again gives the same version. `-dirty` is added (e.g. `20261116-1432-2beba2a-dirty`) when the working tree had uncommitted changes: commit before building a release. Without git, or outside a git clone, the version is the build date-time alone (e.g. `20261116-1432`).
+
 Each package runs on a computer without Node.js or npm. It contains the built app, its production dependencies, the Node runtime (the same version as the one running the script, downloaded from nodejs.org and checked against the official checksums), a `data` folder, and a `README.txt` (English) and `LISEZMOI.txt` (French) that explain how to start the app and configure a device, with the Zadig procedure for mice on Windows. Their text is in `scripts/packageReadme.mjs`. Unpack it and run `timing.sh` / `timing.cmd` (server) or `diagnose.sh` / `diagnose.cmd` (device diagnostics).
 
 The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and `results.csv` files are written there. `workdir/config.yaml` is copied into it when it exists; without it, the app starts with no devices and the file is created from the configuration page. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.

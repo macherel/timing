@@ -2,6 +2,8 @@
  * Builds ready-to-run packages of the app, with their own Node runtime:
  *   release/timing-<version>-linux-x64.tar.gz
  *   release/timing-<version>-win-x64.zip
+ * <version> is the commit date-time (UTC) and the commit, e.g. 20261116-1432-2beba2a, or the build date-time alone
+ * when git or the repository is not available (see releaseVersion).
  *
  *   npm run package                      Both platforms
  *   npm run package -- --platform win    One platform (linux or win)
@@ -46,7 +48,7 @@ const PLATFORMS = {
 };
 
 const IS_WINDOWS_HOST = process.platform === 'win32';
-const version = JSON.parse(fs.readFileSync(path.join(ROOT, 'backend/package.json'), 'utf8')).version;
+const version = releaseVersion();
 
 main().catch((error) => {
     console.error(`\n✘ ${error.message}`);
@@ -246,6 +248,28 @@ function createArchive(packageName, format) {
 function copy(from, to) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.cpSync(path.join(ROOT, from), to, { recursive: true });
+}
+
+/**
+ * The version of the packages: commit date-time in UTC and short commit hash, e.g. 20261116-1432-2beba2a, so a
+ * package tells which code it was built from and when that code was committed; building the same commit again gives
+ * the same version. "-dirty" is added when the working tree has changes that are not committed: the package then
+ * holds code that no commit has. Without git, or outside a git clone, the version is the build date-time alone,
+ * e.g. 20261116-1432.
+ */
+function releaseVersion() {
+    // 2026-11-16T14:32:05.123Z -> 20261116-1432
+    const formatDateTime = (date) => date.toISOString().replace(/[-:]/g, '').slice(0, 13).replace('T', '-');
+    const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    try {
+        const commit = git('rev-parse', '--short', 'HEAD');
+        const commitDate = new Date(Number(git('log', '-1', '--format=%ct', 'HEAD')) * 1000);
+        const dirty = git('status', '--porcelain') !== '';
+        return `${formatDateTime(commitDate)}-${commit}${dirty ? '-dirty' : ''}`;
+    } catch {
+        console.warn('  ⚠ git or the repository is not available: the version is the build date-time only.');
+        return formatDateTime(new Date());
+    }
 }
 
 function run(command, args, cwd = ROOT) {
