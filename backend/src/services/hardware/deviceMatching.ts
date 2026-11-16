@@ -3,6 +3,7 @@ import path from 'path';
 import type HID from 'node-hid';
 import type { DeviceRule, DevicesConfig } from './deviceConfig.js';
 import { describeUsage, hexId } from './hidDiagnostics.js';
+import { isUsbPath, usbPortOfPath } from './usbHid.js';
 
 export type HidDevice = HID.Device & { path: string };
 
@@ -153,10 +154,12 @@ function ruleMatches(config: DevicesConfig, rule: DeviceRule, device: HidDevice,
 }
 
 /**
- * Resolves the physical USB port (e.g. "3-5" or "1-2.4") of a hidraw device through sysfs.
- * Returns null on other platforms or for non-USB devices (e.g. I2C touchpads).
+ * Resolves the physical USB port (e.g. "3-5" or "1-2.4") of a hidraw device through sysfs, or of an interface read
+ * with libusb. Returns null for other HID devices on other platforms, and for non-USB devices (e.g. I2C touchpads).
  */
 export function getUsbPort(devicePath: string): string | null {
+    // Interfaces read with libusb carry their port in their path, on every platform
+    if (isUsbPath(devicePath)) return usbPortOfPath(devicePath);
     if (process.platform !== 'linux' || !devicePath.startsWith('/dev/hidraw')) return null;
     try {
         // e.g. /sys/devices/pci0000:00/0000:00:14.0/usb3/3-5/3-5:1.1/0003:046D:C548.0065

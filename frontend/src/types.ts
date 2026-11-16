@@ -177,6 +177,8 @@ export interface HidInterface {
   interfaceNumber: number;
   usages: string[];
   osOwned: boolean;
+  // usb: read over USB with libusb, because the OS HID driver does not handle it (e.g. WinUSB installed with Zadig)
+  transport: 'hid' | 'usb';
   rules: Array<{ name: string; enabled: boolean; conflict: boolean }>;
   // Set while the diagnostics page asks for this device (GET /api/hardware/status?monitor=vid:pid)
   monitor?: MonitorStatus;

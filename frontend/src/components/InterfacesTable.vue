@@ -57,7 +57,10 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
           <td>{{ item.interfaceNumber }}</td>
           <td class="mono">{{ item.serialNumber || '—' }}</td>
           <td class="mono">{{ item.usbPort ?? '—' }}</td>
-          <td class="mono path">{{ item.path }}</td>
+          <td class="mono path">
+            {{ item.path }}
+            <div v-if="item.transport === 'usb'"><span class="badge" :title="$t('hid.usbDirectHint')">{{ $t('hid.usbDirect') }}</span></div>
+          </td>
           <td>
             <div v-for="rule in item.rules" :key="rule.name">
               {{ rule.name }}

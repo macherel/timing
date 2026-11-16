@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type HID from 'node-hid';
 import { evaluateReport, mergeTriggers, type ActiveTrigger } from '../src/services/hardware/triggers.js';
-import { assignDevices, explainUnmatchedRules, isActive } from '../src/services/hardware/deviceMatching.js';
+import { assignDevices, explainUnmatchedRules, getUsbPort, isActive } from '../src/services/hardware/deviceMatching.js';
+import { openFailureHint } from '../src/services/hardware/hidDiagnostics.js';
+import { parseReportDescriptor } from '../src/services/hardware/usbHid.js';
 import type { DevicesConfig, TriggerRule } from '../src/services/hardware/deviceConfig.js';
 
 const LEFT_BUTTON: TriggerRule = { byteIndex: 0, mask: 0x01, value: 0x01, action: 'start_crossed', releaseAction: 'start_released' };
@@ -115,5 +117,48 @@ describe('assignDevices', () => {
         const [missing, mismatch] = explainUnmatchedRules(cfg, devices, assignDevices(cfg, devices));
         expect(missing).toMatch(/Rule "Start" .* nothing with this VID\/PID is plugged in/);
         expect(mismatch).toMatch(/Rule "Finish" .* plugged in but none of its interfaces fit, serialNumber "X"/);
+    });
+});
+
+describe('parseReportDescriptor', () => {
+    it('reads the usage of a mouse without report IDs, ignoring nested collections', () => {
+        // Usage Page (Generic Desktop), Usage (Mouse), Collection (Application), Usage (Pointer), Collection (Physical),
+        // Usage Page (Button), Input, End Collection, End Collection
+        const mouse = Buffer.from([0x05, 0x01, 0x09, 0x02, 0xa1, 0x01, 0x09, 0x01, 0xa1, 0x00, 0x05, 0x09, 0x81, 0x02, 0xc0, 0xc0]);
+        expect(parseReportDescriptor(mouse)).toEqual({ collections: [{ usagePage: 1, usage: 2 }], numberedReports: false });
+    });
+
+    it('lists every top-level collection and sees report IDs', () => {
+        const composite = Buffer.from([
+            0x05, 0x01, 0x09, 0x02, 0xa1, 0x01, 0x85, 0x02, 0x81, 0x02, 0xc0, // Mouse, report ID 2
+            0x05, 0x0c, 0x09, 0x01, 0xa1, 0x01, 0x85, 0x03, 0x81, 0x00, 0xc0, // Consumer Control, report ID 3
+            0x06, 0x00, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x85, 0x10, 0xc0, // Vendor-defined page 0xFF00 (2-byte page)
+        ]);
+        expect(parseReportDescriptor(composite)).toEqual({
+            collections: [
+                { usagePage: 1, usage: 2 },
+                { usagePage: 12, usage: 1 },
+                { usagePage: 0xff00, usage: 1 },
+            ],
+            numberedReports: true,
+        });
+    });
+
+    it('reads an extended usage (page in the high 16 bits) and skips long items', () => {
+        const descriptor = Buffer.from([0xfe, 0x02, 0x00, 0xaa, 0xbb, 0x0b, 0x06, 0x00, 0x01, 0x00, 0xa1, 0x01, 0xc0]);
+        expect(parseReportDescriptor(descriptor).collections).toEqual([{ usagePage: 1, usage: 6 }]);
+    });
+});
+
+describe('interfaces read with libusb', () => {
+    it('take their USB port from their path, on every platform', () => {
+        expect(getUsbPort('usb:3-6.3:0')).toBe('3-6.3');
+    });
+
+    it('explain how to install WinUSB when Windows has no driver for libusb', () => {
+        const device = { path: 'usb:1-2:0', vendorId: 0x046d, productId: 0xc548, interface: 0 } as HID.Device;
+        const hint = openFailureHint(device, 'LIBUSB_ERROR_NOT_SUPPORTED');
+        if (process.platform === 'win32') expect(hint).toContain('Zadig');
+        expect(openFailureHint(device, 'LIBUSB_ERROR_BUSY')).toContain('Another program');
     });
 });

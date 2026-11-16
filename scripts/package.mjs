@@ -31,15 +31,15 @@ const PLATFORMS = {
         name: 'linux-x64',
         nodeArchive: `node-${NODE_VERSION}-linux-x64.tar.xz`,
         nodeBinary: 'node',
-        // Prebuilt node-hid folders to keep, see node_modules/node-hid/prebuilds
-        prebuildSuffix: '-linux-x64',
+        // Prebuilt native folders to keep, see node_modules/node-hid/prebuilds and node_modules/usb/prebuilds
+        prebuildTarget: 'linux-x64',
         archive: 'tar.gz',
     },
     win: {
         name: 'win-x64',
         nodeArchive: 'win-x64/node.exe',
         nodeBinary: 'node.exe',
-        prebuildSuffix: '-win32-x64',
+        prebuildTarget: 'win32-x64',
         archive: 'zip',
     },
 };
@@ -99,9 +99,11 @@ async function buildPackage(platform, checksums) {
     copy('frontend/dist', path.join(appDir, 'frontend/dist'));
 
     console.log('  Installing production dependencies');
-    // --ignore-scripts: node-hid would otherwise check (or build) the binary for the build machine only
+    // --ignore-scripts: node-hid and usb would otherwise check (or build) the binary for the build machine only
     run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], path.join(appDir, 'backend'));
-    pruneHidPrebuilds(path.join(appDir, 'backend/node_modules/node-hid/prebuilds'), platform.prebuildSuffix);
+    for (const module of ['node-hid', 'usb']) {
+        prunePrebuilds(module, path.join(appDir, `backend/node_modules/${module}/prebuilds`), platform.prebuildTarget);
+    }
 
     console.log(`  Adding Node ${NODE_VERSION} runtime`);
     const runtimePath = path.join(packageDir, 'runtime', platform.nodeBinary);
@@ -122,13 +124,13 @@ async function buildPackage(platform, checksums) {
     console.log(`  ✔ ${path.relative(ROOT, archivePath)} (${(fs.statSync(archivePath).size / 1e6).toFixed(1)} MB)`);
 }
 
-/** Keeps only the prebuilt node-hid binaries of the target platform. */
-function pruneHidPrebuilds(prebuildsDir, suffix) {
+/** Keeps only the prebuilt binaries of the target platform: "linux-x64" (usb) or "HID-linux-x64" (node-hid). */
+function prunePrebuilds(module, prebuildsDir, target) {
     for (const entry of fs.readdirSync(prebuildsDir)) {
-        if (!entry.endsWith(suffix)) fs.rmSync(path.join(prebuildsDir, entry), { recursive: true });
+        if (entry !== target && !entry.endsWith(`-${target}`)) fs.rmSync(path.join(prebuildsDir, entry), { recursive: true });
     }
     if (fs.readdirSync(prebuildsDir).length === 0) {
-        throw new Error(`node-hid has no prebuilt binary ending with "${suffix}".`);
+        throw new Error(`${module} has no prebuilt binary for ${target}.`);
     }
 }
 
@@ -254,7 +256,11 @@ function readme(platform) {
         '',
         isWindows
             ? 'NOTE: Windows does not let applications read devices that appear only as a mouse or keyboard.\n' +
-              '  The diagnose tool says when that is the case and lists the other interfaces of the device.'
+              '  The diagnose tool says when that is the case and lists the other interfaces of the device.\n' +
+              '  To use such a device anyway (e.g. a mouse wired to a gate), give its USB interface the WinUSB driver\n' +
+              '  with Zadig (https://zadig.akeo.ie, Options > List All Devices, pick the device and the interface\n' +
+              '  number shown on the diagnostics page). The app then reads it over USB, and Windows no longer uses it\n' +
+              '  as a mouse. To undo it, uninstall the device and its driver in the Device Manager, then replug it.'
             : 'NOTE: reading /dev/hidraw* needs a udev rule. The diagnose tool prints the exact rule for a device\n' +
               '  it cannot open. Put it in /etc/udev/rules.d/99-timing.rules and replug the device.',
         '',

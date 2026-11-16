@@ -926,7 +926,7 @@ components:
           description: Every HID interface found by the last scan
           items:
             type: object
-            required: [path, vendorId, productId, manufacturer, product, serialNumber, usbPort, interfaceNumber, usages, osOwned, rules]
+            required: [path, vendorId, productId, manufacturer, product, serialNumber, usbPort, interfaceNumber, usages, osOwned, transport, rules]
             properties:
               path: { type: string }
               vendorId: { type: string, examples: ['0x046d'] }
@@ -941,6 +941,12 @@ components:
                 items: { type: string }
                 examples: [['1/2 (Mouse)']]
               osOwned: { type: boolean, description: 'A mouse or keyboard, not readable on Windows and macOS' }
+              transport:
+                type: string
+                enum: [hid, usb]
+                description: >-
+                  usb: read over USB with libusb (path "usb:<bus>-<ports>:<interface>"), because the OS HID driver does
+                  not handle this interface, e.g. after installing the WinUSB driver with Zadig on Windows
               rules:
                 type: array
                 items:

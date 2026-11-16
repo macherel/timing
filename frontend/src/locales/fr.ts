@@ -287,6 +287,8 @@ const fr: Messages = {
     severalCollections: 'plusieurs collections : l’octet 0 est le report ID',
     osOwned: 'souris/clavier : illisible sous {platform}',
     notConfigured: 'non configuré',
+    usbDirect: 'lu en USB direct (WinUSB)',
+    usbDirectHint: 'Le pilote HID du système ne gère pas cette interface (WinUSB installé avec Zadig, par exemple) : l’application la lit directement en USB.',
     states: {
       listening: 'à l’écoute',
       failing: 'en échec',
@@ -339,6 +341,8 @@ const fr: Messages = {
     bytes: 'Octets',
     changedBits: 'Bits modifiés',
     firstReport: 'premier rapport avec cet ID',
+    usbInterface: 'Interface USB {number}',
+    noUsbInterface: 'Sans numéro d’interface USB (Bluetooth ou appareil interne, par exemple)',
   },
 
   unconfigured: {

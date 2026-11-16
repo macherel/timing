@@ -38,11 +38,16 @@ export function isOsOwned(device: Pick<HID.Device, 'usagePage' | 'usage'>): bool
  * Explains a failed open with the most likely cause and what to do about it.
  */
 export function openFailureHint(device: HID.Device, message: string): string | null {
+    if (device.path?.startsWith('usb:')) return usbFailureHint(device, message);
     if (isOsOwned(device) && process.platform !== 'linux') {
         return (
             `${process.platform === 'win32' ? 'Windows' : 'The OS'} does not let applications read mice or keyboards. ` +
             `Run "npm run diagnose" to look for another interface of this device (e.g. vendor-defined usagePage >= 65280), ` +
-            `or switch the device to a joystick/gamepad or raw HID mode if it has one.`
+            `or switch the device to a joystick/gamepad or raw HID mode if it has one` +
+            (process.platform === 'win32'
+                ? `, or give this USB interface (${device.interface}) the WinUSB driver with Zadig: the app then reads it ` +
+                  `over USB, and Windows no longer uses it as a mouse or keyboard.`
+                : '.')
         );
     }
     if (process.platform === 'linux' && /permission denied/i.test(message)) {
@@ -51,6 +56,26 @@ export function openFailureHint(device: HID.Device, message: string): string | n
         return (
             `Missing permission on ${device.path}. Add a udev rule, e.g. ` +
             `KERNEL=="hidraw*", ATTRS{idVendor}=="${vid}", ATTRS{idProduct}=="${pid}", MODE="0660", GROUP="plugdev"`
+        );
+    }
+    return null;
+}
+
+/** Hints for an interface read with libusb (e.g. given to WinUSB with Zadig). */
+function usbFailureHint(device: HID.Device, message: string): string | null {
+    if (/NOT_SUPPORTED|NOT_FOUND/.test(message) && process.platform === 'win32') {
+        return (
+            `Windows has no WinUSB driver on USB interface ${device.interface} of this device. Install it with Zadig: ` +
+            `Options > List All Devices, pick the device and "(Interface ${device.interface})", then WinUSB.`
+        );
+    }
+    if (/BUSY/.test(message)) return 'Another program already uses this USB interface.';
+    if (/ACCESS/.test(message) && process.platform === 'linux') {
+        const vid = device.vendorId.toString(16).padStart(4, '0');
+        const pid = device.productId.toString(16).padStart(4, '0');
+        return (
+            `Missing permission on the USB device. Add a udev rule, e.g. ` +
+            `SUBSYSTEM=="usb", ATTRS{idVendor}=="${vid}", ATTRS{idProduct}=="${pid}", MODE="0660", GROUP="plugdev"`
         );
     }
     return null;

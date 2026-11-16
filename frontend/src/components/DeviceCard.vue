@@ -21,6 +21,17 @@ const statusByPath = computed(() => {
 });
 const configuredByPath = computed(() => new Map(props.devices.map((d) => [d.path, d])));
 
+// Interfaces by USB interface number, as Zadig and the Device Manager list them: on Windows each HID collection has
+// its own path, so one USB interface can show several rows. -1 (no USB interface number) comes last.
+const usbInterfaces = computed(() => {
+  const groups = new Map<number, HidInterface[]>();
+  for (const item of props.interfaces) groups.set(item.interfaceNumber, [...(groups.get(item.interfaceNumber) ?? []), item]);
+  return [...groups]
+    .sort(([a], [b]) => (a < 0 ? 1 : b < 0 ? -1 : a - b))
+    .map(([number, items]) => ({ number, items: [...items].sort((a, b) => a.path.localeCompare(b.path)) }));
+});
+const sortedInterfaces = computed(() => usbInterfaces.value.flatMap((group) => group.items));
+
 // listening: a rule listens to it; disabled: only disabled (or ignored) rules name it; none: not in config.yaml
 const configState = computed(() => {
   if (props.devices.length > 0) return props.devices.every((d) => d.state === 'listening') ? 'listening' : 'failing';
@@ -67,21 +78,27 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
         <thead>
           <tr>
             <th>{{ $t('hid.usages') }}</th>
-            <th>{{ $t('hid.interface') }}</th>
             <th>{{ $t('hid.path') }}</th>
             <th>{{ $t('interfaces.rule') }}</th>
             <th>{{ $t('deviceCard.state') }}</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="item in interfaces" :key="item.path" :class="{ configured: configuredByPath.has(item.path) }">
+        <tbody v-for="group in usbInterfaces" :key="group.number">
+          <tr class="group">
+            <th colspan="4" scope="rowgroup">
+              {{ group.number >= 0 ? $t('deviceCard.usbInterface', { number: group.number }) : $t('deviceCard.noUsbInterface') }}
+            </th>
+          </tr>
+          <tr v-for="item in group.items" :key="item.path" :class="{ configured: configuredByPath.has(item.path) }">
             <td>
               <div v-for="usage in item.usages" :key="usage">{{ usage }}</div>
               <div v-if="item.usages.length > 1" class="muted">{{ $t('hid.severalCollections') }}</div>
               <div v-if="item.osOwned && osOwnedUnreadable" class="warn-text">{{ $t('hid.osOwned', { platform }) }}</div>
             </td>
-            <td>{{ item.interfaceNumber }}</td>
-            <td class="mono path">{{ item.path }}</td>
+            <td class="mono path">
+              {{ item.path }}
+              <div v-if="item.transport === 'usb'"><span class="badge" :title="$t('hid.usbDirectHint')">{{ $t('hid.usbDirect') }}</span></div>
+            </td>
             <td>
               <div v-for="rule in item.rules" :key="rule.name">
                 {{ rule.name }}
@@ -102,7 +119,7 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
     </div>
 
     <!-- Folded by default; Vue does not bind `open`, so an unfolded interface stays open across the status refreshes -->
-    <template v-for="item in interfaces" :key="item.path">
+    <template v-for="item in sortedInterfaces" :key="item.path">
       <details v-if="statusByPath.get(item.path)" class="interface">
         <summary>
           <h4>
@@ -161,6 +178,12 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
 }
 .configured td {
   background: var(--accent-bg);
+}
+.group th {
+  padding-top: 14px;
+  color: var(--text-h);
+  font-weight: 600;
+  text-align: left;
 }
 .interface {
   margin-top: 20px;

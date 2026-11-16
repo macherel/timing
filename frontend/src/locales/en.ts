@@ -297,6 +297,8 @@ export default {
     severalCollections: 'several collections: byte 0 is the report ID',
     osOwned: 'mouse/keyboard: not readable on {platform}',
     notConfigured: 'not configured',
+    usbDirect: 'read over USB (WinUSB)',
+    usbDirectHint: 'The OS HID driver does not handle this interface (e.g. WinUSB installed with Zadig), so the app reads it over USB.',
     states: {
       listening: 'listening',
       failing: 'failing',
@@ -349,6 +351,9 @@ export default {
     bytes: 'Bytes',
     changedBits: 'Changed bits',
     firstReport: 'first report with this ID',
+    // Rows of the interfaces table are grouped by USB interface, as listed by Zadig or the Device Manager
+    usbInterface: 'USB interface {number}',
+    noUsbInterface: 'No USB interface number (e.g. Bluetooth or internal device)',
   },
 
   unconfigured: {

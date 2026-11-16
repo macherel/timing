@@ -1,3 +1,4 @@
+import type { EventEmitter } from 'events';
 import HID from 'node-hid';
 import { handleRaceEvent } from './raceService.js';
 import {
@@ -28,6 +29,7 @@ import {
     openFailureHint,
     toHex,
 } from './hardware/hidDiagnostics.js';
+import { isUsbPath, scanUsbHidInterfaces, UsbHidReader, type UsbHidInterface } from './hardware/usbHid.js';
 import { createLogger, errorMessage } from '../utils/logger.js';
 
 const log = createLogger('Hardware');
@@ -41,10 +43,17 @@ const RECENT_REPORTS_KEPT = 50;
 // A device that is not in the configuration is only opened while the diagnostics page shows it: each status
 // request asking for it keeps it open this long
 const MONITOR_LEASE_MS = 5000;
+// Listing USB devices blocks the event loop for a moment on Windows, which would delay crossing timestamps. So the
+// interfaces read with libusb are only looked for this often, and only when something may be missing: an enabled
+// rule without its device, a failing libusb interface, or an open diagnostics page.
+const USB_SCAN_INTERVAL_MS = 3000;
+
+/** An open interface: node-hid, or libusb for the interfaces the OS HID driver does not handle (WinUSB). */
+type ReportSource = EventEmitter & { close(): void };
 
 interface Connection {
     deviceName: string;
-    device: HID.HID;
+    device: ReportSource;
     triggers: ActiveTrigger[];
     logReports: boolean;
     // Several collections share this path, so byte 0 of every report is a report ID
@@ -110,6 +119,8 @@ export interface HardwareStatus {
         interfaceNumber: number;
         usages: string[];
         osOwned: boolean;
+        // usb: read with libusb, because the OS HID driver does not handle it (e.g. WinUSB installed with Zadig)
+        transport: 'hid' | 'usb';
         rules: Array<{ name: string; enabled: boolean; conflict: boolean }>;
         monitor?: MonitorStatus;
     }>;
@@ -139,6 +150,12 @@ const monitors = new Map<string, Connection>();
 const monitorFailures = new Map<string, Failure>();
 // Device models (e.g. "0x046d:0xc548") the diagnostics page asked to monitor -> end of the lease, in ms
 const monitorLeases = new Map<string, number>();
+
+// USB HID interfaces read with libusb, from the last USB scan
+let usbInterfaces: UsbHidInterface[] = [];
+let lastUsbScanAt = 0;
+let usbScanRequested = true;
+let lastStatusRequestAt = 0;
 
 // The config is only reloaded when config.yaml changes, not on every poll
 let config: DevicesConfig | null = null;
@@ -189,6 +206,8 @@ export function stopHardwareService(): void {
     monitors.clear();
     monitorFailures.clear();
     monitorLeases.clear();
+    usbInterfaces = [];
+    usbScanRequested = true;
     lastSystemDevices = [];
     lastAssignments = [];
     log.info('Stopped.');
@@ -199,6 +218,7 @@ export function stopHardwareService(): void {
  *   page can show their reports. They stay open while the page keeps asking, and close MONITOR_LEASE_MS after.
  */
 export function getHardwareStatus(monitor: string[] = []): HardwareStatus {
+    lastStatusRequestAt = Date.now();
     renewMonitorLeases(monitor);
 
     const listening = [...connections].map(([path, conn]) => ({
@@ -264,9 +284,11 @@ function describeInterfaces(): HardwareStatus['interfaces'] {
             product: first.product ?? '',
             serialNumber: first.serialNumber ?? '',
             usbPort: getUsbPort(path),
+            transport: isUsbPath(path) ? ('usb' as const) : ('hid' as const),
             interfaceNumber: first.interface,
             usages: collections.map((c) => describeUsage(c.usagePage, c.usage)),
-            osOwned: collections.some(isOsOwned),
+            // The OS no longer owns a mouse whose interface is read with libusb
+            osOwned: !isUsbPath(path) && collections.some(isOsOwned),
             rules: lastAssignments
                 .filter((a) => a.device.path === path && a.rule)
                 .map(({ rule, conflict }) => ({ name: rule!.name, enabled: rule!.enabled, conflict })),
@@ -295,6 +317,7 @@ function renewMonitorLeases(models: string[]): void {
 
 function onConfigChange(): void {
     configDirty = true;
+    usbScanRequested = true;
     lastLoggedState = '';
     requestSync();
 }
@@ -339,15 +362,24 @@ async function syncConnectedDevices(): Promise<void> {
     }
     if (!config) return;
 
-    let systemDevices: HID.Device[];
+    let hidDevices: HID.Device[];
     try {
         // Async enumeration keeps the event loop free, so crossings are not delayed
-        systemDevices = await HID.devicesAsync();
+        hidDevices = await HID.devicesAsync();
     } catch (error) {
         log.error('Failed to enumerate HID devices:', errorMessage(error));
         return;
     }
     if (!serviceRunning) return;
+
+    if (isUsbScanDue()) {
+        usbScanRequested = false;
+        lastUsbScanAt = Date.now();
+        usbInterfaces = await scanUsbHidInterfaces(hidDevices);
+        if (!serviceRunning) return;
+    }
+    // The interfaces read with libusb are matched to rules like the others
+    const systemDevices = [...hidDevices, ...usbInterfaces.flatMap((u) => u.entries)];
 
     const assignments = assignDevices(config, systemDevices);
     lastSystemDevices = systemDevices;
@@ -367,8 +399,7 @@ async function syncConnectedDevices(): Promise<void> {
         if (conn) {
             updateConnection(conn, rule, stateChanged);
         } else {
-            const numberedReports = (collectionsByPath.get(device.path)?.length ?? 1) > 1;
-            openConnection(rule, device, numberedReports);
+            openConnection(rule, device, hasNumberedReports(device.path, collectionsByPath));
         }
     }
 
@@ -407,8 +438,37 @@ function syncMonitors(collectionsByPath: Map<string, HID.Device[]>, activePaths:
     });
 
     wanted.forEach((collections, devicePath) => {
-        if (!monitors.has(devicePath)) openMonitor({ ...collections[0], path: devicePath }, collections.length > 1);
+        if (!monitors.has(devicePath)) {
+            openMonitor({ ...collections[0], path: devicePath }, hasNumberedReports(devicePath, collectionsByPath));
+        }
     });
+}
+
+function isUsbScanDue(): boolean {
+    const now = Date.now();
+    if (now - lastUsbScanAt < USB_SCAN_INTERVAL_MS) return false;
+    return (
+        usbScanRequested ||
+        unmatchedRules.length > 0 ||
+        now - lastStatusRequestAt < MONITOR_LEASE_MS ||
+        [...failures.keys()].some(isUsbPath)
+    );
+}
+
+/**
+ * Whether byte 0 of the reports is a report ID: several collections share the path, or (libusb) the report
+ * descriptor declares report IDs.
+ */
+function hasNumberedReports(devicePath: string, collectionsByPath: Map<string, HID.Device[]>): boolean {
+    if ((collectionsByPath.get(devicePath)?.length ?? 1) > 1) return true;
+    return usbInterfaces.some((u) => u.path === devicePath && u.numberedReports);
+}
+
+function openReportSource(devicePath: string): ReportSource {
+    if (!isUsbPath(devicePath)) return new HID.HID(devicePath);
+    const target = usbInterfaces.find((u) => u.path === devicePath);
+    if (!target) throw new Error('USB interface not found');
+    return new UsbHidReader(target);
 }
 
 /**
@@ -469,9 +529,9 @@ function closeStaleConnections(activePaths: Set<string>): void {
  * Opens an interface and starts listening to its reports. A failure is recorded and retried on the next poll.
  */
 function openConnection(rule: DeviceRule, hidDevice: HidDevice, numberedReports: boolean): void {
-    let device: HID.HID;
+    let device: ReportSource;
     try {
-        device = new HID.HID(hidDevice.path);
+        device = openReportSource(hidDevice.path);
     } catch (error) {
         recordFailure(hidDevice.path, rule.name, errorMessage(error), hidDevice);
         return;
@@ -496,9 +556,9 @@ function openConnection(rule: DeviceRule, hidDevice: HidDevice, numberedReports:
  */
 function openMonitor(hidDevice: HidDevice, numberedReports: boolean): void {
     const name = hidDevice.product || modelKey(hidDevice);
-    let device: HID.HID;
+    let device: ReportSource;
     try {
-        device = new HID.HID(hidDevice.path);
+        device = openReportSource(hidDevice.path);
     } catch (error) {
         recordMonitorFailure(hidDevice, name, errorMessage(error));
         return;
@@ -520,6 +580,7 @@ function openMonitor(hidDevice: HidDevice, numberedReports: boolean): void {
 }
 
 function recordMonitorFailure(hidDevice: HidDevice, deviceName: string, message: string): void {
+    if (isUsbPath(hidDevice.path)) usbScanRequested = true;
     const previous = monitorFailures.get(hidDevice.path);
     const isNew = !previous || previous.message !== message;
     monitorFailures.set(hidDevice.path, {
@@ -532,7 +593,7 @@ function recordMonitorFailure(hidDevice: HidDevice, deviceName: string, message:
     if (isNew) log.debug(`Cannot monitor "${deviceName}" at ${hidDevice.path}: ${message}`);
 }
 
-function newConnection(deviceName: string, device: HID.HID, numberedReports: boolean, triggers: ActiveTrigger[]): Connection {
+function newConnection(deviceName: string, device: ReportSource, numberedReports: boolean, triggers: ActiveTrigger[]): Connection {
     return {
         deviceName,
         device,
@@ -607,6 +668,8 @@ function onReadError(conn: Connection, hidDevice: HidDevice, error: unknown): vo
  * Remembers why an interface failed. Logs the first failure, a changed error, and then only periodically.
  */
 function recordFailure(devicePath: string, deviceName: string, message: string, hidDevice: HidDevice): void {
+    // An unplugged or replugged libusb interface is only seen again by a USB scan
+    if (isUsbPath(devicePath)) usbScanRequested = true;
     const previous = failures.get(devicePath);
     const attempts = (previous?.attempts ?? 0) + 1;
     const isNew = !previous || previous.message !== message;
@@ -628,7 +691,7 @@ function recordFailure(devicePath: string, deviceName: string, message: string, 
     }
 }
 
-function closeQuietly(device: HID.HID, devicePath: string): void {
+function closeQuietly(device: ReportSource, devicePath: string): void {
     try {
         device.close();
     } catch (error) {
