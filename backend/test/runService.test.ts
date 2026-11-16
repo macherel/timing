@@ -239,3 +239,33 @@ describe('mergeResultRows (sync)', () => {
         expect(await runs.mergeResultRows('nope', 'nope', [row('7', '2026-11-05T10:00:00Z', 'OK', '')])).toBe(false);
     });
 });
+
+describe('USB scans', () => {
+    it('waits for a running USB scan to end before a participant is ready', async () => {
+        let scanning = true;
+        let endScan!: () => void;
+        const scan = new Promise<void>((resolve) => {
+            endScan = () => {
+                scanning = false;
+                resolve();
+            };
+        });
+        vi.resetModules();
+        vi.doMock('../src/services/hardware/usbHid.js', () => ({
+            isUsbScanInProgress: () => scanning,
+            waitForUsbScan: () => scan,
+        }));
+        try {
+            runs = await import('../src/services/runService.js');
+            const ready = runs.prepareRun('CFM26', '100m', HUGO);
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            expect(runs.getRunState().status).toBe('idle');
+
+            endScan();
+            expect(await ready).toBeNull();
+            expect(runs.getRunState().status).toBe('ready');
+        } finally {
+            vi.doUnmock('../src/services/hardware/usbHid.js');
+        }
+    });
+});

@@ -3,6 +3,7 @@ import path from 'path';
 import type { Activity, RunResult, RunState, RunStatus } from '../types/messages.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
+import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
 import { notifyActivityChange, notifyLocalChange } from '../utils/localChanges.js';
 import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, RESULTS_FILE, type Participant } from './eventService.js';
 
@@ -50,6 +51,12 @@ export async function prepareRun(event: string, discipline: string, participant:
         if (used >= attempts) return `${participant.bib} ${participant.name} has used all ${attempts} attempt(s).`;
     }
 
+    // Once ready, a start crossing can come at any time, and a USB scan would delay its timestamp (it blocks the event
+    // loop on Windows). No scan starts during a run (see hardwareService), so wait for the one running, if any. The
+    // check and the change of state happen in the same tick, so no scan can start in between.
+    while (isUsbScanInProgress()) await waitForUsbScan();
+    // A crossing may have started another participant's run meanwhile
+    if (getRunState().status === 'running') return 'A run is in progress. Cancel it first.';
     setState({ status: 'ready', event, discipline, participant });
     log.info(`${participant.bib} ${participant.name} is ready (${event} / ${discipline}).`);
     return null;

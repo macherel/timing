@@ -1,6 +1,7 @@
 import type { EventEmitter } from 'events';
 import HID from 'node-hid';
 import { handleRaceEvent } from './raceService.js';
+import { getRunState } from './runService.js';
 import {
     CONFIG_PATH,
     loadDevicesConfig,
@@ -44,8 +45,8 @@ const RECENT_REPORTS_KEPT = 50;
 // request asking for it keeps it open this long
 const MONITOR_LEASE_MS = 5000;
 // Listing USB devices blocks the event loop for a moment on Windows, which would delay crossing timestamps. So the
-// interfaces read with libusb are only looked for this often, and only when something may be missing: an enabled
-// rule without its device, a failing libusb interface, or an open diagnostics page.
+// interfaces read with libusb are only looked for this often, only when something may be missing (an enabled rule
+// without its device, a failing libusb interface, or an open diagnostics page), and never during a run.
 const USB_SCAN_INTERVAL_MS = 3000;
 
 /** An open interface: node-hid, or libusb for the interfaces the OS HID driver does not handle (WinUSB). */
@@ -445,6 +446,8 @@ function syncMonitors(collectionsByPath: Map<string, HID.Device[]>, activePaths:
 }
 
 function isUsbScanDue(): boolean {
+    // A participant is ready or running: a crossing can come at any time. The interfaces already found keep working.
+    if (getRunState().status !== 'idle') return false;
     const now = Date.now();
     if (now - lastUsbScanAt < USB_SCAN_INTERVAL_MS) return false;
     return (

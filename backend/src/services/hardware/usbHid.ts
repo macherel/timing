@@ -217,11 +217,34 @@ async function describe(
     return { strings, summary };
 }
 
+// The USB scan running now, if any
+let runningScan: Promise<unknown> | null = null;
+
+/** Whether a USB scan is running (it may block the event loop on Windows, see scanUsbHidInterfaces). */
+export function isUsbScanInProgress(): boolean {
+    return runningScan !== null;
+}
+
+/** Resolves when no USB scan is running. */
+export async function waitForUsbScan(): Promise<void> {
+    while (runningScan) await runningScan;
+}
+
 /**
  * Lists the USB HID interfaces that node-hid does not list (e.g. given to WinUSB with Zadig).
  * Lists every USB device, which blocks the event loop briefly on Windows: call it sparingly.
  */
-export async function scanUsbHidInterfaces(hidDevices: HID.Device[]): Promise<UsbHidInterface[]> {
+export function scanUsbHidInterfaces(hidDevices: HID.Device[]): Promise<UsbHidInterface[]> {
+    const scan = scanAll(hidDevices);
+    runningScan = scan;
+    const done = () => {
+        if (runningScan === scan) runningScan = null;
+    };
+    scan.then(done, done);
+    return scan;
+}
+
+async function scanAll(hidDevices: HID.Device[]): Promise<UsbHidInterface[]> {
     const usb = await loadUsb();
     if (!usb) return [];
 

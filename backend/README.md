@@ -142,7 +142,7 @@ Do it for every USB interface you gave to WinUSB. The interface then shows up ag
 
 **Timing**
 
-Listing USB devices blocks the app for a moment on Windows. So the app only looks for these interfaces every 3 seconds, and only while a rule lacks its device, while one of them fails, or while the diagnostics page is open. During a race, once the gates are open and the diagnostics page is closed, nothing delays the timestamps of the crossings.
+Listing USB devices blocks the app for a moment on Windows. So the app only looks for these interfaces every 3 seconds, only while a rule lacks its device, while one of them fails, or while the diagnostics page is open, and never while a participant is ready or running: nothing then delays the timestamps of the crossings. Marking a participant ready waits for the end of a search already running (usually a fraction of a second). The interfaces already found keep working during a run, but a WinUSB device plugged in (or replugged) during a run is only found once the run ends.
 
 ---
 
