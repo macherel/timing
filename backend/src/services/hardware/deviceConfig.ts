@@ -30,7 +30,7 @@ export interface DeviceRule {
     usagePage?: number;     // Optional: HID interface to use, overrides discoveryFilter for this rule
     usage?: number;
     serialNumber?: string;  // Optional: bind the rule to one specific unit
-    usbPort?: string;       // Optional: bind the rule to a physical USB port, e.g. "3-5" (Linux only)
+    usbPort?: string;       // Optional: bind the rule to a physical USB port, e.g. "3-5" (Linux, and Windows over WinUSB)
     enabled: boolean;
     logReports?: boolean;   // Optional: log every changed raw report, to work out trigger bytes
     triggers?: TriggerRule[];

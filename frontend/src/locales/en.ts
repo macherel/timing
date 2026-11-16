@@ -263,7 +263,7 @@ export default {
     advanced: 'Interface and unit selection, debugging',
     default: 'default',
     serialNumber: 'Serial number',
-    usbPortLinux: 'USB port (Linux)',
+    usbPort: 'USB port',
     usbPortPlaceholder: 'any, e.g. 3-5',
     logReports: 'Log raw reports',
     advancedHint:

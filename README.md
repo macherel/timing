@@ -103,7 +103,7 @@ This builds the app and creates, in `release/`:
 - `timing-<version>-linux-x64.tar.gz`
 - `timing-<version>-win-x64.zip`
 
-Each package runs on a computer without Node.js or npm. It contains the built app, its production dependencies, the Node runtime (the same version as the one running the script, downloaded from nodejs.org and checked against the official checksums), a `data` folder, and a `README.txt`. Unpack it and run `timing.sh` / `timing.cmd` (server) or `diagnose.sh` / `diagnose.cmd` (device diagnostics).
+Each package runs on a computer without Node.js or npm. It contains the built app, its production dependencies, the Node runtime (the same version as the one running the script, downloaded from nodejs.org and checked against the official checksums), a `data` folder, and a `README.txt` (English) and `LISEZMOI.txt` (French) that explain how to start the app and configure a device, with the Zadig procedure for mice on Windows. Their text is in `scripts/packageReadme.mjs`. Unpack it and run `timing.sh` / `timing.cmd` (server) or `diagnose.sh` / `diagnose.cmd` (device diagnostics).
 
 The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and `results.csv` files are written there. `workdir/config.yaml` is copied into it when it exists; without it, the app starts with no devices and the file is created from the configuration page. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.
 

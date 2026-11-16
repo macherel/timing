@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readmeFiles } from './packageReadme.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const RELEASE_DIR = path.join(ROOT, 'release');
@@ -118,7 +119,8 @@ async function buildPackage(platform, checksums) {
     } else {
         console.log(`  workdir/config.yaml not found: ${DATA_DIR}/ has no config.yaml (create it from the configuration page).`);
     }
-    fs.writeFileSync(path.join(packageDir, 'README.txt'), readme(platform));
+    const readmes = readmeFiles({ version, nodeVersion: NODE_VERSION, platformName: platform.name, dataDir: DATA_DIR });
+    for (const [fileName, text] of Object.entries(readmes)) fs.writeFileSync(path.join(packageDir, fileName), text);
 
     const archivePath = createArchive(packageName, platform.archive);
     console.log(`  ✔ ${path.relative(ROOT, archivePath)} (${(fs.statSync(archivePath).size / 1e6).toFixed(1)} MB)`);
@@ -220,53 +222,6 @@ function writeLaunchers(packageDir, platform) {
             fs.chmodSync(launcherPath, 0o755);
         }
     }
-}
-
-function readme(platform) {
-    const isWindows = platform.name.startsWith('win');
-    const start = isWindows ? 'timing.cmd' : './timing.sh';
-    const diagnose = isWindows ? 'diagnose.cmd' : './diagnose.sh';
-    const newline = isWindows ? '\r\n' : '\n';
-
-    return [
-        `Timing ${version} (${platform.name}, Node ${NODE_VERSION} included)`,
-        '',
-        'START',
-        `  ${start}`,
-        '  The app opens in the browser at http://localhost:3001 (to change the port, set port in data/config.yaml or on the config page, then restart).',
-        isWindows ? '  Double-clicking the file also works.' : '',
-        '  Closing the browser does not stop the app: stop it with Ctrl+C in its terminal window.',
-        '',
-        'DATA',
-        `  The ${DATA_DIR} folder beside this file holds everything the app reads and writes, whatever folder it is`,
-        '  started from:',
-        `    ${DATA_DIR}/config.yaml                            devices, port and sync key (edited on the configuration page)`,
-        `    ${DATA_DIR}/<event>/<discipline>/*.csv             participants, one "bib;name" line each`,
-        `    ${DATA_DIR}/<event>/<discipline>/config.yaml       discipline settings (attempts, period, access)`,
-        `    ${DATA_DIR}/<event>/<discipline>/results.csv       timed runs, written by the app`,
-        '  Without config.yaml, the app starts with no devices: add them on the configuration page, which creates it.',
-        '  To use another folder: --work-dir <dir>, or the TIMING_WORK_DIR environment variable.',
-        `  Example: ${start} --work-dir ${isWindows ? 'C:\\timing' : '/srv/timing'}`,
-        '  Changes to the files are applied while the app runs.',
-        '',
-        'FINDING A DEVICE',
-        `  ${diagnose}                          list HID devices and check config.yaml`,
-        `  ${diagnose} --listen <vid:pid>       show raw reports, press each button 3 times, then Ctrl+C`,
-        '  The web page also has a diagnostics view of every lane and HID interface.',
-        '',
-        isWindows
-            ? 'NOTE: Windows does not let applications read devices that appear only as a mouse or keyboard.\n' +
-              '  The diagnose tool says when that is the case and lists the other interfaces of the device.\n' +
-              '  To use such a device anyway (e.g. a mouse wired to a gate), give its USB interface the WinUSB driver\n' +
-              '  with Zadig (https://zadig.akeo.ie, Options > List All Devices, pick the device and the interface\n' +
-              '  number shown on the diagnostics page). The app then reads it over USB, and Windows no longer uses it\n' +
-              '  as a mouse. To undo it, uninstall the device and its driver in the Device Manager, then replug it.'
-            : 'NOTE: reading /dev/hidraw* needs a udev rule. The diagnose tool prints the exact rule for a device\n' +
-              '  it cannot open. Put it in /etc/udev/rules.d/99-timing.rules and replug the device.',
-        '',
-    ]
-        .join('\n')
-        .replace(/\n/g, newline);
 }
 
 function createArchive(packageName, format) {

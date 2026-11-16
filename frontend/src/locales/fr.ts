@@ -255,7 +255,7 @@ const fr: Messages = {
     advanced: 'Choix de l’interface et de l’unité, débogage',
     default: 'défaut',
     serialNumber: 'Numéro de série',
-    usbPortLinux: 'Port USB (Linux)',
+    usbPort: 'Port USB',
     usbPortPlaceholder: 'tous, par ex. 3-5',
     logReports: 'Journaliser les rapports bruts',
     advancedHint:

@@ -109,7 +109,7 @@ const hasAdvanced = computed(
           <input v-model="device.serialNumber" type="text" :placeholder="$t('common.any')" />
         </label>
         <label class="field">
-          <span>{{ $t('device.usbPortLinux') }}</span>
+          <span>{{ $t('device.usbPort') }}</span>
           <input v-model="device.usbPort" type="text" class="mono short" :placeholder="$t('device.usbPortPlaceholder')" />
         </label>
         <label class="switch">

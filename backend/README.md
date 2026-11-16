@@ -69,7 +69,7 @@ When you don't know yet how a device shows up, use the diagnose tool. It doesn't
 
    Keep the device still and press each button/gate 3 times, one at a time. Each changed report is printed with the bits that changed. On exit you get a summary that ignores movement bytes, and ready-to-paste `triggers` for `config.yaml`.
 
-3. **Check it live in the server**: open the diagnostics page of the frontend (`/diagnostics`, on `http://localhost:5173` with `npm run dev`, or `http://localhost:3001` after a build). It shows each configured device's state, its triggers (pressed/idle), the last report bit by bit, the last 50 changed reports, the race events and every HID interface on the computer. Set `logReports: true` on a rule to also log every changed raw report in the backend console.
+3. **Check it live in the server**: open the diagnostics page of the frontend (`/diagnostics`, on `http://localhost:5173` with `npm run dev`, or `http://localhost:3001` after a build). It lists every HID interface on the computer, then has one tab per device, configured or not, with its interfaces grouped by USB interface number. Unfold an interface to see its state, its triggers (pressed/idle) when a rule uses it, the last report bit by bit and the last 50 changed reports. The interfaces that no rule uses are opened only while their tab is shown, and never fire race events. Set `logReports: true` on a rule to also log every changed raw report in the backend console.
 
 ### Windows: mice and keyboards cannot be read
 
@@ -77,9 +77,72 @@ Windows opens mice and keyboards exclusively, so no application can read their r
 
 - the device often has **another interface** (vendor-defined usage page `65280`/`0xFF00` or higher) that carries the same data. Use it with `usagePage`/`usage` on the rule;
 - switch the device to a **joystick/gamepad** or **raw HID** mode if it has one;
-- otherwise, it needs a different input method (e.g. Windows Raw Input), which this backend does not implement.
+- otherwise, give its USB interface the **WinUSB** driver with Zadig, see below.
 
 On Linux, everything can be read once the udev permission is set (see below).
+
+### Windows: reading a mouse with WinUSB (Zadig)
+
+Replacing the Windows driver of the mouse's USB interface with WinUSB hands it over to the app, which then reads it over USB (libusb) instead of HID. Windows no longer uses it as a mouse: it stops moving the pointer and clicking on screen, which is what you want for a mouse wired to a gate.
+
+**Before you start**
+
+- Use a mouse dedicated to timing, never the one you point with.
+- Don't do it on a wireless receiver (Logitech Unifying or Bolt, etc.) that also serves your keyboard or your own mouse: they would stop working.
+- You need administrator rights.
+- The driver is installed for the model (VID:PID and interface), so every unit of this model plugged into this computer, on any USB port, gets WinUSB too.
+
+**1. Find the USB interface of the mouse**
+
+1. Plug in the mouse, start the app and open the diagnostics page (`/diagnostics`).
+2. Open the tab of the mouse. Its interfaces table is grouped by **USB interface**: on Windows, each HID collection has its own row, so one USB interface can show several rows (mouse, media keys, vendor-defined…).
+3. Note the number of the **USB interface** that holds the row with usage `1/2 (Mouse)`, and the **VID:PID** of the device. In the path, `MI_00` means interface 0, `MI_01` interface 1, and so on. A path without `MI_` means the device has a single interface (0).
+
+**2. Install WinUSB with Zadig**
+
+1. Download Zadig from <https://zadig.akeo.ie> and run it (accept the administrator prompt).
+2. Menu **Options > List All Devices**.
+3. In the list, pick the mouse. For a device with several interfaces, pick the entry ending with **(Interface N)**, N being the number noted above.
+4. Check that **USB ID** shows the VID and PID of the device (and the interface number as third field for a device with several interfaces).
+5. Choose **WinUSB** as the target driver (arrows on the right of the driver box), then click **Replace Driver** (or **Install Driver**). It takes a minute.
+
+The other collections of the same USB interface (e.g. media keys) go with it. The other USB interfaces of the device keep their driver.
+
+**3. Check it in the app**
+
+1. Back on the diagnostics page, within about 3 seconds the interface shows up again under its USB interface, with a path like `usb:1-4:0` (bus-ports:interface) and the badge **read over USB (WinUSB)**. The app restarts nothing: it finds the interface while the page is open.
+2. Unfold it and press the buttons: the reports and the changed bits are shown as on Linux. When the interface declares report IDs (or holds several collections), byte 0 of every report is the report ID: use `reportId` in the triggers.
+3. Click **+ Add to configuration** and write the triggers as usual. Rules work the same as with HID: `usagePage`/`usage` (read from the HID report descriptor), `serialNumber`, and `usbPort`, which also works on Windows for these interfaces.
+
+`npm run diagnose` does not list these interfaces yet: use the diagnostics page.
+
+**If it doesn't work**
+
+| Shown on the diagnostics page                 | Meaning                                                                                                          |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| The mouse still shows as usage `1/2` (HID)    | WinUSB went on another interface: check the interface number, or the device in Zadig.                            |
+| `LIBUSB_ERROR_NOT_SUPPORTED` or `…_NOT_FOUND` | This interface has no WinUSB driver: install it on this interface (the hint gives the number).                   |
+| `LIBUSB_ERROR_BUSY` or `…_ACCESS`             | Another program uses the interface (e.g. another copy of the app, or a virtual machine it is passed through to). |
+| Name or usage unknown                         | The app could not read the device descriptors. It retries every few seconds. Replug the device if it lasts.      |
+
+**Undo**
+
+Give the interface its original driver back:
+
+1. Open the **Device Manager** (right-click the Start button, or `devmgmt.msc`): the mouse is under **Universal Serial Bus devices**. If it is not there, plug it in, or tick **View > Show hidden devices**.
+2. Right-click it > **Update driver** > **Browse my computer for drivers** > **Let me pick from a list of available drivers on my computer**.
+3. Pick **USB Input Device**, then **Next**. Windows uses the interface as a mouse again (unplug and replug it if the pointer does not move yet).
+
+If Windows puts WinUSB back when the mouse is replugged, remove the driver instead:
+
+1. In the Device Manager, right-click the mouse > **Uninstall device**, tick **Attempt to remove the driver for this device**, confirm, then unplug and replug the mouse.
+2. If WinUSB still comes back, the driver package made by Zadig is still installed. In an administrator command prompt, `pnputil /enum-drivers` lists it with provider **libwdi**: note its published name (`oemNN.inf`), run `pnputil /delete-driver oemNN.inf /uninstall /force`, then replug the mouse.
+
+Do it for every USB interface you gave to WinUSB. The interface then shows up again as HID on the diagnostics page, and the app can no longer read it.
+
+**Timing**
+
+Listing USB devices blocks the app for a moment on Windows. So the app only looks for these interfaces every 3 seconds, and only while a rule lacks its device, while one of them fails, or while the diagnostics page is open. During a race, once the gates are open and the diagnostics page is closed, nothing delays the timestamps of the crossings.
 
 ---
 
@@ -111,7 +174,7 @@ devices:
   - name: "Lane 1"   # Device name: identifies it in race events, must be unique
     vendorId: 0x046d
     productId: 0xc548
-    usbPort: "3-5"   # Optional: physical USB port (Linux), shown by npm run diagnose
+    usbPort: "3-5"   # Optional: physical USB port (Linux, or Windows over WinUSB), shown on the diagnostics page
     enabled: true
     triggers:
       - reportId: 2         # Only reports starting with this byte (when several collections share a path)
@@ -129,15 +192,15 @@ devices:
 
 **Device fields**
 
-| Field                   | Required | Meaning                                                                                                                                          |
-| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `name`                  | yes      | Device name, shown in race events. Must be unique.                                                                                               |
-| `vendorId`, `productId` | yes      | USB IDs of the device.                                                                                                                           |
-| `enabled`               | yes      | Whether to listen to the device.                                                                                                                 |
-| `usagePage`, `usage`    | no       | Which HID interface of the device to use. Overrides `discoveryFilter` for this rule. Without both, the rule matches any interface of the device. |
-| `serialNumber`          | no       | Binds the rule to one unit. Many devices report an empty serial number, so use `usbPort` for those.                                              |
-| `usbPort`               | no       | Binds the rule to a physical USB port (Linux only). Needed when several identical devices are plugged in.                                        |
-| `logReports`            | no       | `true` logs every changed raw report with the changed bits. For debugging only.                                                                  |
+| Field                   | Required | Meaning                                                                                                                                              |
+| ----------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                  | yes      | Device name, shown in race events. Must be unique.                                                                                                   |
+| `vendorId`, `productId` | yes      | USB IDs of the device.                                                                                                                               |
+| `enabled`               | yes      | Whether to listen to the device.                                                                                                                     |
+| `usagePage`, `usage`    | no       | Which HID interface of the device to use. Overrides `discoveryFilter` for this rule. Without both, the rule matches any interface of the device.     |
+| `serialNumber`          | no       | Binds the rule to one unit. Many devices report an empty serial number, so use `usbPort` for those.                                                  |
+| `usbPort`               | no       | Binds the rule to a physical USB port (Linux, and Windows for the interfaces given to WinUSB). Needed when several identical devices are plugged in. |
+| `logReports`            | no       | `true` logs every changed raw report with the changed bits. For debugging only.                                                                      |
 
 **Trigger fields**
 
@@ -158,7 +221,7 @@ The backend opens `/dev/hidrawN` directly. Give your user access with a udev rul
 KERNEL=="hidraw*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c548", MODE="0660", GROUP="plugdev"
 ```
 
-Windows needs no permission setup for readable devices.
+Windows needs no permission setup for readable devices. For a mouse or keyboard, see [Windows: reading a mouse with WinUSB (Zadig)](#windows-reading-a-mouse-with-winusb-zadig).
 
 ---
 
@@ -193,7 +256,7 @@ bib;name
 - The first line is skipped when its bib is not a number (header row).
 - UTF-8 (with or without BOM) and Windows-1252 (Excel on Windows) are both read correctly.
 - Rows with a bib that is not a number, without a name, or with a bib already used in the discipline are skipped and listed on the race page.
-- Files are read on every request: click *↻ Reload lists* in the event menu of the title ("CFM26 · 100m ▾") after adding or editing them.
+- Files are read on every request: click _↻ Reload lists_ in the event menu of the title ("CFM26 · 100m ▾") after adding or editing them.
 
 ### Discipline settings (`config.yaml`)
 
@@ -211,24 +274,25 @@ end: 2026-11-06T17:00Z
 access: auto
 ```
 
-- `attempts`: how many runs each participant may do. `OK` and `DQ` runs use up an attempt; `INVALID` runs do not (the participant is not at fault, so they run again). Once all attempts are used, the participant cannot be made ready: the race page shows "All 3 attempt(s) used" and disables *Ready to start*. Setting a run back to `INVALID` frees an attempt.
+- `attempts`: how many runs each participant may do. `OK` and `DQ` runs use up an attempt; `INVALID` runs do not (the participant is not at fault, so they run again). Once all attempts are used, the participant cannot be made ready: the race page shows "All 3 attempt(s) used" and disables _Ready to start_. Setting a run back to `INVALID` frees an attempt.
 - `start`, `end`: the period when the discipline is open, from `start` until `end` (excluded), as ISO 8601 date-times in UTC (`2026-11-05T07:00Z`), so they mean the same moment whatever the time zone of the server or the browser. Any offset is accepted (`2026-11-05T08:00+01:00`) and saved converted to UTC. Either can be left out. Seconds are ignored. A date-time without an offset (`2026-11-05T08:00` or `2026-11-05 08:00`) is read in the server's time zone; a date alone means the whole day (`start: 2026-11-05` opens at 00:00, `end: 2026-11-06` closes at the end of that day). The settings form and the messages show them in local time; the form saves them in UTC. Outside the period (with `access: auto`), getting a participant ready and changing a result's status are refused, so nothing is changed by accident; the race page says the discipline is closed and disables these actions. A run already in progress can still end. The settings themselves can always be edited, to correct the period. A `start` that is not before `end` is ignored.
 - `access`: when runs can be timed and results changed, one of:
   - `auto` (default): during the `start` - `end` period;
   - `open`: always, ignoring the period, e.g. to correct a result after the event (the race page reminds that the discipline is forced open while the period would close it);
   - `locked`: never, the results are final (the race page says they are locked).
 
-  It is the *Runs and result changes* choice in *⚙ Discipline settings*. The older `locked: true` setting is read as `access: locked`.
+  It is the _Runs and result changes_ choice in _⚙ Discipline settings_. The older `locked: true` setting is read as `access: locked`.
+
 - The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
-- *⚙ Discipline settings*, in the event menu of the title on the race pages ("CFM26 · 100m ▾"), edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
+- _⚙ Discipline settings_, in the event menu of the title on the race pages ("CFM26 · 100m ▾"), edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
 
 ### Timed runs and `results.csv`
 
-On the race page, select a participant and click *Ready to start*. The next crossing whose action contains `start` (from any device) starts the run, the next one containing `finish` ends it. The time is the difference between the two hardware timestamps. Then the participant can run again: every run is kept, and the page lists the participant's runs with the best one highlighted.
+On the race page, select a participant and click _Ready to start_. The next crossing whose action contains `start` (from any device) starts the run, the next one containing `finish` ends it. The time is the difference between the two hardware timestamps. Then the participant can run again: every run is kept, and the page lists the participant's runs with the best one highlighted.
 
 - One run at a time. The run is kept by the backend, so every open page shows it, and reloading the page does not lose it. It is lost if the server restarts before the finish.
-- While a participant is ready or running, the event, discipline and participant cannot change. *Cancel* abandons the run without saving anything.
-- While running, *Invalidate* or *Disqualify* ends the run at once (no need to wait for the finish) and saves it as `INVALID` or `DQ`, without finish or time. Such a run is listed but never counts as the best.
+- While a participant is ready or running, the event, discipline and participant cannot change. _Cancel_ abandons the run without saving anything.
+- While running, _Invalidate_ or _Disqualify_ ends the run at once (no need to wait for the finish) and saves it as `INVALID` or `DQ`, without finish or time. Such a run is listed but never counts as the best.
 - A saved run has a status, changed from the participant's results on the race page: `OK` (counts), `INVALID` (does not count, without the participant being at fault, e.g. a timing problem) or `DQ` (disqualified). A run keeps its time whatever its status (shown struck through when it does not count). A run ended before the finish has no time, so it cannot be set back to `OK`.
 - Each finished run is appended to `results.csv` in the discipline folder (this file is not read as a participant list):
 
@@ -267,9 +331,9 @@ The navigation bar shows the sync state ("Synced with 1 computer"); its tooltip 
 
 ### Live page
 
-*Live* (in the Race part of the title menu, `/live`) is a public display of the selected event and discipline, for a screen facing the audience:
+_Live_ (in the Race part of the title menu, `/live`) is a public display of the selected event and discipline, for a screen facing the audience:
 
-- **On track**: one card per computer whose race page shows this discipline (this one and the synced ones): *Waiting*, the participant *Ready*, a running clock, or the time (or DQ / Invalid) of the run that just ended. The card also shows the participant's best time and its rank (or *No time yet*), whether ready, running or just finished.
+- **On track**: one card per computer whose race page shows this discipline (this one and the synced ones): _Waiting_, the participant _Ready_, a running clock, or the time (or DQ / Invalid) of the run that just ended. The card also shows the participant's best time and its rank (or _No time yet_), whether ready, running or just finished.
 - **Ranking**: every participant with a run, by best valid time, with their category and number of runs; a run that just ended is highlighted. Invalid runs are left out (not counted, no time): a participant whose runs are all invalid is not listed. DQ runs are counted, without a time.
 
 Each computer shares its activity (the event and discipline open on its race pages, its run and its last result) with the synced ones at once when it changes, and in every announcement. A running clock on another computer is corrected by the difference between the clocks; the saved time is always measured by the computer that times the run.
@@ -290,6 +354,7 @@ HTTP and WebSocket share the same port, chosen at startup in this order: the `--
 
 - **Endpoint**: `ws://localhost:3001`
 - **Payload Structure** (see `src/types/messages.ts`):
+
   ```json
   {
     "type": "RACE_UPDATE",
@@ -336,7 +401,7 @@ The full reference, with every request and response schema, is [`openapi.yaml`](
 - `GET /api/live`: the `instances` shown on the live page: this computer and the synced ones, each with its `name`, `viewing` (event and discipline open on its race pages), `run`, `lastResult` and `clockOffsetMs`.
 - `GET /api/sync`: whether sync is on, this computer's `name`, and the `peers` found (name, address, port, last sync, error, clock offset).
 - `GET /api/sync/manifest`, `GET /api/sync/file?path=`, `GET /api/sync/results?event=&discipline=`, `POST /api/sync/notify`, `POST /api/sync/activity`: used between instances, only with the hash of the same key in the `x-timing-sync` header (`403` otherwise).
-- `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each configured device (`deviceName`) as `listening` (report count, last report, last 50 changed reports, trigger states) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it, and explanations for rules that match no device.
+- `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each configured device (`deviceName`) as `listening` (report count, last report, last 50 changed reports, trigger states) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it (and `transport: usb` for the ones read with libusb), and explanations for rules that match no device. `?monitor=0x046d:0xc548,…` also opens the interfaces of these models that no rule uses, and returns their reports in `monitor`: they stay open while requests keep asking, and close 5 seconds after the last one.
 
 ---
 
