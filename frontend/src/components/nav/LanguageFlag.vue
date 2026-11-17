@@ -18,6 +18,11 @@ const id = useId();
     <rect x="1" width="1" height="2" fill="#fff" />
     <rect x="2" width="1" height="2" fill="#ce1126" />
   </svg>
+  <svg v-else-if="code === 'de'" class="flag" viewBox="0 0 5 3" width="27" height="16" aria-hidden="true">
+    <rect width="5" height="1" fill="#000" />
+    <rect y="1" width="5" height="1" fill="#dd0000" />
+    <rect y="2" width="5" height="1" fill="#ffce00" />
+  </svg>
   <svg v-else-if="code === 'en'" class="flag" viewBox="0 0 60 30" width="32" height="16" aria-hidden="true">
     <clipPath :id="`${id}-flag`"><path d="M0,0 v30 h60 v-30 z" /></clipPath>
     <clipPath :id="`${id}-diagonals`"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z" /></clipPath>

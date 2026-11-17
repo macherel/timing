@@ -1,5 +1,6 @@
 import { watch } from 'vue';
 import { createI18n } from 'vue-i18n';
+import de from './locales/de';
 import en from './locales/en';
 import fr from './locales/fr';
 
@@ -24,6 +25,7 @@ declare module 'vue-i18n' {
 export const LOCALES = [
   { code: 'en', name: 'English' },
   { code: 'fr', name: 'Français' },
+  { code: 'de', name: 'Deutsch' },
 ] as const;
 export type Locale = (typeof LOCALES)[number]['code'];
 
@@ -56,7 +58,7 @@ export const i18n = createI18n({
   legacy: false,
   locale: initialLocale(),
   fallbackLocale: 'en',
-  messages: { en, fr },
+  messages: { en, fr, de },
   pluralRules: { fr: frenchPlural },
 });
 

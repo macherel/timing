@@ -1,5 +1,5 @@
 /**
- * English texts, the reference: every other language has the same keys (checked by the type of fr.ts).
+ * English texts, the reference: every other language has the same keys (checked by the type of fr.ts and de.ts).
  *
  * Syntax (vue-i18n): {name} is replaced by a value, "one | many" picks a form by count ({n} is the count), and the
  * characters { } @ $ | must not appear as plain text. Text with markup (code, emphasis) is built with <i18n-t> in
