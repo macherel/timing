@@ -9,7 +9,7 @@ import { broadcastToUI, getViewing } from '../websocket/wsServer.js';
 import { createLogger, errorMessage } from '../utils/logger.js';
 import { onActivityChange, onLocalChange } from '../utils/localChanges.js';
 import { WORK_DIR, workDirPath } from '../utils/workDir.js';
-import { RESULTS_FILE } from './eventService.js';
+import { RESULTS_FILE, UDA_RESULTS_FILE } from './eventService.js';
 import { CONFIG_PATH } from './hardware/deviceConfig.js';
 import { getLastResult, getRunState, mergeResultRows, readResultRows, type ResultRow } from './runService.js';
 
@@ -337,7 +337,8 @@ export async function buildManifest(): Promise<Manifest> {
 function isSyncedFileName(name: string): boolean {
     return (
         !name.startsWith('.') &&
-        name.toLowerCase() !== RESULTS_FILE &&
+        // uda-results.csv is not synced: each computer writes it from its merged results.csv
+        ![RESULTS_FILE, UDA_RESULTS_FILE].includes(name.toLowerCase()) &&
         SYNCED_EXTENSIONS.includes(path.extname(name).toLowerCase())
     );
 }

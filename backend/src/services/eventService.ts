@@ -9,14 +9,20 @@ import { WORK_DIR } from '../utils/workDir.js';
  *
  *   <work dir>/<event>/<discipline>/<any name>.csv
  *
- * Each CSV file lists participants as "bib;name" (comma, semicolon or tab separated, optional header row,
- * extra columns ignored). A discipline can have several files, e.g. one per category: they are merged.
- * Files are read on every request, so edits are picked up without restarting.
- * results.csv in a discipline folder holds the timed runs (see runService.ts), it is not a participant file.
+ * Each CSV file lists participants (comma, semicolon or tab separated). With a header row, columns are found by their
+ * name (see HEADER_ALIASES), e.g. the competitors export of the UDA (Unicycling Data Application):
+ *   ID,LastName,FirstName,Country,Gender,Age Group
+ * Without a recognised header, the columns are "bib;name" (extra columns ignored). A discipline can have several
+ * files, e.g. one per category: they are merged. Files are read on every request, so edits are picked up without
+ * restarting.
+ * results.csv in a discipline folder holds the timed runs, and uda-results.csv their export for the UDA (see
+ * runService.ts): they are not participant files, nor is any file in the UDA results format, whatever its name
+ * (e.g. a results file downloaded from the UDA).
  * config.yaml, optional, holds the discipline settings (see DisciplineSettings).
  */
 
 export const RESULTS_FILE = 'results.csv';
+export const UDA_RESULTS_FILE = 'uda-results.csv';
 export const SETTINGS_FILE = 'config.yaml';
 
 /** Settings of a discipline, from its config.yaml. Every setting is optional. */
@@ -101,7 +107,7 @@ export interface EventSummary {
 export interface Participant {
     bib: string;
     name: string;
-    file: string; // CSV file name without extension, e.g. the category
+    file: string; // Category: the Age Group column when the file has one, else the CSV file name without extension
 }
 
 export interface ParticipantList {
@@ -150,11 +156,14 @@ export async function disciplineDir(event: string, discipline: string): Promise<
  */
 export async function loadParticipants(event: string, discipline: string): Promise<ParticipantList | null> {
     const dir = await disciplineDir(event, discipline);
-    if (!dir) return null;
+    return dir ? readParticipants(dir) : null;
+}
 
+/** Participants from the CSV files of a discipline folder, sorted by bib (see loadParticipants). */
+export async function readParticipants(dir: string): Promise<ParticipantList> {
     const files = (await fs.promises.readdir(dir, { withFileTypes: true }))
         .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === '.csv')
-        .filter((entry) => entry.name.toLowerCase() !== RESULTS_FILE)
+        .filter((entry) => ![RESULTS_FILE, UDA_RESULTS_FILE].includes(entry.name.toLowerCase()))
         .map((entry) => entry.name)
         .sort(byName);
 
@@ -171,8 +180,15 @@ export async function loadParticipants(event: string, discipline: string): Promi
             continue;
         }
 
+        if (isUdaResults(rows)) continue;
+        const columns = participantColumns(rows[0] ?? []);
         rows.forEach((row, index) => {
-            const [bib = '', name = ''] = row.map((cell) => cell.trim());
+            const cells = row.map((cell) => cell.trim());
+            const cell = (column: number | null) => (column === null ? '' : (cells[column] ?? ''));
+            const bib = cell(columns.bib);
+            const name = [titleCase(cell(columns.firstName)), titleCase(cell(columns.lastName)), cell(columns.name)]
+                .filter((part) => part !== '')
+                .join(' ');
             const where = `${fileName}, line ${index + 1}`;
             if (bib === '' && name === '') return;
             // Header row: first line whose bib is not a number
@@ -186,13 +202,69 @@ export async function loadParticipants(event: string, discipline: string): Promi
                 problems.push(`${where}: bib ${bib} is already used in ${fileOfBib.get(bib)}`);
             } else {
                 fileOfBib.set(bib, fileName);
-                participants.push({ bib, name, file: path.parse(fileName).name });
+                participants.push({ bib, name, file: cell(columns.category) || path.parse(fileName).name });
             }
         });
     }
 
     participants.sort((a, b) => Number(a.bib) - Number(b.bib));
     return { participants, settings, problems };
+}
+
+/**
+ * Whether CSV rows are results in the UDA import format (bib,status,minutes,seconds,hundredths, no header, see
+ * udaResults in runService.ts), not participants.
+ */
+function isUdaResults(rows: string[][]): boolean {
+    const lines = rows.filter((row) => row.some((cell) => cell.trim() !== ''));
+    return (
+        lines.length > 0 &&
+        lines.every((row) => {
+            const [bib, status, ...time] = row.map((cell) => cell.trim());
+            return row.length === 5 && /^\d+$/.test(bib) && /^(|DQ|DNF)$/i.test(status) && time.every((cell) => /^\d+$/.test(cell));
+        })
+    );
+}
+
+/** Header names of the participant columns, compared without case, accents, spaces, dashes and underscores. */
+const HEADER_ALIASES = {
+    bib: ['bib', 'id', 'dossard', 'number', 'numero'],
+    name: ['name', 'nom', 'fullname'],
+    firstName: ['firstname', 'prenom'],
+    lastName: ['lastname', 'surname', 'nomdefamille'],
+    category: ['agegroup', 'category', 'categorie'],
+};
+type ParticipantColumns = Record<keyof typeof HEADER_ALIASES, number | null>;
+
+const headerKey = (cell: string) =>
+    cell.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s_-]/g, '').toLowerCase();
+
+/**
+ * A first or last name with the first letter of each word in uppercase and the others in lowercase, words being
+ * separated by spaces, dashes and apostrophes: "DUVAL-ARNOUX" → "Duval-Arnoux", "o'neil" → "O'Neil".
+ */
+export function titleCase(text: string): string {
+    return text.toLocaleLowerCase('fr').replace(/(^|[\s\-'’])(\p{L})/gu, (_, before, letter) => before + letter.toLocaleUpperCase('fr'));
+}
+
+/**
+ * Where the participant columns are, from the first row of a file. Without a bib column and a name (name, or first
+ * and/or last name) in that row, it is not a recognised header: bib in the first column, name in the second.
+ * The name is "first name last name" (see titleCase), or the name column as it is.
+ */
+function participantColumns(firstRow: string[]): ParticipantColumns {
+    const keys = firstRow.map(headerKey);
+    const find = (aliases: string[]) => {
+        const index = keys.findIndex((key) => aliases.includes(key));
+        return index === -1 ? null : index;
+    };
+    const found = Object.fromEntries(
+        Object.entries(HEADER_ALIASES).map(([column, aliases]) => [column, find(aliases)])
+    ) as ParticipantColumns;
+    if (found.firstName !== null || found.lastName !== null) found.name = null;
+    const hasName = found.name !== null || found.firstName !== null || found.lastName !== null;
+    if (found.bib !== null && hasName) return found;
+    return { bib: 0, name: 1, firstName: null, lastName: null, category: null };
 }
 
 /**

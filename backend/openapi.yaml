@@ -464,7 +464,7 @@ paths:
         - name: path
           in: query
           required: true
-          description: '`<event>/<discipline>/<file>`, a CSV or YAML file other than results.csv'
+          description: '`<event>/<discipline>/<file>`, a CSV or YAML file other than results.csv and uda-results.csv'
           schema: { type: string, examples: [CFM26/100m/men.csv] }
       responses:
         '200':
@@ -640,7 +640,7 @@ components:
       properties:
         bib: { type: string, pattern: '^\d+$', examples: ['7'] }
         name: { type: string, examples: [Hugo Guérin] }
-        file: { type: string, description: 'CSV file name without extension, e.g. the category', examples: [men] }
+        file: { type: string, description: 'Category: the Age Group column of the CSV file, or else its file name without extension', examples: [Sénior M] }
 
     ParticipantList:
       type: object

@@ -237,23 +237,35 @@ The race page lists the events found in the working directory. Each event is a f
 │   │   ├── config.yaml       # optional discipline settings
 │   │   ├── femmes.csv
 │   │   ├── hommes.csv
-│   │   └── results.csv       # written by the app
+│   │   ├── results.csv       # written by the app
+│   │   └── uda-results.csv   # written by the app, for the UDA
 │   └── Lenteur/
 │       └── participants.csv
 └── UNICON22/
     └── ...
 ```
 
-A CSV file has the bib number in the first column and the name in the second; other columns are ignored:
+A CSV file has a header row naming its columns, as the competitors export of the UDA (Unicycling Data Application):
 
 ```csv
-bib;name
-1;Zoé Nguyen
-2;Hugo Guérin
+ID,LastName,FirstName,Country,Gender,Age Group
+1,Vasseur,Ninon,France,Female,Junior F
+2,Guérin,Hugo,France,Male,Sénior M
 ```
+
+- Columns are found by their name, ignoring case, accents, spaces, `-` and `_`: the bib is `ID`, `bib`, `dossard`, `number` or `numéro`; the name is `FirstName` (`prénom`) and `LastName` (`surname`), shown as "Ninon Vasseur" with the first letter of each word in uppercase and the others in lowercase (`VASSEUR` → `Vasseur`, `jean-luc` → `Jean-Luc`), or a single `name` (`nom`, `full name`) column; the category is `Age Group`, `category` or `catégorie`. Other columns are ignored.
+- The category is shown next to the name on the race and live pages. Without a category column, or when the cell is empty, it is the file name without extension (e.g. `femmes`).
+- Without a header row naming a bib and a name, the bib is in the first column and the name in the second:
+
+  ```csv
+  bib;name
+  1;Ninon Vasseur
+  2;Hugo Guérin
+  ```
 
 - The separator is detected from the first line: semicolon (French Excel), comma or tab. Quoted cells (`"Dupont, Jean"`) are supported.
 - The first line is skipped when its bib is not a number (header row).
+- `results.csv` and `uda-results.csv` are not participant lists, nor is any file in the UDA results format (`bib,status,minutes,seconds,hundredths` lines, see below), whatever its name.
 - UTF-8 (with or without BOM) and Windows-1252 (Excel on Windows) are both read correctly.
 - Rows with a bib that is not a number, without a name, or with a bib already used in the discipline are skipped and listed on the race page.
 - Files are read on every request: click _↻ Reload lists_ in the event menu of the title ("CFM26 · 100m ▾") after adding or editing them.
@@ -298,11 +310,22 @@ On the race page, select a participant and click _Ready to start_. The next cros
 
   ```csv
   bib;name;start;finish;status;updated
-  3;Nathan Henry;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;OK;2026-11-05T20:30:35.340Z
+  3;Gaspard Lacombe;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;OK;2026-11-05T20:30:35.340Z
   4;Margaux Perrin;2026-11-05T20:49:57.848684082Z;;DQ;2026-11-05T20:50:02.511Z
   ```
 
   `start` and `finish` are UTC instants with nanoseconds, `status` is `OK`, `INVALID` or `DQ`, `updated` is when the line was last changed (used by the sync). The time is not stored: it is computed as `finish` − `start` (rounded to the millisecond), so editing a date by hand changes the time. A run is identified by `bib` and `start` together. Lines can be deleted by hand to remove a run. Columns are found by their header name: files with an older layout (a `time` column, no `status` column, read as `OK`, no `updated` column) are read too, and rewritten in this layout on their next write.
+- Each write of `results.csv` also rewrites `uda-results.csv` beside it: the results in the import format of the UDA, to upload them there. One line per participant, sorted by bib, no header, comma separated:
+
+  ```csv
+  7,,0,29,92
+  23,DQ,0,0,0
+  40,DNF,0,0,0
+  98,,1,13,23
+  ```
+
+  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and hundredths. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (`98,,1,13,23` is 1:13.23), the time truncated to the hundredth. Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `results.csv`.
+
 
 ## 🔄 Syncing Several Computers
 
@@ -321,7 +344,7 @@ sync:
 - **What is synced**: everything in the event folders.
   - Participant CSV files and discipline `config.yaml`: the most recently modified copy wins, and keeps its modification time on the other computers.
   - `results.csv`: merged line by line. A run is identified by its bib and start; when a line was changed on both computers, the most recently changed (`updated` column) wins. The page of every computer updates live.
-  - Not synced: the root `config.yaml` (devices, port and name differ per computer), and the run in progress (each computer times its own runs).
+  - Not synced: `uda-results.csv` (each computer writes it from its `results.csv`), the root `config.yaml` (devices, port and name differ per computer), and the run in progress (each computer times its own runs).
 - Changes are sent at once to the other computers, which also check every 3 s, so a computer that was off catches up when it comes back.
 - The latest change wins, so the computers' clocks must roughly agree: the navigation bar warns when they differ by more than 2 s.
 - A deleted file or result line comes back from a computer that still has it: delete it on every computer while they are not connected, or mark the run `INVALID` instead.
@@ -388,7 +411,7 @@ The full reference, with every request and response schema, is [`openapi.yaml`](
 - `POST /api/config/validate` `{ config }`: the problems found in a config object, without saving it.
 - `PUT /api/config` `{ config, modifiedAt }`: writes the config to `config.yaml`. `422` with the problems if it is invalid; `409` if the file changed since `modifiedAt` (the value returned by `GET`).
 - `GET /api/events`: the working directory (`workDir`) and its `events`, each with its `disciplines`.
-- `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
+- `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the category, from the `Age Group` column or else the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
 - `GET /api/events/:event/:discipline/settings`: the discipline's `settings` from its `config.yaml`, and the `problems` found in it.
 - `PUT /api/events/:event/:discipline/settings` `{ settings: { attempts, start, end, access } }`: saves the discipline's `config.yaml` (`attempts`: a whole number from 1, or `null` for unlimited; `start`, `end`: ISO 8601 date-times, saved in UTC, or `null`; `access`: `auto`, `open` or `locked`) and returns the `settings` read back with their `problems`. `422` for an invalid value.
 - `GET /api/events/:event/:discipline/results`: every run of the discipline from `results.csv`, oldest first.

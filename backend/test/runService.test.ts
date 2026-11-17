@@ -206,6 +206,43 @@ describe('results.csv', () => {
     });
 });
 
+describe('uda-results.csv', () => {
+    const line = (bib: string, start: string, seconds: number | null, status: string) => {
+        const finish = seconds === null ? '' : Temporal.Instant.from(start).add({ milliseconds: Math.round(seconds * 1000) }).toString();
+        return `${bib};Runner ${bib};${start};${finish};${status};`;
+    };
+
+    it('holds the best run of each participant in the UDA import format, DNF without a valid run', async () => {
+        writeFiles({
+            [RESULTS]: [
+                HEADER,
+                line('98', '2026-11-05T10:00:00Z', 73.239, 'OK'),
+                line('7', '2026-11-05T10:01:00Z', 29.928, 'OK'),
+                line('7', '2026-11-05T10:02:00Z', 25.5, 'INVALID'),
+                line('7', '2026-11-05T10:03:00Z', 31, 'OK'),
+                line('23', '2026-11-05T10:04:00Z', null, 'DQ'),
+                line('12', '2026-11-05T10:05:00Z', 20, 'DQ'),
+                line('12', '2026-11-05T10:06:00Z', 24.11, 'OK'),
+                line('40', '2026-11-05T10:07:00Z', null, 'INVALID'),
+            ].join('\n'),
+        });
+        const rows = (await runs.readResultRows('CFM26', '100m'))!;
+        expect(runs.udaResults(rows, ['7', '12', '23', '40', '41', '98'])).toBe(
+            '7,,0,29,92\r\n12,,0,24,11\r\n23,DQ,0,0,0\r\n40,DNF,0,0,0\r\n41,DNF,0,0,0\r\n98,,1,13,23\r\n'
+        );
+    });
+
+    it('lists bibs with runs that are not in the participant list', async () => {
+        const rows = [{ bib: '5', name: 'X', start: '2026-11-05T10:00:00Z', finish: '', status: 'INVALID', updated: '' }];
+        expect(runs.udaResults(rows, ['7'])).toBe('5,DNF,0,0,0\r\n7,DNF,0,0,0\r\n');
+    });
+
+    it('is written with results.csv', async () => {
+        await timeRun(HUGO);
+        await vi.waitFor(() => expect(readFile('CFM26/100m/uda-results.csv')).toBe('7,,0,12,34\r\n12,DNF,0,0,0\r\n'));
+    });
+});
+
 describe('mergeResultRows (sync)', () => {
     const row = (bib: string, start: string, status: string, updated: string): ResultRow => ({
         bib,

@@ -6,6 +6,7 @@ import {
     loadDisciplineSettings,
     loadParticipants,
     parseCsv,
+    titleCase,
     saveDisciplineSettings,
     toDateTime,
     validateDisciplineSettings,
@@ -94,13 +95,46 @@ describe('loadParticipants', () => {
         expect(list?.participants.map((p) => `${p.bib} ${p.name}`)).toEqual(['1 Ann', '2 Bob']);
     });
 
-    it('reads files saved by Excel on Windows (Windows-1252) and with a BOM', async () => {
+    it('finds the columns by their header name, as in the UDA competitors export', async () => {
         writeFiles({
-            'E/D/ansi.csv': Buffer.from('1;Éloïse Gérard\n', 'latin1'),
-            'E/D/bom.csv': '﻿bib;name\n2;Zoé\n',
+            'E/D/competitors.csv':
+                'ID,LastName,FirstName,Country,Gender,Age Group\n1,vasseur,ninon,France,Male,Super Vétéran M\n187,TESSIER,Ophélie,France,Female,\n',
+            'E/D/other.csv': 'Name;Dossard\nRosalie;5\n',
         });
         const list = await loadParticipants('E', 'D');
-        expect(list?.participants.map((p) => p.name)).toEqual(['Éloïse Gérard', 'Zoé']);
+        expect(list?.participants).toEqual([
+            { bib: '1', name: 'Ninon Vasseur', file: 'Super Vétéran M' },
+            { bib: '5', name: 'Rosalie', file: 'other' },
+            { bib: '187', name: 'Ophélie Tessier', file: 'competitors' },
+        ]);
+        expect(list?.problems).toEqual([]);
+    });
+
+    it('writes first and last names with a capital at the start of each word', () => {
+        expect(titleCase('DUVAL-ARNOUX')).toBe('Duval-Arnoux');
+        expect(titleCase('jean-baptiste')).toBe('Jean-Baptiste');
+        expect(titleCase("o'NEIL")).toBe("O'Neil");
+        expect(titleCase('éLOÏSE de la tour')).toBe('Éloïse De La Tour');
+    });
+
+    it('does not read files in the UDA results format as participants, whatever their name', async () => {
+        writeFiles({
+            'E/D/a.csv': '1;Ann\n',
+            'E/D/uda-results.csv': '1,,0,29,92\r\n',
+            'E/D/Résultats UDA.csv': '1,,0,29,92\r\n7,DNF,0,0,0\r\n23,DQ,0,0,0\r\n',
+        });
+        const list = await loadParticipants('E', 'D');
+        expect(list?.participants.map((p) => p.bib)).toEqual(['1']);
+        expect(list?.problems).toEqual([]);
+    });
+
+    it('reads files saved by Excel on Windows (Windows-1252) and with a BOM', async () => {
+        writeFiles({
+            'E/D/ansi.csv': Buffer.from('1;Éloïse Vernier\n', 'latin1'),
+            'E/D/bom.csv': '﻿bib;name\n2;Sidonie\n',
+        });
+        const list = await loadParticipants('E', 'D');
+        expect(list?.participants.map((p) => p.name)).toEqual(['Éloïse Vernier', 'Sidonie']);
     });
 
     it('skips wrong rows and says why', async () => {

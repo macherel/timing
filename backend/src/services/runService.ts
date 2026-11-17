@@ -5,7 +5,7 @@ import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
 import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
 import { notifyActivityChange, notifyLocalChange } from '../utils/localChanges.js';
-import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, RESULTS_FILE, type Participant } from './eventService.js';
+import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, readParticipants, RESULTS_FILE, UDA_RESULTS_FILE, type Participant } from './eventService.js';
 
 const log = createLogger('Run');
 
@@ -13,6 +13,7 @@ const log = createLogger('Run');
  * Timed runs, one at a time:
  *   idle → ready (a participant is announced) → running (first "start" crossing) → idle (first "finish" crossing,
  *   the result is appended to <event>/<discipline>/results.csv) or idle (cancelled, nothing saved).
+ * Each write of results.csv also rewrites uda-results.csv beside it, the results in the import format of the UDA.
  */
 
 let state: RunState = { status: 'idle' };
@@ -170,13 +171,59 @@ function parseRows(text: string): Row[] {
         });
 }
 
-/** Writes through a temporary file, so a peer or the page never reads a half-written file. */
+/**
+ * Writes results.csv, then uda-results.csv beside it. Each goes through a temporary file, so a peer or the page never
+ * reads a half-written file.
+ */
 async function writeRows(file: string, rows: Row[]): Promise<void> {
     const csvCell = (value: string) => (/[;"\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
     const lines = rows.map((row) => COLUMNS.map((column) => csvCell(row[column])).join(';'));
+    await writeAtomically(file, `${[RESULTS_HEADER, ...lines].join('\n')}\n`);
+    const { participants } = await readParticipants(path.dirname(file));
+    await writeAtomically(path.join(path.dirname(file), UDA_RESULTS_FILE), udaResults(rows, participants.map((p) => p.bib)));
+}
+
+async function writeAtomically(file: string, content: string): Promise<void> {
     const tempFile = path.join(path.dirname(file), `.${path.basename(file)}.tmp`);
-    await fs.promises.writeFile(tempFile, `${[RESULTS_HEADER, ...lines].join('\n')}\n`, 'utf8');
+    await fs.promises.writeFile(tempFile, content, 'utf8');
     await fs.promises.rename(tempFile, file);
+}
+
+/**
+ * Results in the import format of the UDA (Unicycling Data Application): one line per participant (of the list, and
+ * any other bib with runs), sorted by bib, without header, comma separated, CRLF line ends:
+ *   bib,,minutes,seconds,hundredths   best OK run, e.g. "98,,1,13,23" for 1:13.23
+ *   bib,DQ,0,0,0                      no OK run, at least one DQ
+ *   bib,DNF,0,0,0                     no valid run: only INVALID runs, or none
+ * The time is truncated to the hundredth.
+ */
+export function udaResults(rows: Row[], bibs: string[]): string {
+    const best = new Map<string, RunResult | null>(bibs.map((bib) => [bib, null]));
+    for (const result of rows.map(toResult)) {
+        if (!result || result.status === 'invalid') {
+            if (result && !best.has(result.bib)) best.set(result.bib, null);
+            continue;
+        }
+        const current = best.get(result.bib);
+        if (!current || isBetter(result, current)) best.set(result.bib, result);
+    }
+    return [...best]
+        .sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
+        .map(([bib, result]) => {
+            if (!result) return `${bib},DNF,0,0,0\r\n`;
+            if (result.status === 'dq' || result.timeMs === null) return `${bib},DQ,0,0,0\r\n`;
+            const hundredths = Math.floor(result.timeMs / 10);
+            const minutes = Math.floor(hundredths / 6000);
+            const seconds = Math.floor(hundredths / 100) % 60;
+            return `${bib},,${minutes},${seconds},${hundredths % 100}\r\n`;
+        })
+        .join('');
+}
+
+/** An OK run beats a DQ, a shorter time beats a longer one. */
+function isBetter(result: RunResult, than: RunResult): boolean {
+    if (result.status !== than.status) return result.status === 'ok';
+    return result.status === 'ok' && result.timeMs! < than.timeMs!;
 }
 
 const nowText = () => Temporal.Now.instant().toString({ smallestUnit: 'millisecond' });

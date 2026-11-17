@@ -58,8 +58,9 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   └── CFM26/                # One folder per event...
 │       └── 100m/             # ...one subfolder per discipline...
 │           ├── config.yaml   # ...optional settings (number of attempts)...
-│           ├── femmes.csv    # ...with participant CSV files (bib;name)
-│           └── results.csv   # Timed runs, written by the app
+│           ├── competitors.csv # ...with participant CSV files (UDA competitors export, or bib;name)
+│           ├── results.csv   # Timed runs, written by the app
+│           └── uda-results.csv # Best result of each participant, to import into the UDA
 ├── release/                  # Release packages, not in git
 ├── playwright.config.ts      # End-to-end test settings: server, browser
 ├── redocly.yaml              # Linter settings for backend/openapi.yaml (npx @redocly/cli lint)
