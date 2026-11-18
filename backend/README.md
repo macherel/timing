@@ -223,6 +223,22 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c548", MODE="0660
 
 Windows needs no permission setup for readable devices. For a mouse or keyboard, see [Windows: reading a mouse with WinUSB (Zadig)](#windows-reading-a-mouse-with-winusb-zadig).
 
+### Linux: keeping a mouse from clicking on screen
+
+On Linux, the kernel sends the reports of a mouse both to `/dev/hidrawN`, which the app reads, and to the desktop, which moves the pointer and clicks with them. A press on a gate then also clicks wherever the pointer is. To stop that, tell libinput (used by Wayland and by X11 by default) to ignore the mouse with another udev rule, for example in the same file:
+
+```
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{id/vendor}=="046d", ATTRS{id/product}=="4055", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+```
+
+Then run `sudo udevadm control --reload && sudo udevadm trigger` and replug the device (or log in again). The app keeps reading it through hidraw.
+
+- `id/vendor` and `id/product` are those of the input device: `cat /proc/bus/input/devices` lists the input devices, each with its IDs (`I:` line, `Vendor=` and `Product=`), its name (`N:`) and its `eventN` (`H:`).
+- A wireless mouse behind a Logitech Unifying receiver has its own product ID (e.g. `Logitech Wireless Device PID:4055`): the rule then only affects that mouse. Other receivers (e.g. Logitech Bolt) give the mouse the product ID of the receiver: the rule then affects every mouse paired to it.
+- To check: `udevadm info /dev/input/eventN | grep LIBINPUT` shows `LIBINPUT_IGNORE_DEVICE=1`.
+- To undo: remove the line, reload the rules and replug the device.
+- Use a mouse dedicated to timing, never the one you point with.
+
 ---
 
 ## 🏁 Events and Participants
