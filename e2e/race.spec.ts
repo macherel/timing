@@ -38,7 +38,7 @@ test('times a run from the start to the finish gate and saves it', async ({ page
   await expect(row).toHaveCount(1);
   await expect(row.locator('td').nth(1)).toHaveText(/^\d+\.\d{2}$/);
   await expect(page.getByText('men · Attempt 2')).toBeVisible();
-  await expect.poll(() => readFile('CFM26/100m/results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;/);
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;/);
 });
 
 test('cancels a run without saving it, after a confirmation', async ({ page, request }) => {
@@ -50,7 +50,7 @@ test('cancels a run without saving it, after a confirmation', async ({ page, req
   await page.getByRole('button', { name: 'Cancel run' }).click();
   await expect(page.getByRole('button', { name: 'Ready to start' })).toBeEnabled();
   await expect(page.getByText('No run yet.')).toBeVisible();
-  expect(readFile('CFM26/100m/results.csv')).toBeNull();
+  expect(readFile('CFM26/100m/CFM26-100m-results.csv')).toBeNull();
 });
 
 test('disqualifies a running participant, then turns the run into an invalid one that gives the attempt back', async ({ page, request }) => {
@@ -74,13 +74,13 @@ test('disqualifies a running participant, then turns the run into an invalid one
   await expect(status).toHaveValue('invalid');
   await expect(page.getByText('women · Attempt 1 of 1')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Ready to start' })).toBeEnabled();
-  await expect.poll(() => readFile('CFM26/100m/results.csv')).toMatch(/\n12;Léa Martin;.+;;INVALID;/);
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n12;Léa Martin;.+;;INVALID;/);
 });
 
 test('shows participants without attempts left as done in the list', async ({ page }) => {
   writeFiles({
     'CFM26/100m/config.yaml': 'attempts: 1\n',
-    'CFM26/100m/results.csv':
+    'CFM26/100m/CFM26-100m-results.csv':
       'bib;name;start;finish;status;updated\n21;Jean-Luc Martin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:00:10Z\n',
   });
   await page.goto('/');
@@ -91,7 +91,7 @@ test('shows participants without attempts left as done in the list', async ({ pa
 
 test('locks the discipline from its settings, which disables runs and result changes', async ({ page }) => {
   writeFiles({
-    'CFM26/100m/results.csv':
+    'CFM26/100m/CFM26-100m-results.csv':
       'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:00:10Z\n',
   });
   await page.goto('/');
@@ -110,7 +110,7 @@ test('locks the discipline from its settings, which disables runs and result cha
 
 test('shows the times with the precision and rounding of the discipline settings', async ({ page }) => {
   writeFiles({
-    'CFM26/100m/results.csv':
+    'CFM26/100m/CFM26-100m-results.csv':
       'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:10.3441Z;OK;2026-11-05T10:00:11Z\n',
   });
   await page.goto('/');
@@ -128,7 +128,7 @@ test('shows the times with the precision and rounding of the discipline settings
 
   await expect(time).toHaveText('10.344');
   expect(readFile('CFM26/100m/config.yaml')).toMatch(/precision: thousandth\n.*\nrounding: truncate\n/);
-  await expect.poll(() => readFile('CFM26/100m/uda-results.csv')).toContain('7,,0,10,34\r\n');
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toContain('7,,0,10,34\r\n');
 });
 
 test('refuses invalid discipline settings', async ({ page }) => {

@@ -44,7 +44,7 @@ test('follows the race page: next up, ready, running, finished, waiting', async 
 test('does not show a participant without attempts left as next up', async ({ page, request }) => {
   writeFiles({
     'CFM26/100m/config.yaml': 'attempts: 1\n',
-    'CFM26/100m/results.csv': `${RESULTS_HEADER}\n12;Léa Martin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:00:10Z\n`,
+    'CFM26/100m/CFM26-100m-results.csv': `${RESULTS_HEADER}\n12;Léa Martin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:00:10Z\n`,
   });
   const { race, card } = await openPages(page);
   await pickParticipant(race, 'lea', '12 Léa Martin');
@@ -63,7 +63,7 @@ test('does not show a participant without attempts left as next up', async ({ pa
 
 test('ranks by best valid time, invalid runs left out and disqualified runs without time last', async ({ page }) => {
   writeFiles({
-    'CFM26/100m/results.csv': [
+    'CFM26/100m/CFM26-100m-results.csv': [
       RESULTS_HEADER,
       '7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:12.000Z;OK;2026-11-05T10:00:12Z',
       '7;Hugo Guérin;2026-11-05T10:05:00Z;2026-11-05T10:05:11.500Z;OK;2026-11-05T10:05:11Z',

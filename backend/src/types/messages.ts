@@ -40,7 +40,7 @@ export type RunState =
  */
 export type RunStatus = 'ok' | 'invalid' | 'dq';
 
-/** A finished or disqualified run, as saved in results.csv. */
+/** A finished or disqualified run, as saved in the results file. */
 export interface RunResult {
     bib: string;
     name: string;

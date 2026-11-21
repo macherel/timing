@@ -26,7 +26,7 @@ export type RunState =
 /** Only ok runs count. invalid: not the participant's fault (e.g. timing problem); dq: disqualified */
 export type RunStatus = 'ok' | 'invalid' | 'dq';
 
-/** A finished or disqualified run, as saved in <event>/<discipline>/results.csv */
+/** A finished or disqualified run, as saved in <event>/<discipline>/<event>-<discipline>-results.csv */
 export interface RunResult {
   bib: string;
   name: string;

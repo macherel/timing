@@ -7,7 +7,7 @@ type RunService = typeof import('../src/services/runService.js');
 
 const HUGO = { bib: '7', name: 'Hugo Guérin', file: 'men' };
 const LEA = { bib: '12', name: 'Léa Martin', file: 'women' };
-const RESULTS = 'CFM26/100m/results.csv';
+const RESULTS = 'CFM26/100m/CFM26-100m-results.csv';
 const HEADER = 'bib;name;start;finish;status;updated';
 
 let runs: RunService;
@@ -22,7 +22,7 @@ beforeEach(async () => {
 
 const at = (iso: string) => Temporal.Instant.from(iso);
 
-/** Runs a participant from ready to finish, then waits until the result is in results.csv. */
+/** Runs a participant from ready to finish, then waits until the result is in the results file. */
 async function timeRun(participant = HUGO, start = '2026-11-05T10:00:00Z', finish = '2026-11-05T10:00:12.345Z') {
     expect(await runs.prepareRun('CFM26', '100m', participant)).toBeNull();
     const before = (await runs.loadResults('CFM26', '100m'))!.length;
@@ -210,7 +210,7 @@ describe('setResultStatus', () => {
     it('answers 404 for an unknown run, and 409 for a run without time set to OK', async () => {
         expect(await runs.setResultStatus('CFM26', '100m', '7', '2026-01-01T00:00:00Z', 'dq')).toEqual({
             status: 404,
-            problem: 'This result is not in results.csv any more.',
+            problem: 'This result is not in the results file any more.',
         });
 
         await runs.prepareRun('CFM26', '100m', LEA);
@@ -226,7 +226,7 @@ describe('setResultStatus', () => {
     });
 });
 
-describe('results.csv', () => {
+describe('results file', () => {
     it('reads older layouts by column name: a time column, no status, no updated', async () => {
         writeFiles({ [RESULTS]: 'bib;name;start;finish;time\n7;Hugo;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;10.000\n' });
         expect(await runs.loadResults('CFM26', '100m')).toEqual([
@@ -247,7 +247,7 @@ describe('results.csv', () => {
     });
 });
 
-describe('uda-results.csv', () => {
+describe('UDA export', () => {
     const line = (bib: string, start: string, seconds: number | null, status: string) => {
         const finish = seconds === null ? '' : Temporal.Instant.from(start).add({ milliseconds: Math.round(seconds * 1000) }).toString();
         return `${bib};Runner ${bib};${start};${finish};${status};`;
@@ -288,9 +288,9 @@ describe('uda-results.csv', () => {
         expect(runs.udaResults(rows, ['7'])).toBe('5,DNF,0,0,0\r\n7,DNF,0,0,0\r\n');
     });
 
-    it('is written with results.csv', async () => {
+    it('is written with the results file', async () => {
         await timeRun(HUGO);
-        await vi.waitFor(() => expect(readFile('CFM26/100m/uda-results.csv')).toBe('7,,0,12,35\r\n12,DNF,0,0,0\r\n'));
+        await vi.waitFor(() => expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('7,,0,12,35\r\n12,DNF,0,0,0\r\n'));
     });
 
     it('uses the precision and rounding of the discipline, in hundredths at most', () => {

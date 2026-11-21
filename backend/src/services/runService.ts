@@ -12,8 +12,8 @@ import {
     loadDisciplineSettings,
     parseCsv,
     readParticipants,
-    RESULTS_FILE,
-    UDA_RESULTS_FILE,
+    resultsFile,
+    udaResultsFile,
     type DisciplineSettings,
     type Participant,
     type Precision,
@@ -24,8 +24,9 @@ const log = createLogger('Run');
 /**
  * Timed runs, one at a time:
  *   idle → ready (a participant is announced) → running (first "start" crossing) → idle (first "finish" crossing,
- *   the result is appended to <event>/<discipline>/results.csv) or idle (cancelled, nothing saved).
- * Each write of results.csv also rewrites uda-results.csv beside it, the results in the import format of the UDA.
+ *   the result is appended to <event>/<discipline>/<event>-<discipline>-results.csv) or idle (cancelled, nothing saved).
+ * Each write of the results file also rewrites <event>-<discipline>-uda-results.csv beside it, the results in the
+ * import format of the UDA.
  */
 
 let state: RunState = { status: 'idle' };
@@ -136,7 +137,7 @@ function formatSeconds(timeMs: number): string {
     return (timeMs / 1000).toFixed(3);
 }
 
-// Columns of results.csv. The time is not stored: it is finish - start. `status` is OK, INVALID or DQ. `updated` is
+// Columns of the results file. The time is not stored: it is finish - start. `status` is OK, INVALID or DQ. `updated` is
 // when the line was last changed (UTC), so the sync keeps the latest change of a line edited on two computers.
 // Columns are found by their header name, so files with older layouts (with a time column, without status or
 // updated) are read too, and are rewritten in this layout on their next write.
@@ -190,7 +191,7 @@ export function runTimeMs(start: string, finish: string | null, rule: TimeRule):
     return Number((sign * units * unit) / 1_000_000n);
 }
 
-/** Rows of results.csv, by column name. Missing columns are empty, a missing status means OK. */
+/** Rows of the results file, by column name. Missing columns are empty, a missing status means OK. */
 function parseRows(text: string): Row[] {
     const [header = [], ...rows] = parseCsv(text);
     const columnIndex = header.map((name) => name.trim().toLowerCase());
@@ -210,7 +211,7 @@ function parseRows(text: string): Row[] {
 }
 
 /**
- * Writes results.csv, then uda-results.csv beside it. Each goes through a temporary file, so a peer or the page never
+ * Writes the results file, then the UDA export beside it. Each goes through a temporary file, so a peer or the page never
  * reads a half-written file.
  */
 async function writeRows(file: string, rows: Row[]): Promise<void> {
@@ -222,18 +223,18 @@ async function writeRows(file: string, rows: Row[]): Promise<void> {
 
 async function writeUdaFile(dir: string, rows: Row[]): Promise<void> {
     const { participants, settings } = await readParticipants(dir);
-    await writeAtomically(path.join(dir, UDA_RESULTS_FILE), udaResults(rows, participants.map((p) => p.bib), settings));
+    await writeAtomically(udaResultsFile(dir), udaResults(rows, participants.map((p) => p.bib), settings));
 }
 
 /**
- * Writes uda-results.csv again from results.csv, e.g. when the discipline settings changed which time is the best.
- * Nothing is written when the discipline has no results.csv yet.
+ * Writes the UDA export again from the results file, e.g. when the discipline settings changed which time is the best.
+ * Nothing is written when the discipline has no results file yet.
  */
 export async function writeUdaResults(event: string, discipline: string): Promise<void> {
     await enqueueWrite(async () => {
         const dir = await disciplineDir(event, discipline);
         if (!dir) return;
-        const file = path.join(dir, RESULTS_FILE);
+        const file = resultsFile(dir);
         if (!fs.existsSync(file)) return;
         await writeUdaFile(dir, await readRows(file));
     });
@@ -317,7 +318,7 @@ function updatedAt(row: Row): Temporal.Instant {
 }
 
 /**
- * A results.csv row as a result, its time measured with the rule. null for a valid run without a time (finish missing
+ * A row of the results file as a result, its time measured with the rule. null for a valid run without a time (finish missing
  * or unreadable).
  */
 function toResult(row: Row, rule: TimeRule): RunResult | null {
@@ -328,7 +329,7 @@ function toResult(row: Row, rule: TimeRule): RunResult | null {
     return { bib: row.bib, name: row.name, start: row.start, finish, timeMs, status };
 }
 
-/** Rows of results.csv, empty when it does not exist yet. */
+/** Rows of the results file, empty when it does not exist yet. */
 async function readRows(file: string): Promise<Row[]> {
     try {
         return parseRows(await fs.promises.readFile(file, 'utf8'));
@@ -345,7 +346,7 @@ function saveResult(event: string, discipline: string, result: RunResult): void 
             log.error(`Cannot save the result of ${result.bib}: ${event} / ${discipline} no longer exists.`);
             return;
         }
-        const file = path.join(dir, RESULTS_FILE);
+        const file = resultsFile(dir);
         await writeRows(file, [...(await readRows(file)), toRow(result)]);
         log.info(`Result saved to ${file}`);
         notifyLocalChange(event, discipline);
@@ -372,11 +373,11 @@ export async function setResultStatus(
         const closed = closedReason(settings);
         if (closed) return { status: 409 as const, problem: `${event} / ${discipline} is closed: ${closed}.` };
 
-        const file = path.join(dir, RESULTS_FILE);
+        const file = resultsFile(dir);
         const rows = await readRows(file);
         const row = rows.find((r) => r.bib === bib && r.start === start);
         const current = row && toResult(row, settings);
-        if (!row || !current) return { status: 404 as const, problem: 'This result is not in results.csv any more.' };
+        if (!row || !current) return { status: 404 as const, problem: 'This result is not in the results file any more.' };
         if (status === 'ok' && current.timeMs === null) {
             return { status: 409 as const, problem: 'This run was ended before the finish: it has no time.' };
         }
@@ -405,21 +406,21 @@ export async function loadResults(event: string, discipline: string): Promise<Ru
     const dir = await disciplineDir(event, discipline);
     if (!dir) return null;
     const { settings } = await loadDisciplineSettings(dir);
-    return (await readRows(path.join(dir, RESULTS_FILE))).map((row) => toResult(row, settings)).filter((result) => result !== null);
+    return (await readRows(resultsFile(dir))).map((row) => toResult(row, settings)).filter((result) => result !== null);
 }
 
 // ---------------------------------------------------------------------------
 // Sync with other computers (see syncService.ts)
 // ---------------------------------------------------------------------------
 
-/** Every line of a discipline's results.csv, as written. null when the discipline does not exist. */
+/** Every line of a discipline's results file, as written. null when the discipline does not exist. */
 export async function readResultRows(event: string, discipline: string): Promise<ResultRow[] | null> {
     const dir = await disciplineDir(event, discipline);
-    return dir ? readRows(path.join(dir, RESULTS_FILE)) : null;
+    return dir ? readRows(resultsFile(dir)) : null;
 }
 
 /**
- * Merges lines from another computer into a discipline's results.csv: a line it does not have is added, a line it
+ * Merges lines from another computer into a discipline's results file: a line it does not have is added, a line it
  * has (same bib and start) is replaced when the other one was changed later. Returns whether the file changed.
  * The discipline folder must exist.
  */
@@ -427,7 +428,7 @@ export async function mergeResultRows(event: string, discipline: string, remoteR
     return enqueueWrite(async () => {
         const dir = await disciplineDir(event, discipline);
         if (!dir) return false;
-        const file = path.join(dir, RESULTS_FILE);
+        const file = resultsFile(dir);
         const rows = await readRows(file);
         const byKey = new Map(rows.map((row, index) => [`${row.bib}\n${row.start}`, index]));
 

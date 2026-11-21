@@ -10,7 +10,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 - **YAML Configuration & Hot-Reloading**: Real-time configuration parsing (`config.yaml`) with bitmask trigger rules and live file watching.
 - **State-Aware Edge Detection**: Eliminates false positives when multiple buttons are pressed simultaneously or released in complex sequences.
 - **High-Precision Timing with `Temporal`**: Uses the modern ECMAScript `Temporal` API (`Temporal.Now.instant()`) for timezone-agnostic timing records.
-- **Events & Participants**: The race page picks an event and a discipline from the working directory, then finds a participant by partial bib or name (case and accents ignored), times their runs between the start and finish crossings, and keeps every result in the discipline's `results.csv`.
+- **Events & Participants**: The race page picks an event and a discipline from the working directory, then finds a participant by partial bib or name (case and accents ignored), times their runs between the start and finish crossings, and keeps every result in the discipline's `<event>-<discipline>-results.csv`.
 - **Several Computers**: Instances on the same network with the same sync key in `config.yaml` find each other and keep their events, participants and results in sync (see `backend/README.md`).
 - **Live Display**: The *Live* page shows the public what every synced computer is timing in a discipline (participant up next, running clocks, last times) and the ranking by best time.
 - **Real-Time UI Synchronization**: Low-latency WebSocket event distribution to connected Vue.js clients.
@@ -59,8 +59,8 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │       └── 100m/             # ...one subfolder per discipline...
 │           ├── config.yaml   # ...optional settings (attempts, period, best time, time precision)...
 │           ├── competitors.csv # ...with participant CSV files (UDA competitors export, or bib;name)
-│           ├── results.csv   # Timed runs, written by the app
-│           └── uda-results.csv # Best result of each participant, to import into the UDA
+│           ├── CFM26-100m-results.csv     # Timed runs, written by the app
+│           └── CFM26-100m-uda-results.csv # Best result of each participant, to import into the UDA
 ├── release/                  # Release packages, not in git
 ├── playwright.config.ts      # End-to-end test settings: server, browser
 ├── redocly.yaml              # Linter settings for backend/openapi.yaml (npx @redocly/cli lint)
@@ -109,7 +109,7 @@ This builds the app and creates, in `release/`:
 
 Each package runs on a computer without Node.js or npm. It contains the built app, its production dependencies, the Node runtime (the same version as the one running the script, downloaded from nodejs.org and checked against the official checksums), a `data` folder, and a `README.txt` (English), `LISEZMOI.txt` (French) and `LIESMICH.txt` (German) that explain how to start the app and configure a device, with the Zadig procedure for mice on Windows. Their text is in `scripts/packageReadme.mjs`. Unpack it and run `timing.sh` / `timing.cmd` (server) or `diagnose.sh` / `diagnose.cmd` (device diagnostics).
 
-The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and `results.csv` files are written there. It starts with the content of `sample-data/`, so the app has something to show on its first start: an example `config.yaml` (one Logitech receiver as the start and finish gates, no sync key) and an example event (`Exemple`: two disciplines with fictitious participants). Your own `workdir/` is never copied. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.
+The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and the results files are written there. It starts with the content of `sample-data/`, so the app has something to show on its first start: an example `config.yaml` (one Logitech receiver as the start and finish gates, no sync key) and an example event (`Exemple`: two disciplines with fictitious participants). Your own `workdir/` is never copied. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.
 
 The script runs on Linux and Windows, but build the Linux package on Linux: archives made on Windows lose the executable permissions. Building the Windows zip on Linux needs `zip`.
 
@@ -122,7 +122,7 @@ npm test            # Unit tests of the backend and the frontend, then a type ch
 npm run test:e2e    # Builds the app, then runs the end-to-end tests in Chrome
 ```
 
-- **Backend** (`backend/test`, Vitest): CSV and participant files, discipline settings and periods, the run from ready to result, attempts, `results.csv` and its merge between computers, HID trigger edges, device matching, `config.yaml`, and the HTTP API. Each test file works in its own temporary working directory.
+- **Backend** (`backend/test`, Vitest): CSV and participant files, discipline settings and periods, the run from ready to result, attempts, the results file and its merge between computers, HID trigger edges, device matching, `config.yaml`, and the HTTP API. Each test file works in its own temporary working directory.
 - **Frontend** (`frontend/test`, Vitest in a simulated browser): participant search, time formats, the configuration form, the texts of every language (same keys and placeholders, plurals, language choice), and the participant picker and run panel components.
 - **End-to-end** (`e2e`, Playwright): the built app in a browser against a server with its own temporary working directory: timing a run, cancel, disqualify and invalid runs, attempts, locked disciplines, the live page and ranking, the configuration page, the language, and two computers syncing. There are no USB gates: the server is started with `TIMING_SIMULATE_GATES=1`, and the tests fire the start and finish crossings over HTTP.
 

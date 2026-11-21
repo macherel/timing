@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import yaml from 'yaml';
-import { errorMessage } from '../utils/logger.js';
+import { createLogger, errorMessage } from '../utils/logger.js';
 import { WORK_DIR } from '../utils/workDir.js';
 
 /**
@@ -15,15 +15,68 @@ import { WORK_DIR } from '../utils/workDir.js';
  * Without a recognised header, the columns are "bib;name" (extra columns ignored). A discipline can have several
  * files, e.g. one per category: they are merged. Files are read on every request, so edits are picked up without
  * restarting.
- * results.csv in a discipline folder holds the timed runs, and uda-results.csv their export for the UDA (see
- * runService.ts): they are not participant files, nor is any file in the UDA results format, whatever its name
- * (e.g. a results file downloaded from the UDA).
+ * <event>-<discipline>-results.csv in a discipline folder holds the timed runs, and <event>-<discipline>-uda-results.csv
+ * their export for the UDA (see runService.ts): they are not participant files, nor is any file in the UDA results
+ * format, whatever its name (e.g. a results file downloaded from the UDA). Files named results.csv and uda-results.csv
+ * by earlier versions are renamed (see disciplineDir).
  * config.yaml, optional, holds the discipline settings (see DisciplineSettings).
  */
 
-export const RESULTS_FILE = 'results.csv';
-export const UDA_RESULTS_FILE = 'uda-results.csv';
 export const SETTINGS_FILE = 'config.yaml';
+
+const log = createLogger('Events');
+
+// Names of the results files written by earlier versions, without the event and discipline prefix
+const LEGACY_RESULTS_FILE = 'results.csv';
+const LEGACY_UDA_RESULTS_FILE = 'uda-results.csv';
+
+/** Name of the timed runs file of a discipline: <event>-<discipline>-results.csv */
+export function resultsFileName(event: string, discipline: string): string {
+    return `${event}-${discipline}-results.csv`;
+}
+
+/** Name of the UDA export of a discipline: <event>-<discipline>-uda-results.csv */
+export function udaResultsFileName(event: string, discipline: string): string {
+    return `${event}-${discipline}-uda-results.csv`;
+}
+
+/** Path of the timed runs file in a discipline folder (<work dir>/<event>/<discipline>). */
+export function resultsFile(dir: string): string {
+    return path.join(dir, resultsFileName(path.basename(path.dirname(dir)), path.basename(dir)));
+}
+
+/** Path of the UDA export in a discipline folder (<work dir>/<event>/<discipline>). */
+export function udaResultsFile(dir: string): string {
+    return path.join(dir, udaResultsFileName(path.basename(path.dirname(dir)), path.basename(dir)));
+}
+
+/** Whether a file of a discipline folder is written by the app (its results or their UDA export), case ignored. */
+export function isResultsFileName(event: string, discipline: string, name: string): boolean {
+    return [
+        resultsFileName(event, discipline),
+        udaResultsFileName(event, discipline),
+        LEGACY_RESULTS_FILE,
+        LEGACY_UDA_RESULTS_FILE,
+    ].some((fileName) => fileName.toLowerCase() === name.toLowerCase());
+}
+
+/**
+ * Renames the results.csv of earlier versions to <event>-<discipline>-results.csv, unless that one exists already, and
+ * removes their uda-results.csv (it is written again with the results).
+ */
+function renameLegacyResults(dir: string): void {
+    const legacy = path.join(dir, LEGACY_RESULTS_FILE);
+    const file = resultsFile(dir);
+    try {
+        if (fs.existsSync(legacy) && !fs.existsSync(file)) {
+            fs.renameSync(legacy, file);
+            fs.rmSync(path.join(dir, LEGACY_UDA_RESULTS_FILE), { force: true });
+            log.info(`${legacy} renamed to ${path.basename(file)}.`);
+        }
+    } catch (error) {
+        log.error(`Cannot rename ${legacy} to ${file}: ${errorMessage(error)}`);
+    }
+}
 
 /** Settings of a discipline, from its config.yaml. Every setting is optional. */
 export interface DisciplineSettings {
@@ -171,7 +224,9 @@ export async function listEvents(): Promise<EventSummary[]> {
 export async function disciplineDir(event: string, discipline: string): Promise<string | null> {
     if (!(await subdirectories(WORK_DIR)).includes(event)) return null;
     if (!(await subdirectories(path.join(WORK_DIR, event))).includes(discipline)) return null;
-    return path.join(WORK_DIR, event, discipline);
+    const dir = path.join(WORK_DIR, event, discipline);
+    renameLegacyResults(dir);
+    return dir;
 }
 
 /**
@@ -186,7 +241,7 @@ export async function loadParticipants(event: string, discipline: string): Promi
 export async function readParticipants(dir: string): Promise<ParticipantList> {
     const files = (await fs.promises.readdir(dir, { withFileTypes: true }))
         .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === '.csv')
-        .filter((entry) => ![RESULTS_FILE, UDA_RESULTS_FILE].includes(entry.name.toLowerCase()))
+        .filter((entry) => !isResultsFileName(path.basename(path.dirname(dir)), path.basename(dir), entry.name))
         .map((entry) => entry.name)
         .sort(byName);
 

@@ -71,8 +71,8 @@ test('shares the participants, the results and the live activity', async ({ page
   await expect(card.getByRole('timer')).toBeVisible();
   await cross(request, 'finish', url(a, ''));
 
-  // The result reaches the other computer's results.csv and ranking
-  await expect.poll(() => readFile('CFM26/100m/results.csv', b.dir), { timeout: 15_000 }).toMatch(/\n12;Léa Martin;.+;OK;/);
+  // The result reaches the other computer's results file and ranking
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv', b.dir), { timeout: 15_000 }).toMatch(/\n12;Léa Martin;.+;OK;/);
   await expect(live.locator('.ranking tbody tr')).toHaveCount(1);
   await expect(live.locator('.ranking tbody tr td.name')).toHaveText('Léa Martin');
 });

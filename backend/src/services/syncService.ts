@@ -9,7 +9,7 @@ import { broadcastToUI, getViewing } from '../websocket/wsServer.js';
 import { createLogger, errorMessage } from '../utils/logger.js';
 import { onActivityChange, onLocalChange } from '../utils/localChanges.js';
 import { WORK_DIR, workDirPath } from '../utils/workDir.js';
-import { RESULTS_FILE, UDA_RESULTS_FILE } from './eventService.js';
+import { isResultsFileName, resultsFileName } from './eventService.js';
 import { CONFIG_PATH } from './hardware/deviceConfig.js';
 import { getLastResult, getRunState, mergeResultRows, readResultRows, writeUdaResults, type ResultRow } from './runService.js';
 
@@ -21,10 +21,10 @@ const log = createLogger('Sync');
  * - Discovery: every instance broadcasts an announcement on UDP port 41234 (its id, name, HTTP port and a hash of
  *   its key). Instances with the same key hash become peers; a peer that stops announcing is forgotten.
  * - Sync: each instance pulls from each peer, over HTTP: the list of event files (participant CSVs, discipline
- *   config.yaml) with their modification time and hash, and the results.csv lines.
+ *   config.yaml) with their modification time and hash, and the results file lines.
  *     - A file is copied when the peer's copy is newer; the copy keeps the peer's modification time, so it is not
  *       sent back.
- *     - results.csv is merged line by line (bib + start identify a run), the most recently changed line wins.
+ *     - <event>-<discipline>-results.csv is merged line by line (bib + start identify a run), the most recently changed line wins.
  *   Peers are told when something changes here, so they pull at once; they also pull every few seconds.
  * - Live: each instance also shares its activity (the event, discipline and participant selected on its race pages, its run in
  *   progress and its last result), pushed to the peers when it changes and repeated in every announcement. The live
@@ -43,9 +43,10 @@ const ANNOUNCE_INTERVAL_MS = 3000;
 // A peer is forgotten when it has not announced itself for this long
 const PEER_TIMEOUT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 5000;
-// Files that can be synced inside <event>/<discipline>/ (results.csv is merged, not copied)
+// Files that can be synced inside <event>/<discipline>/ (the results file is merged, not copied)
 const SYNCED_EXTENSIONS = ['.csv', '.yaml', '.yml'];
-const PROTOCOL = 'timing-sync/1';
+// 2: results files are named <event>-<discipline>-results.csv (an older peer would copy them as participant lists)
+const PROTOCOL = 'timing-sync/2';
 
 // Identifies this process in announcements, so it ignores its own and tells peers apart on one computer
 const INSTANCE_ID = crypto.randomUUID();
@@ -85,7 +86,7 @@ interface Manifest {
     protocol: string;
     serverTime: string;
     files: ManifestFile[];
-    // Digest of each discipline's results.csv lines, to fetch them only when they differ
+    // Digest of each discipline's results file lines, to fetch them only when they differ
     results: { event: string; discipline: string; digest: string }[];
 }
 
@@ -320,25 +321,28 @@ export async function buildManifest(): Promise<Manifest> {
             const dir = path.join(WORK_DIR, event, discipline);
             for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
                 if (!entry.isFile()) continue;
-                if (entry.name.toLowerCase() === RESULTS_FILE) {
-                    const rows = (await readResultRows(event, discipline)) ?? [];
-                    manifest.results.push({ event, discipline, digest: resultsDigest(rows) });
-                } else if (isSyncedFileName(entry.name)) {
+                if (isSyncedFileName(event, discipline, entry.name)) {
                     const file = path.join(dir, entry.name);
                     const stats = await fs.promises.stat(file);
                     manifest.files.push({ path: `${event}/${discipline}/${entry.name}`, mtimeMs: stats.mtimeMs, hash: await fileHash(file, stats) });
                 }
+            }
+            // Read first: reading renames the results.csv of an earlier version
+            const rows = (await readResultRows(event, discipline)) ?? [];
+            if (fs.existsSync(path.join(dir, resultsFileName(event, discipline)))) {
+                manifest.results.push({ event, discipline, digest: resultsDigest(rows) });
             }
         }
     }
     return manifest;
 }
 
-function isSyncedFileName(name: string): boolean {
+function isSyncedFileName(event: string, discipline: string, name: string): boolean {
     return (
         !name.startsWith('.') &&
-        // uda-results.csv is not synced: each computer writes it from its merged results.csv
-        ![RESULTS_FILE, UDA_RESULTS_FILE].includes(name.toLowerCase()) &&
+        // The results file is merged, not copied, and its UDA export is not synced: each computer writes it from its
+        // merged results
+        !isResultsFileName(event, discipline, name) &&
         SYNCED_EXTENSIONS.includes(path.extname(name).toLowerCase())
     );
 }
@@ -351,7 +355,7 @@ export function syncedFilePath(relative: unknown): string | null {
     if (typeof relative !== 'string') return null;
     const parts = relative.split('/');
     const validName = (name: string) => name !== '' && !name.startsWith('.') && !/[\\/:\0]/.test(name);
-    if (parts.length !== 3 || !parts.every(validName) || !isSyncedFileName(parts[2])) return null;
+    if (parts.length !== 3 || !parts.every(validName) || !isSyncedFileName(parts[0], parts[1], parts[2])) return null;
     return path.join(WORK_DIR, ...parts);
 }
 
@@ -434,7 +438,7 @@ async function pullOnce(peer: Peer): Promise<void> {
         await fs.promises.mkdir(path.join(WORK_DIR, remote.event, remote.discipline), { recursive: true });
         if (await mergeResultRows(remote.event, remote.discipline, rows)) {
             mark(remote.event, remote.discipline);
-            log.info(`${remote.event}/${remote.discipline}/${RESULTS_FILE} merged with "${peer.name}".`);
+            log.info(`${remote.event}/${remote.discipline}/${resultsFileName(remote.event, remote.discipline)} merged with "${peer.name}".`);
         }
     }
 

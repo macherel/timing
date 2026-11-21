@@ -79,6 +79,21 @@ describe('events and disciplines', () => {
         expect(await disciplineDir('..', '..')).toBeNull();
         expect(await disciplineDir('CFM26', '../CFM26')).toBeNull();
     });
+
+    it('renames the results.csv of an earlier version with the event and discipline, and drops its UDA export', async () => {
+        writeFiles({ 'CFM26/100m/results.csv': 'bib;name;start;finish;status;updated\n', 'CFM26/100m/uda-results.csv': '' });
+        await disciplineDir('CFM26', '100m');
+        expect(readFile('CFM26/100m/results.csv')).toBeNull();
+        expect(readFile('CFM26/100m/uda-results.csv')).toBeNull();
+        expect(readFile('CFM26/100m/CFM26-100m-results.csv')).toBe('bib;name;start;finish;status;updated\n');
+    });
+
+    it('keeps the results.csv of an earlier version when the prefixed results file exists already', async () => {
+        writeFiles({ 'CFM26/100m/results.csv': 'old\n', 'CFM26/100m/CFM26-100m-results.csv': 'new\n' });
+        await disciplineDir('CFM26', '100m');
+        expect(readFile('CFM26/100m/results.csv')).toBe('old\n');
+        expect(readFile('CFM26/100m/CFM26-100m-results.csv')).toBe('new\n');
+    });
 });
 
 describe('loadParticipants', () => {
@@ -86,7 +101,7 @@ describe('loadParticipants', () => {
         writeFiles({
             'CFM26/100m/women.csv': 'bib;name\n12;Léa Martin\n3;Emma Petit\n',
             'CFM26/100m/men.csv': 'Dossard;Nom\n7;Hugo Guérin\n',
-            'CFM26/100m/results.csv': 'bib;name;start;finish;status;updated\n7;Hugo;x;y;OK;z\n',
+            'CFM26/100m/CFM26-100m-results.csv': 'bib;name;start;finish;status;updated\n7;Hugo;x;y;OK;z\n',
         });
         const list = await loadParticipants('CFM26', '100m');
         expect(list?.participants).toEqual([
@@ -128,7 +143,7 @@ describe('loadParticipants', () => {
     it('does not read files in the UDA results format as participants, whatever their name', async () => {
         writeFiles({
             'E/D/a.csv': '1;Ann\n',
-            'E/D/uda-results.csv': '1,,0,29,92\r\n',
+            'E/D/E-D-uda-results.csv': '1,,0,29,92\r\n',
             'E/D/Résultats UDA.csv': '1,,0,29,92\r\n7,DNF,0,0,0\r\n23,DQ,0,0,0\r\n',
         });
         const list = await loadParticipants('E', 'D');

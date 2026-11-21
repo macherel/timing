@@ -9,7 +9,7 @@ describe('names received from peers', () => {
         for (const path of [
             'config.yaml',
             'CFM26/men.csv',
-            'CFM26/100m/results.csv',
+            'CFM26/100m/CFM26-100m-results.csv',
             'CFM26/100m/notes.txt',
             'CFM26/100m/.hidden.csv',
             '../100m/men.csv',
@@ -31,12 +31,12 @@ describe('names received from peers', () => {
 describe('buildManifest', () => {
     beforeEach(resetWorkDir);
 
-    it('lists the event files with their hash, and a digest of each results.csv', async () => {
+    it('lists the event files with their hash, and a digest of each results file', async () => {
         writeFiles({
             'config.yaml': 'devices: []',
             'CFM26/100m/men.csv': '1;Hugo',
             'CFM26/100m/notes.txt': 'not synced',
-            'CFM26/100m/results.csv': 'bib;name;start;finish;status;updated\n',
+            'CFM26/100m/CFM26-100m-results.csv': 'bib;name;start;finish;status;updated\n',
         });
         const manifest = await buildManifest();
         expect(manifest.files.map((f) => f.path)).toEqual(['CFM26/100m/men.csv']);
@@ -46,8 +46,8 @@ describe('buildManifest', () => {
 
     it('gives the same results digest whatever the order of the lines', async () => {
         const lines = ['7;A;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;x', '8;B;2026-11-05T10:01:00Z;2026-11-05T10:01:10Z;OK;y'];
-        writeFiles({ 'E/D1/results.csv': `bib;name;start;finish;status;updated\n${lines.join('\n')}\n` });
-        writeFiles({ 'E/D2/results.csv': `bib;name;start;finish;status;updated\n${[...lines].reverse().join('\n')}\n` });
+        writeFiles({ 'E/D1/E-D1-results.csv': `bib;name;start;finish;status;updated\n${lines.join('\n')}\n` });
+        writeFiles({ 'E/D2/E-D2-results.csv': `bib;name;start;finish;status;updated\n${[...lines].reverse().join('\n')}\n` });
         const [first, second] = (await buildManifest()).results;
         expect(first.digest).toBe(second.digest);
     });

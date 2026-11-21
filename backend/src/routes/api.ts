@@ -247,7 +247,7 @@ router.get('/sync/file', async (req: Request, res: Response) => {
     res.type('application/octet-stream').send(content);
 });
 
-// Sync: every results.csv line of a discipline
+// Sync: every line of the results file of a discipline
 router.get('/sync/results', async (req: Request, res: Response) => {
     const { event, discipline } = req.query;
     const rows = isFolderName(event) && isFolderName(discipline) ? await readResultRows(event, discipline) : null;

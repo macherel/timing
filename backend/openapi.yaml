@@ -28,7 +28,7 @@ tags:
   - name: Events
     description: Events, disciplines, participants and discipline settings, read from the working directory
   - name: Results
-    description: Saved runs of a discipline (results.csv)
+    description: Saved runs of a discipline (<event>-<discipline>-results.csv)
   - name: Run
     description: The timed run, one at a time on a computer
   - name: Live
@@ -206,7 +206,7 @@ paths:
               schema: { $ref: '#/components/schemas/RunResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404':
-          description: Unknown event or discipline, or the run is not in results.csv any more
+          description: Unknown event or discipline, or the run is not in the results file any more
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problems' }
@@ -464,7 +464,7 @@ paths:
         - name: path
           in: query
           required: true
-          description: '`<event>/<discipline>/<file>`, a CSV or YAML file other than results.csv and uda-results.csv'
+          description: '`<event>/<discipline>/<file>`, a CSV or YAML file other than the results file and its UDA export (<event>-<discipline>-results.csv, <event>-<discipline>-uda-results.csv)'
           schema: { type: string, examples: [CFM26/100m/men.csv] }
       responses:
         '200':
@@ -482,7 +482,7 @@ paths:
   /sync/results:
     get:
       tags: [Sync]
-      summary: Every results.csv line of a discipline
+      summary: Every line of the results file of a discipline
       operationId: getSyncResults
       security: [{ syncKey: [] }]
       parameters:
@@ -496,7 +496,7 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: The lines as written in results.csv
+          description: The lines as written in the results file
           content:
             application/json:
               schema:
@@ -1059,7 +1059,7 @@ components:
 
     ResultRow:
       type: object
-      description: A results.csv line as written (text columns)
+      description: A line of the results file as written (text columns)
       required: [bib, name, start, finish, status, updated]
       properties:
         bib: { type: string }

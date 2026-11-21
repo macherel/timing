@@ -80,9 +80,9 @@ describe('discipline settings', () => {
         expect((await call('GET', '/events/CFM26/100m/settings')).body.settings).toEqual(body.settings);
     });
 
-    it('rewrites uda-results.csv when the best time becomes the longest', async () => {
+    it('rewrites the UDA export when the best time becomes the longest', async () => {
         writeFiles({
-            'CFM26/100m/results.csv': [
+            'CFM26/100m/CFM26-100m-results.csv': [
                 'bib;name;start;finish;status;updated',
                 '7;Hugo;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;',
                 '7;Hugo;2026-11-05T10:01:00Z;2026-11-05T10:01:20Z;OK;',
@@ -91,17 +91,17 @@ describe('discipline settings', () => {
         const { status, body } = await call('PUT', '/events/CFM26/100m/settings', { settings: { best: 'longest' } });
         expect(status).toBe(200);
         expect(body.settings.best).toBe('longest');
-        expect(readFile('CFM26/100m/uda-results.csv')).toBe('7,,0,20,0\r\n12,DNF,0,0,0\r\n');
+        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('7,,0,20,0\r\n12,DNF,0,0,0\r\n');
     });
 
-    it('rewrites uda-results.csv and gives the results with the new precision and rounding', async () => {
+    it('rewrites the UDA export and gives the results with the new precision and rounding', async () => {
         writeFiles({
-            'CFM26/100m/results.csv': ['bib;name;start;finish;status;updated', '7;Hugo;2026-11-05T10:00:00Z;2026-11-05T10:00:10.341Z;OK;'].join('\n'),
+            'CFM26/100m/CFM26-100m-results.csv': ['bib;name;start;finish;status;updated', '7;Hugo;2026-11-05T10:00:00Z;2026-11-05T10:00:10.341Z;OK;'].join('\n'),
         });
         const { status, body } = await call('PUT', '/events/CFM26/100m/settings', { settings: { precision: 'tenth', rounding: 'truncate' } });
         expect(status).toBe(200);
         expect(body.settings).toMatchObject({ precision: 'tenth', rounding: 'truncate' });
-        expect(readFile('CFM26/100m/uda-results.csv')).toBe('7,,0,10,30\r\n12,DNF,0,0,0\r\n');
+        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('7,,0,10,30\r\n12,DNF,0,0,0\r\n');
         expect((await call('GET', '/events/CFM26/100m/results')).body.results[0].timeMs).toBe(10300);
     });
 
@@ -195,5 +195,5 @@ async function waitForResults(count: number): Promise<any[]> {
         if (body.results.length >= count) return body.results;
         await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    throw new Error(`Expected ${count} result(s) in results.csv`);
+    throw new Error(`Expected ${count} result(s) in the results file`);
 }

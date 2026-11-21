@@ -33,7 +33,7 @@ openapi.yaml                     # OpenAPI 3.1 reference of the REST API
 └── services/
     ├── raceService.ts           # Records crossings per lane and broadcasts them
     ├── eventService.ts          # Events, disciplines and participant CSV files of the working directory
-    ├── runService.ts            # Timed run of one participant (ready → running → result in results.csv)
+    ├── runService.ts            # Timed run of one participant (ready → running → result in <event>-<discipline>-results.csv)
     ├── syncService.ts           # Finds the other instances on the network and syncs the event folders with them
     ├── hardwareService.ts       # Polls devices, opens them, routes reports to triggers, tracks status
     └── hardware/
@@ -253,8 +253,8 @@ The race page lists the events found in the working directory. Each event is a f
 │   │   ├── config.yaml       # optional discipline settings
 │   │   ├── femmes.csv
 │   │   ├── hommes.csv
-│   │   ├── results.csv       # written by the app
-│   │   └── uda-results.csv   # written by the app, for the UDA
+│   │   ├── CFM26-100m-results.csv      # written by the app
+│   │   └── CFM26-100m-uda-results.csv  # written by the app, for the UDA
 │   └── Lenteur/
 │       └── participants.csv
 └── UNICON22/
@@ -281,7 +281,7 @@ ID,LastName,FirstName,Country,Gender,Age Group
 
 - The separator is detected from the first line: semicolon (French Excel), comma or tab. Quoted cells (`"Dupont, Jean"`) are supported.
 - The first line is skipped when its bib is not a number (header row).
-- `results.csv` and `uda-results.csv` are not participant lists, nor is any file in the UDA results format (`bib,status,minutes,seconds,hundredths` lines, see below), whatever its name.
+- `<event>-<discipline>-results.csv` and `<event>-<discipline>-uda-results.csv` are not participant lists, nor is any file in the UDA results format (`bib,status,minutes,seconds,hundredths` lines, see below), whatever its name.
 - UTF-8 (with or without BOM) and Windows-1252 (Excel on Windows) are both read correctly.
 - Rows with a bib that is not a number, without a name, or with a bib already used in the discipline are skipped and listed on the race page.
 - Files are read on every request: click _↻ Reload lists_ in the event menu of the title ("CFM26 · 100m ▾") after adding or editing them.
@@ -319,13 +319,13 @@ rounding: up
 
   It is the _Runs and result changes_ choice in _⚙ Discipline settings_. The older `locked: true` setting is read as `access: locked`.
 
-- `best`: which time is a participant's best result, and ranks first: `shortest` (default, a race) or `longest` (a slow race, where the slowest participant wins). It decides the run highlighted as best on the race page, the ranking of the live page and the time written to `uda-results.csv`, which is rewritten when the setting changes. It is the _Best time_ choice in _⚙ Discipline settings_.
-- `precision`, `rounding`: the unit of the times (`second`, `tenth`, `hundredth` or `thousandth`, default `hundredth`) and how the measured time is brought to it: `truncate` (the digits beyond are dropped), `nearest` (a half goes up) or `up` (any fraction counts as a whole unit, the default). In hundredths, 12.3401 s gives 12.34 truncated or to the nearest, and 12.35 up. The rounding is done on the exact time between the two hardware timestamps (to the nanosecond). This time is the one shown on the race and live pages, compared to find the best run and the ranking (two times equal at this precision are tied), and written to `uda-results.csv`. `results.csv` keeps the exact start and finish, so a change applies to the runs already timed too, and `uda-results.csv` is rewritten. They are the _Time precision_ and _Rounding_ choices in _⚙ Discipline settings_.
+- `best`: which time is a participant's best result, and ranks first: `shortest` (default, a race) or `longest` (a slow race, where the slowest participant wins). It decides the run highlighted as best on the race page, the ranking of the live page and the time written to `<event>-<discipline>-uda-results.csv`, which is rewritten when the setting changes. It is the _Best time_ choice in _⚙ Discipline settings_.
+- `precision`, `rounding`: the unit of the times (`second`, `tenth`, `hundredth` or `thousandth`, default `hundredth`) and how the measured time is brought to it: `truncate` (the digits beyond are dropped), `nearest` (a half goes up) or `up` (any fraction counts as a whole unit, the default). In hundredths, 12.3401 s gives 12.34 truncated or to the nearest, and 12.35 up. The rounding is done on the exact time between the two hardware timestamps (to the nanosecond). This time is the one shown on the race and live pages, compared to find the best run and the ranking (two times equal at this precision are tied), and written to `<event>-<discipline>-uda-results.csv`. `<event>-<discipline>-results.csv` keeps the exact start and finish, so a change applies to the runs already timed too, and `<event>-<discipline>-uda-results.csv` is rewritten. They are the _Time precision_ and _Rounding_ choices in _⚙ Discipline settings_.
 
 - The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
 - _⚙ Discipline settings_, in the event menu of the title on the race pages ("CFM26 · 100m ▾"), edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
 
-### Timed runs and `results.csv`
+### Timed runs and `<event>-<discipline>-results.csv`
 
 On the race page, select a participant and click _Ready to start_. The next crossing whose action contains `start` (from any device) starts the run, the next one containing `finish` ends it. The time is the difference between the two hardware timestamps. Then the participant can run again: every run is kept, and the page lists the participant's runs with the best one highlighted.
 
@@ -333,7 +333,7 @@ On the race page, select a participant and click _Ready to start_. The next cros
 - While a participant is ready or running, the event, discipline and participant cannot change. _Cancel_ abandons the run without saving anything.
 - While running, _Invalidate_ or _Disqualify_ ends the run at once (no need to wait for the finish) and saves it as `INVALID` or `DQ`, without finish or time. Such a run is listed but never counts as the best.
 - A saved run has a status, changed from the participant's results on the race page: `OK` (counts), `INVALID` (does not count, without the participant being at fault, e.g. a timing problem) or `DQ` (disqualified). A run keeps its time whatever its status (shown struck through when it does not count). A run ended before the finish has no time, so it cannot be set back to `OK`.
-- Each finished run is appended to `results.csv` in the discipline folder (this file is not read as a participant list):
+- Each finished run is appended to `<event>-<discipline>-results.csv` in the discipline folder, e.g. `CFM26/100m/CFM26-100m-results.csv` (this file is not read as a participant list):
 
   ```csv
   bib;name;start;finish;status;updated
@@ -342,7 +342,8 @@ On the race page, select a participant and click _Ready to start_. The next cros
   ```
 
   `start` and `finish` are UTC instants with nanoseconds, `status` is `OK`, `INVALID` or `DQ`, `updated` is when the line was last changed (used by the sync). The time is not stored: it is computed as `finish` − `start` (rounded to the millisecond), so editing a date by hand changes the time. A run is identified by `bib` and `start` together. Lines can be deleted by hand to remove a run. Columns are found by their header name: files with an older layout (a `time` column, no `status` column, read as `OK`, no `updated` column) are read too, and rewritten in this layout on their next write.
-- Each write of `results.csv` also rewrites `uda-results.csv` beside it: the results in the import format of the UDA, to upload them there. One line per participant, sorted by bib, no header, comma separated:
+- A `results.csv` written by an earlier version is renamed to `<event>-<discipline>-results.csv` the first time the discipline is used (unless that file exists already), and its `uda-results.csv` is removed: it is written again with the next results.
+- Each write of `<event>-<discipline>-results.csv` also rewrites `<event>-<discipline>-uda-results.csv` beside it: the results in the import format of the UDA, to upload them there. One line per participant, sorted by bib, no header, comma separated:
 
   ```csv
   7,,0,29,92
@@ -351,7 +352,7 @@ On the race page, select a participant and click _Ready to start_. The next cros
   98,,1,13,23
   ```
 
-  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and hundredths. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (the shortest, or the longest with `best: longest`; `98,,1,13,23` is 1:13.23), the time measured with the `precision` and `rounding` of the discipline (the UDA has no thousandths: with `precision: thousandth`, the exact time is brought to the hundredth with the same rounding). Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `results.csv`.
+  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and hundredths. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (the shortest, or the longest with `best: longest`; `98,,1,13,23` is 1:13.23), the time measured with the `precision` and `rounding` of the discipline (the UDA has no thousandths: with `precision: thousandth`, the exact time is brought to the hundredth with the same rounding). Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `<event>-<discipline>-results.csv`.
 
 
 ## 🔄 Syncing Several Computers
@@ -370,8 +371,8 @@ sync:
 - **Discovery**: every instance announces itself every 3 s by UDP broadcast on port 41234 (its name, HTTP port and a hash of its key, never the key itself). The firewall must let UDP 41234 and the HTTP port (3001 by default) through; Windows asks the first time.
 - **What is synced**: everything in the event folders.
   - Participant CSV files and discipline `config.yaml`: the most recently modified copy wins, and keeps its modification time on the other computers.
-  - `results.csv`: merged line by line. A run is identified by its bib and start; when a line was changed on both computers, the most recently changed (`updated` column) wins. The page of every computer updates live.
-  - Not synced: `uda-results.csv` (each computer writes it from its `results.csv`), the root `config.yaml` (devices, port and name differ per computer), and the run in progress (each computer times its own runs).
+  - `<event>-<discipline>-results.csv`: merged line by line. A run is identified by its bib and start; when a line was changed on both computers, the most recently changed (`updated` column) wins. The page of every computer updates live.
+  - Not synced: `<event>-<discipline>-uda-results.csv` (each computer writes it from its `<event>-<discipline>-results.csv`), the root `config.yaml` (devices, port and name differ per computer), and the run in progress (each computer times its own runs).
 - Changes are sent at once to the other computers, which also check every 3 s, so a computer that was off catches up when it comes back.
 - The latest change wins, so the computers' clocks must roughly agree: the navigation bar warns when they differ by more than 2 s.
 - A deleted file or result line comes back from a computer that still has it: delete it on every computer while they are not connected, or mark the run `INVALID` instead.
@@ -441,7 +442,7 @@ The full reference, with every request and response schema, is [`openapi.yaml`](
 - `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the category, from the `Age Group` column or else the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited, `start`, `end`, `access`, `best`) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
 - `GET /api/events/:event/:discipline/settings`: the discipline's `settings` from its `config.yaml`, and the `problems` found in it.
 - `PUT /api/events/:event/:discipline/settings` `{ settings: { attempts, start, end, access, best } }`: saves the discipline's `config.yaml` (`attempts`: a whole number from 1, or `null` for unlimited; `start`, `end`: ISO 8601 date-times, saved in UTC, or `null`; `access`: `auto`, `open` or `locked`; `best`: `shortest` or `longest`) and returns the `settings` read back with their `problems`. `422` for an invalid value.
-- `GET /api/events/:event/:discipline/results`: every run of the discipline from `results.csv`, oldest first.
+- `GET /api/events/:event/:discipline/results`: every run of the discipline from `<event>-<discipline>-results.csv`, oldest first.
 - `PATCH /api/events/:event/:discipline/results` `{ bib, start, status }`: sets the status (`ok`, `invalid` or `dq`) of the saved run of `bib` that started at `start` (bib and start together identify a run, as several participants can share a start). `404` when there is no such run, `409` to set `ok` on a run without a time, or when the discipline is closed (outside its period with `access: auto`, or `access: locked`).
 - `GET /api/run`: the current run (see `RUN_UPDATE`).
 - `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress, when the participant has no attempt left, or when the discipline is closed.
