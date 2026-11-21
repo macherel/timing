@@ -5,7 +5,19 @@ import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
 import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
 import { notifyActivityChange, notifyLocalChange } from '../utils/localChanges.js';
-import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, readParticipants, RESULTS_FILE, UDA_RESULTS_FILE, type Best, type Participant } from './eventService.js';
+import {
+    closedReason,
+    DEFAULT_SETTINGS,
+    disciplineDir,
+    loadDisciplineSettings,
+    parseCsv,
+    readParticipants,
+    RESULTS_FILE,
+    UDA_RESULTS_FILE,
+    type DisciplineSettings,
+    type Participant,
+    type Precision,
+} from './eventService.js';
 
 const log = createLogger('Run');
 
@@ -19,6 +31,8 @@ const log = createLogger('Run');
 let state: RunState = { status: 'idle' };
 // The last run ended here, shown on the live pages until the next participant is ready
 let lastResult: Activity['lastResult'] = null;
+// How the time of the run in progress is measured, from the settings of its discipline when the participant got ready
+let runTimeRule: TimeRule = DEFAULT_SETTINGS;
 
 export function getRunState(): RunState {
     return state;
@@ -44,6 +58,7 @@ export async function prepareRun(event: string, discipline: string, participant:
     const { settings } = await loadDisciplineSettings(dir);
     const closed = closedReason(settings);
     if (closed) return `${event} / ${discipline} is closed: ${closed}.`;
+    runTimeRule = settings;
     const { attempts } = settings;
     if (attempts !== null) {
         const used = ((await loadResults(event, discipline)) ?? []).filter(
@@ -88,10 +103,10 @@ export function onCrossing(action: string, deviceName: string, instant: Temporal
         log.info(`Start of ${state.participant.bib} ${state.participant.name} on "${deviceName}".`);
         setState({ ...state, status: 'running', startedAt: instant.toString() });
     } else if (state.status === 'running' && action.includes('finish')) {
-        const start = Temporal.Instant.from(state.startedAt);
-        const timeMs = Math.round(instant.since(start).total('millisecond'));
+        const finish = instant.toString();
+        const timeMs = runTimeMs(state.startedAt, finish, runTimeRule)!;
         log.info(`Finish of ${state.participant.bib} ${state.participant.name} on "${deviceName}": ${formatSeconds(timeMs)} s`);
-        endRun({ finish: instant.toString(), timeMs, status: 'ok' });
+        endRun({ finish, timeMs, status: 'ok' });
     }
 }
 
@@ -142,14 +157,37 @@ function enqueueWrite<T>(write: () => Promise<T>): Promise<T> {
     return next;
 }
 
-/** Milliseconds from start to finish (rounded), or null when the finish is missing or a date cannot be read. */
-function runTimeMs(start: string, finish: string | null): number | null {
+/** How a run's time is measured: its unit, and how the exact time is brought to it (see DisciplineSettings). */
+export type TimeRule = Pick<DisciplineSettings, 'precision' | 'rounding'>;
+
+const NANOSECONDS: Record<Precision, bigint> = {
+    second: 1_000_000_000n,
+    tenth: 100_000_000n,
+    hundredth: 10_000_000n,
+    thousandth: 1_000_000n,
+};
+
+/**
+ * Time from start to finish in milliseconds, brought to the unit of the rule from the exact time (nanoseconds): e.g.
+ * 12.3401 s is 12.34 truncated, 12.34 to the nearest and 12.35 up, in hundredths. null when the finish is missing or a
+ * date cannot be read.
+ */
+export function runTimeMs(start: string, finish: string | null, rule: TimeRule): number | null {
     if (!finish) return null;
+    let exact: bigint;
     try {
-        return Math.round(Temporal.Instant.from(finish).since(Temporal.Instant.from(start)).total('millisecond'));
+        exact = Temporal.Instant.from(finish).epochNanoseconds - Temporal.Instant.from(start).epochNanoseconds;
     } catch {
         return null;
     }
+    const unit = NANOSECONDS[rule.precision];
+    // Rounded on the absolute value, so a time is never negative because of the rounding
+    const sign = exact < 0n ? -1n : 1n;
+    const size = exact * sign;
+    let units = size / unit;
+    const rest = size % unit;
+    if ((rule.rounding === 'up' && rest > 0n) || (rule.rounding === 'nearest' && 2n * rest >= unit)) units++;
+    return Number((sign * units * unit) / 1_000_000n);
 }
 
 /** Rows of results.csv, by column name. Missing columns are empty, a missing status means OK. */
@@ -184,7 +222,7 @@ async function writeRows(file: string, rows: Row[]): Promise<void> {
 
 async function writeUdaFile(dir: string, rows: Row[]): Promise<void> {
     const { participants, settings } = await readParticipants(dir);
-    await writeAtomically(path.join(dir, UDA_RESULTS_FILE), udaResults(rows, participants.map((p) => p.bib), settings.best));
+    await writeAtomically(path.join(dir, UDA_RESULTS_FILE), udaResults(rows, participants.map((p) => p.bib), settings));
 }
 
 /**
@@ -214,11 +252,18 @@ async function writeAtomically(file: string, content: string): Promise<void> {
  *                                     for 1:13.23
  *   bib,DQ,0,0,0                      no OK run, at least one DQ
  *   bib,DNF,0,0,0                     no valid run: only INVALID runs, or none
- * The time is truncated to the hundredth.
+ * The time is measured with the precision and rounding of the discipline; the UDA has no thousandths, so a time in
+ * thousandths is brought to the hundredth with the same rounding, from the exact time.
  */
-export function udaResults(rows: Row[], bibs: string[], best: Best = 'shortest'): string {
+export function udaResults(
+    rows: Row[],
+    bibs: string[],
+    settings: Pick<DisciplineSettings, 'best' | 'precision' | 'rounding'> = DEFAULT_SETTINGS
+): string {
+    const { best, rounding } = settings;
+    const precision = settings.precision === 'thousandth' ? 'hundredth' : settings.precision;
     const bestOf = new Map<string, RunResult | null>(bibs.map((bib) => [bib, null]));
-    for (const result of rows.map(toResult)) {
+    for (const result of rows.map((row) => toResult(row, { precision, rounding }))) {
         if (!result || result.status === 'invalid') {
             if (result && !bestOf.has(result.bib)) bestOf.set(result.bib, null);
             continue;
@@ -231,7 +276,7 @@ export function udaResults(rows: Row[], bibs: string[], best: Best = 'shortest')
         .map(([bib, result]) => {
             if (!result) return `${bib},DNF,0,0,0\r\n`;
             if (result.status === 'dq' || result.timeMs === null) return `${bib},DQ,0,0,0\r\n`;
-            const hundredths = Math.floor(result.timeMs / 10);
+            const hundredths = Math.round(result.timeMs / 10);
             const minutes = Math.floor(hundredths / 6000);
             const seconds = Math.floor(hundredths / 100) % 60;
             return `${bib},,${minutes},${seconds},${hundredths % 100}\r\n`;
@@ -240,7 +285,7 @@ export function udaResults(rows: Row[], bibs: string[], best: Best = 'shortest')
 }
 
 /** An OK run beats a DQ; between OK runs, the shorter time wins (the longer one for a slow race). */
-function isBetter(result: RunResult, than: RunResult, best: Best): boolean {
+function isBetter(result: RunResult, than: RunResult, best: DisciplineSettings['best']): boolean {
     if (result.status !== than.status) return result.status === 'ok';
     if (result.status !== 'ok') return false;
     return best === 'longest' ? result.timeMs! > than.timeMs! : result.timeMs! < than.timeMs!;
@@ -271,11 +316,14 @@ function updatedAt(row: Row): Temporal.Instant {
     return Temporal.Instant.fromEpochMilliseconds(0);
 }
 
-/** A results.csv row as a result. null for a valid run without a time (finish missing or unreadable). */
-function toResult(row: Row): RunResult | null {
+/**
+ * A results.csv row as a result, its time measured with the rule. null for a valid run without a time (finish missing
+ * or unreadable).
+ */
+function toResult(row: Row, rule: TimeRule): RunResult | null {
     const status = RUN_STATUSES.find((s) => STATUS_TEXT[s] === row.status.toUpperCase()) ?? 'ok';
     const finish = row.finish || null;
-    const timeMs = runTimeMs(row.start, finish);
+    const timeMs = runTimeMs(row.start, finish, rule);
     if (status === 'ok' && timeMs === null) return null;
     return { bib: row.bib, name: row.name, start: row.start, finish, timeMs, status };
 }
@@ -320,13 +368,14 @@ export async function setResultStatus(
         const dir = await disciplineDir(event, discipline);
         if (!dir) return { status: 404 as const, problem: 'Unknown event or discipline.' };
 
-        const closed = closedReason((await loadDisciplineSettings(dir)).settings);
+        const { settings } = await loadDisciplineSettings(dir);
+        const closed = closedReason(settings);
         if (closed) return { status: 409 as const, problem: `${event} / ${discipline} is closed: ${closed}.` };
 
         const file = path.join(dir, RESULTS_FILE);
         const rows = await readRows(file);
         const row = rows.find((r) => r.bib === bib && r.start === start);
-        const current = row && toResult(row);
+        const current = row && toResult(row, settings);
         if (!row || !current) return { status: 404 as const, problem: 'This result is not in results.csv any more.' };
         if (status === 'ok' && current.timeMs === null) {
             return { status: 409 as const, problem: 'This run was ended before the finish: it has no time.' };
@@ -348,11 +397,15 @@ export async function setResultStatus(
     });
 }
 
-/** Every result of a discipline, oldest first. Empty when there is no results file yet. */
+/**
+ * Every result of a discipline, oldest first, with times measured by its settings. Empty when there is no results file
+ * yet.
+ */
 export async function loadResults(event: string, discipline: string): Promise<RunResult[] | null> {
     const dir = await disciplineDir(event, discipline);
     if (!dir) return null;
-    return (await readRows(path.join(dir, RESULTS_FILE))).map(toResult).filter((result) => result !== null);
+    const { settings } = await loadDisciplineSettings(dir);
+    return (await readRows(path.join(dir, RESULTS_FILE))).map((row) => toResult(row, settings)).filter((result) => result !== null);
 }
 
 // ---------------------------------------------------------------------------

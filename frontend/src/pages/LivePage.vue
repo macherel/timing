@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DisciplineSettings, LiveInstance, Participant, ParticipantsResponse, ResultsResponse, RunResult, ServerMessage } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
-import { formatDuration, parseInstant } from '../format';
+import { DECIMALS, formatDuration, parseInstant } from '../format';
 import { countsAsAttempt, isBetterTime, sameRun } from '../race/results';
 import { discipline, disciplineExists, eventName, eventsLoaded, loadEvents, switcherOpen } from '../selection';
 
@@ -27,6 +27,9 @@ const participants = ref<Participant[]>([]);
 const attempts = ref<number | null>(null);
 // Which time is the best: shortest, or longest for a slow race
 const best = ref<DisciplineSettings['best']>('shortest');
+// Unit of the times: they are shown with as many decimals
+const precision = ref<DisciplineSettings['precision']>('hundredth');
+const showTime = (ms: number) => formatDuration(ms, DECIMALS[precision.value]);
 const error = ref<string | null>(null);
 
 const isHere = (item: { event: string; discipline: string } | null | undefined) =>
@@ -125,7 +128,7 @@ function bestText(bib: string): string {
   const best = bestOf.value.get(bib);
   if (best === undefined || best === null) return t('live.noTime');
   const rank = ranking.value.findIndex((entry) => entry.best === best) + 1;
-  return t('live.best', { time: formatDuration(best), rank });
+  return t('live.best', { time: showTime(best), rank });
 }
 
 // Rank among the participants with a valid time (equal times share a rank)
@@ -155,6 +158,7 @@ async function loadResults(): Promise<void> {
     participants.value = [];
     attempts.value = null;
     best.value = 'shortest';
+    precision.value = 'hundredth';
     return;
   }
   try {
@@ -167,6 +171,7 @@ async function loadResults(): Promise<void> {
     participants.value = participantsBody.participants ?? [];
     attempts.value = participantsBody.settings?.attempts ?? null;
     best.value = participantsBody.settings?.best ?? 'shortest';
+    precision.value = participantsBody.settings?.precision ?? 'hundredth';
     error.value = null;
   } catch (e) {
     if (request === resultsRequest) error.value = t('race.errors.loadResults', { error: e instanceof Error ? e.message : String(e) });
@@ -179,6 +184,9 @@ function onMessage(message: ServerMessage): void {
   } else if (message.type === 'SETTINGS_UPDATE' && isHere(message)) {
     attempts.value = message.settings.attempts;
     best.value = message.settings.best;
+    precision.value = message.settings.precision;
+    // The times depend on the precision and rounding
+    loadResults();
   } else if (
     (message.type === 'RUN_RESULT' || message.type === 'RESULT_UPDATE' || message.type === 'SYNC_UPDATE') &&
     isHere(message)
@@ -232,7 +240,7 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
             <template v-else-if="state.kind === 'finished'">
               <div class="who"><span class="bib">{{ state.result.bib }}</span> {{ state.result.name }}</div>
               <div v-if="state.result.status === 'ok' && state.result.timeMs !== null" class="clock mono done">
-                {{ formatDuration(state.result.timeMs) }}
+                {{ showTime(state.result.timeMs) }}
               </div>
               <div v-else class="status-text void">{{ $t(`common.status.${state.result.status}`) }}</div>
               <div class="best">{{ bestText(state.result.bib) }}</div>
@@ -262,7 +270,7 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
               <td class="mono">{{ entry.bib }}</td>
               <td class="name">{{ entry.name }}</td>
               <td class="muted">{{ categoryOf.get(entry.bib) ?? '' }}</td>
-              <td class="time mono">{{ entry.best === null ? '—' : formatDuration(entry.best) }}</td>
+              <td class="time mono">{{ entry.best === null ? '—' : showTime(entry.best) }}</td>
               <td class="runs muted">{{ entry.runs }}</td>
             </tr>
           </tbody>

@@ -303,6 +303,11 @@ access: auto
 
 # Which time is the best: shortest (a race) or longest (a slow race)
 best: shortest
+
+# Unit of the times: second, tenth, hundredth or thousandth
+precision: hundredth
+# How a time is brought to that unit: truncate, nearest or up
+rounding: up
 ```
 
 - `attempts`: how many runs each participant may do. `OK` and `DQ` runs use up an attempt; `INVALID` runs do not (the participant is not at fault, so they run again). Once all attempts are used, the participant cannot be made ready: the race page shows "All 3 attempt(s) used" and disables _Ready to start_. Setting a run back to `INVALID` frees an attempt.
@@ -315,6 +320,7 @@ best: shortest
   It is the _Runs and result changes_ choice in _⚙ Discipline settings_. The older `locked: true` setting is read as `access: locked`.
 
 - `best`: which time is a participant's best result, and ranks first: `shortest` (default, a race) or `longest` (a slow race, where the slowest participant wins). It decides the run highlighted as best on the race page, the ranking of the live page and the time written to `uda-results.csv`, which is rewritten when the setting changes. It is the _Best time_ choice in _⚙ Discipline settings_.
+- `precision`, `rounding`: the unit of the times (`second`, `tenth`, `hundredth` or `thousandth`, default `hundredth`) and how the measured time is brought to it: `truncate` (the digits beyond are dropped), `nearest` (a half goes up) or `up` (any fraction counts as a whole unit, the default). In hundredths, 12.3401 s gives 12.34 truncated or to the nearest, and 12.35 up. The rounding is done on the exact time between the two hardware timestamps (to the nanosecond). This time is the one shown on the race and live pages, compared to find the best run and the ranking (two times equal at this precision are tied), and written to `uda-results.csv`. `results.csv` keeps the exact start and finish, so a change applies to the runs already timed too, and `uda-results.csv` is rewritten. They are the _Time precision_ and _Rounding_ choices in _⚙ Discipline settings_.
 
 - The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
 - _⚙ Discipline settings_, in the event menu of the title on the race pages ("CFM26 · 100m ▾"), edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
@@ -345,7 +351,7 @@ On the race page, select a participant and click _Ready to start_. The next cros
   98,,1,13,23
   ```
 
-  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and hundredths. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (the shortest, or the longest with `best: longest`; `98,,1,13,23` is 1:13.23), the time truncated to the hundredth. Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `results.csv`.
+  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and hundredths. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (the shortest, or the longest with `best: longest`; `98,,1,13,23` is 1:13.23), the time measured with the `precision` and `rounding` of the discipline (the UDA has no thousandths: with `precision: thousandth`, the exact time is brought to the hundredth with the same rounding). Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `results.csv`.
 
 
 ## 🔄 Syncing Several Computers

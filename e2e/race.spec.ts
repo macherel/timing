@@ -36,7 +36,7 @@ test('times a run from the start to the finish gate and saves it', async ({ page
 
   const row = page.locator('.results tbody tr');
   await expect(row).toHaveCount(1);
-  await expect(row.locator('td').nth(1)).toHaveText(/^\d+\.\d{3}$/);
+  await expect(row.locator('td').nth(1)).toHaveText(/^\d+\.\d{2}$/);
   await expect(page.getByText('men · Attempt 2')).toBeVisible();
   await expect.poll(() => readFile('CFM26/100m/results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;/);
 });
@@ -106,6 +106,29 @@ test('locks the discipline from its settings, which disables runs and result cha
   await expect(page.getByRole('button', { name: 'Ready to start' })).toBeDisabled();
   await expect(page.getByRole('combobox', { name: 'Status of run 1' })).toBeDisabled();
   expect(readFile('CFM26/100m/config.yaml')).toContain('access: locked');
+});
+
+test('shows the times with the precision and rounding of the discipline settings', async ({ page }) => {
+  writeFiles({
+    'CFM26/100m/results.csv':
+      'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:10.3441Z;OK;2026-11-05T10:00:11Z\n',
+  });
+  await page.goto('/');
+  await pickParticipant(page, '7', '7 Hugo Guérin');
+  // By default: rounded up to the hundredth
+  const time = page.locator('.results tbody tr td').nth(1);
+  await expect(time).toHaveText('10.35');
+
+  await page.getByRole('button', { name: 'CFM26 · 100m' }).click();
+  await page.getByRole('button', { name: '⚙ Discipline settings' }).click();
+  await page.getByText('Thousandth', { exact: true }).click();
+  await page.getByText('Truncate', { exact: true }).click();
+  await expect(page.getByText('A measured time of 12.3456 s gives 12.345.')).toBeVisible();
+  await page.getByRole('button', { name: 'Save' }).click();
+
+  await expect(time).toHaveText('10.344');
+  expect(readFile('CFM26/100m/config.yaml')).toMatch(/precision: thousandth\n.*\nrounding: truncate\n/);
+  await expect.poll(() => readFile('CFM26/100m/uda-results.csv')).toContain('7,,0,10,34\r\n');
 });
 
 test('refuses invalid discipline settings', async ({ page }) => {

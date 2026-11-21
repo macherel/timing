@@ -10,6 +10,7 @@ import {
     writeDevicesConfigFile,
 } from '../services/hardware/deviceConfig.js';
 import {
+    DEFAULT_SETTINGS,
     disciplineDir,
     listEvents,
     loadDisciplineSettings,
@@ -109,15 +110,17 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         res.status(422).json({ problems });
         return;
     }
-    const { attempts, start, end, access, best } = req.body.settings;
+    const { attempts, start, end, access, best, precision, rounding } = req.body.settings;
     await saveDisciplineSettings(dir, {
         attempts,
         start: start ? toDateTime(start, 'start') : null,
         end: end ? toDateTime(end, 'end') : null,
-        access: access ?? 'auto',
-        best: best ?? 'shortest',
+        access: access ?? DEFAULT_SETTINGS.access,
+        best: best ?? DEFAULT_SETTINGS.best,
+        precision: precision ?? DEFAULT_SETTINGS.precision,
+        rounding: rounding ?? DEFAULT_SETTINGS.rounding,
     });
-    // The best result of each participant may have changed (shortest or longest time)
+    // The best result of each participant and its time may have changed (shortest or longest, precision, rounding)
     await writeUdaResults(event, discipline);
     const saved = await loadDisciplineSettings(dir);
     broadcastToUI({ type: 'SETTINGS_UPDATE', event, discipline, settings: saved.settings });

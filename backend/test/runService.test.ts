@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_SETTINGS, type Precision, type Rounding } from '../src/services/eventService.js';
 import type { ResultRow } from '../src/services/runService.js';
 import { minutesFromNow, readFile, resetWorkDir, writeFiles } from './helpers.js';
 
@@ -42,7 +43,8 @@ describe('a timed run', () => {
 
         runs.onCrossing('finish_crossed', 'Finish gate', at('2026-11-05T10:00:12.345Z'));
         expect(runs.getRunState()).toEqual({ status: 'idle' });
-        expect(runs.getLastResult()?.result).toMatchObject({ bib: '7', timeMs: 12345, status: 'ok' });
+        // Rounded up to the hundredth by default
+        expect(runs.getLastResult()?.result).toMatchObject({ bib: '7', timeMs: 12350, status: 'ok' });
 
         await vi.waitFor(async () =>
             expect(await runs.loadResults('CFM26', '100m')).toEqual([
@@ -51,7 +53,7 @@ describe('a timed run', () => {
                     name: 'Hugo Guérin',
                     start: '2026-11-05T10:00:00Z',
                     finish: '2026-11-05T10:00:12.345Z',
-                    timeMs: 12345,
+                    timeMs: 12350,
                     status: 'ok',
                 },
             ]),
@@ -145,6 +147,45 @@ describe('attempts and access', () => {
     });
 });
 
+describe('runTimeMs', () => {
+    const time = (finish: string, precision: Precision, rounding: Rounding) =>
+        runs.runTimeMs('2026-11-05T10:00:00Z', finish, { precision, rounding });
+
+    it('brings the exact time to the unit of the precision', () => {
+        const finish = '2026-11-05T10:00:12.3456789Z';
+        expect(time(finish, 'second', 'truncate')).toBe(12000);
+        expect(time(finish, 'tenth', 'truncate')).toBe(12300);
+        expect(time(finish, 'hundredth', 'truncate')).toBe(12340);
+        expect(time(finish, 'thousandth', 'truncate')).toBe(12345);
+        expect(time(finish, 'thousandth', 'nearest')).toBe(12346);
+        expect(time(finish, 'hundredth', 'nearest')).toBe(12350);
+        expect(time(finish, 'tenth', 'nearest')).toBe(12300);
+        expect(time(finish, 'second', 'nearest')).toBe(12000);
+    });
+
+    it('rounds up any part of the unit, and a half to the nearest goes up', () => {
+        expect(time('2026-11-05T10:00:12.340000001Z', 'hundredth', 'up')).toBe(12350);
+        expect(time('2026-11-05T10:00:12.34Z', 'hundredth', 'up')).toBe(12340);
+        expect(time('2026-11-05T10:00:12.5Z', 'second', 'nearest')).toBe(13000);
+        expect(time('2026-11-05T10:00:12.4999Z', 'second', 'nearest')).toBe(12000);
+    });
+
+    it('is null without a readable finish', () => {
+        expect(time('', 'hundredth', 'up')).toBeNull();
+        expect(time('soon', 'hundredth', 'up')).toBeNull();
+    });
+
+    it('gives the time of a run with the settings of its discipline', async () => {
+        writeFiles({ 'CFM26/100m/config.yaml': 'precision: tenth\nrounding: truncate\n' });
+        await timeRun(HUGO, '2026-11-05T10:00:00Z', '2026-11-05T10:00:12.399Z');
+        expect(runs.getLastResult()?.result.timeMs).toBe(12300);
+        expect((await runs.loadResults('CFM26', '100m'))![0].timeMs).toBe(12300);
+        // The saved run keeps its exact finish: another precision gives another time
+        writeFiles({ 'CFM26/100m/config.yaml': 'precision: thousandth\n' });
+        expect((await runs.loadResults('CFM26', '100m'))![0].timeMs).toBe(12399);
+    });
+});
+
 describe('setResultStatus', () => {
     beforeEach(() => timeRun(HUGO, '2026-11-05T10:00:00Z', '2026-11-05T10:00:12.345Z'));
 
@@ -152,7 +193,7 @@ describe('setResultStatus', () => {
         await timeRun(LEA, '2026-11-05T10:00:00Z', '2026-11-05T10:00:15Z');
 
         const outcome = await runs.setResultStatus('CFM26', '100m', '7', '2026-11-05T10:00:00Z', 'dq');
-        expect(outcome).toEqual({ result: expect.objectContaining({ bib: '7', status: 'dq', timeMs: 12345 }) });
+        expect(outcome).toEqual({ result: expect.objectContaining({ bib: '7', status: 'dq', timeMs: 12350 }) });
         expect((await runs.loadResults('CFM26', '100m'))!.map((r) => `${r.bib} ${r.status}`)).toEqual(['7 dq', '12 ok']);
         // The live pages show the last run with its new status
         expect(runs.getLastResult()?.result.bib).toBe('12');
@@ -228,7 +269,7 @@ describe('uda-results.csv', () => {
         });
         const rows = (await runs.readResultRows('CFM26', '100m'))!;
         expect(runs.udaResults(rows, ['7', '12', '23', '40', '41', '98'])).toBe(
-            '7,,0,29,92\r\n12,,0,24,11\r\n23,DQ,0,0,0\r\n40,DNF,0,0,0\r\n41,DNF,0,0,0\r\n98,,1,13,23\r\n'
+            '7,,0,29,93\r\n12,,0,24,11\r\n23,DQ,0,0,0\r\n40,DNF,0,0,0\r\n41,DNF,0,0,0\r\n98,,1,13,24\r\n'
         );
     });
 
@@ -238,7 +279,7 @@ describe('uda-results.csv', () => {
             { bib: '7', name: 'X', start: '2026-11-05T10:01:00Z', finish: '2026-11-05T10:01:45.5Z', status: 'OK', updated: '' },
             { bib: '7', name: 'X', start: '2026-11-05T10:02:00Z', finish: '2026-11-05T10:03:50Z', status: 'DQ', updated: '' },
         ];
-        expect(runs.udaResults(rows, ['7'], 'longest')).toBe('7,,0,45,50\r\n');
+        expect(runs.udaResults(rows, ['7'], { ...DEFAULT_SETTINGS, best: 'longest' })).toBe('7,,0,45,50\r\n');
         expect(runs.udaResults(rows, ['7'])).toBe('7,,0,30,0\r\n');
     });
 
@@ -249,7 +290,18 @@ describe('uda-results.csv', () => {
 
     it('is written with results.csv', async () => {
         await timeRun(HUGO);
-        await vi.waitFor(() => expect(readFile('CFM26/100m/uda-results.csv')).toBe('7,,0,12,34\r\n12,DNF,0,0,0\r\n'));
+        await vi.waitFor(() => expect(readFile('CFM26/100m/uda-results.csv')).toBe('7,,0,12,35\r\n12,DNF,0,0,0\r\n'));
+    });
+
+    it('uses the precision and rounding of the discipline, in hundredths at most', () => {
+        const rows = [{ bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:12.3449Z', status: 'OK', updated: '' }];
+        const uda = (precision: Precision, rounding: Rounding) => runs.udaResults(rows, ['7'], { best: 'shortest', precision, rounding });
+        expect(uda('second', 'up')).toBe('7,,0,13,0\r\n');
+        expect(uda('tenth', 'nearest')).toBe('7,,0,12,30\r\n');
+        expect(uda('hundredth', 'truncate')).toBe('7,,0,12,34\r\n');
+        // From the exact time, not from the time in thousandths (12.345, which would give 12.35)
+        expect(uda('thousandth', 'nearest')).toBe('7,,0,12,34\r\n');
+        expect(uda('thousandth', 'up')).toBe('7,,0,12,35\r\n');
     });
 });
 

@@ -32,8 +32,8 @@ test('follows the race page: next up, ready, running, finished, waiting', async 
   await expect(card.getByRole('timer')).toBeVisible();
 
   await cross(request, 'finish');
-  await expect(card.locator('.clock.done')).toHaveText(/^\d+\.\d{3}$/);
-  await expect(card).toContainText(/Best: \d+\.\d{3} \(rank 1\)/);
+  await expect(card.locator('.clock.done')).toHaveText(/^\d+\.\d{2}$/);
+  await expect(card).toContainText(/Best: \d+\.\d{2} \(rank 1\)/);
   await expect(live.locator('.ranking tbody tr')).toHaveCount(1);
 
   // Clearing the participant keeps the time of the last run
@@ -77,8 +77,8 @@ test('ranks by best valid time, invalid runs left out and disqualified runs with
   const rows = live.locator('.ranking tbody tr');
   await expect(rows).toHaveCount(3);
   const cells = async (index: number) => (await rows.nth(index).locator('td').allTextContents()).map((text) => text.trim());
-  expect(await cells(0)).toEqual(['1', '12', 'Léa Martin', 'women', '10.250', '1']);
-  expect(await cells(1)).toEqual(['2', '7', 'Hugo Guérin', 'men', '11.500', '2']);
+  expect(await cells(0)).toEqual(['1', '12', 'Léa Martin', 'women', '10.25', '1']);
+  expect(await cells(1)).toEqual(['2', '7', 'Hugo Guérin', 'men', '11.50', '2']);
   expect(await cells(2)).toEqual(['–', '21', 'Jean-Luc Martin', 'men', '—', '1']);
 });
 

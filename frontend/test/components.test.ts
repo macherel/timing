@@ -3,7 +3,7 @@ import { nextTick } from 'vue';
 import ParticipantPicker from '../src/components/race/ParticipantPicker.vue';
 import RunPanel from '../src/components/race/RunPanel.vue';
 import { setLocale } from '../src/i18n';
-import type { Participant, RunResult, RunState } from '../src/types';
+import type { Participant, Precision, RunResult, RunState } from '../src/types';
 import { mountWithI18n } from './mount';
 
 const HUGO: Participant = { bib: '7', name: 'Hugo Guérin', file: 'men' };
@@ -87,10 +87,10 @@ describe('RunPanel', () => {
   });
 
   function mountPanel(
-    props: Partial<{ run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; closed: string | null; lastResult: RunResult | null }> = {},
+    props: Partial<{ run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; lastResult: RunResult | null }> = {},
   ) {
     return mountWithI18n(RunPanel, {
-      props: { participant: HUGO, run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', ...props },
+      props: { participant: HUGO, run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth', ...props },
     });
   }
   const readyButton = (wrapper: ReturnType<typeof mountPanel>) => wrapper.find('button.ready');
@@ -150,13 +150,19 @@ describe('RunPanel', () => {
     expect(rows.map((row) => row.classes().includes('best'))).toEqual([false, true, false]);
     expect(rows[1].find('.badge').text()).toBe('best');
     // A disqualified run's time is struck through
-    expect(rows[2].find('s').text()).toBe('9.000');
+    expect(rows[2].find('s').text()).toBe('9.00');
 
     const select = rows[0].find('select');
     await select.setValue('invalid');
     expect(wrapper.emitted('setStatus')).toEqual([[results[0], 'invalid']]);
     // The select keeps the saved status until the saved result comes back
     expect((select.element as HTMLSelectElement).value).toBe('ok');
+  });
+
+  it('shows the times with the decimals of the precision', () => {
+    const results = [result({ timeMs: 12345 })];
+    expect(mountPanel({ results, precision: 'thousandth' }).find('tbody td.time').text()).toBe('12.345');
+    expect(mountPanel({ results: [result({ timeMs: 12000 })], precision: 'second' }).find('tbody td.time').text()).toBe('12');
   });
 
   it('marks the longest valid time as best for a slow race', () => {

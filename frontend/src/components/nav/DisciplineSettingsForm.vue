@@ -3,9 +3,10 @@ import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DisciplineSettings } from '../../types';
 import { fromLocalInput, toLocalInput } from '../../race/dateTime';
+import { DECIMALS, formatDuration } from '../../format';
 
 /**
- * Edits a discipline's config.yaml: attempts, best time, period and access. Loads the settings itself; the race pages get the
+ * Edits a discipline's config.yaml: attempts, best time, precision and rounding of the times, period and access. Loads the settings itself; the race pages get the
  * saved ones through the SETTINGS_UPDATE message.
  */
 const props = defineProps<{ event: string; discipline: string }>();
@@ -29,6 +30,28 @@ const BEST_OPTIONS = computed(() =>
   })),
 );
 
+const PRECISION_OPTIONS = computed(() =>
+  (['second', 'tenth', 'hundredth', 'thousandth'] as const).map((value) => ({ value, label: t(`settings.precision.${value}`) })),
+);
+
+const ROUNDING_OPTIONS = computed(() =>
+  (['truncate', 'nearest', 'up'] as const).map((value) => ({
+    value,
+    label: t(`settings.rounding.${value}`),
+    hint: t(`settings.rounding.${value}Hint`),
+  })),
+);
+
+// What the chosen precision and rounding make of a measured time (same rule as the backend), in tenths of a millisecond
+const EXACT_TIME = 123_456; // 12.3456 s
+const UNIT: Record<DisciplineSettings['precision'], number> = { second: 10_000, tenth: 1_000, hundredth: 100, thousandth: 10 };
+const timeExample = computed(() => {
+  const unit = UNIT[precisionInput.value];
+  const round = { truncate: Math.floor, nearest: Math.round, up: Math.ceil }[roundingInput.value];
+  const time = formatDuration((round(EXACT_TIME / unit) * unit) / 10, DECIMALS[precisionInput.value]);
+  return t('settings.timeExample', { exact: '12.3456', time });
+});
+
 // The attempts as typed, empty for unlimited (Vue gives a number input's value as a number)
 const attemptsInput = ref<string | number>('');
 // Local YYYY-MM-DDTHH:MM from the datetime inputs, empty for no limit
@@ -36,6 +59,8 @@ const startInput = ref('');
 const endInput = ref('');
 const accessInput = ref<DisciplineSettings['access']>('auto');
 const bestInput = ref<DisciplineSettings['best']>('shortest');
+const precisionInput = ref<DisciplineSettings['precision']>('hundredth');
+const roundingInput = ref<DisciplineSettings['rounding']>('up');
 const loaded = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
@@ -58,6 +83,8 @@ onMounted(async () => {
     endInput.value = toLocalInput(settings.end);
     accessInput.value = settings.access;
     bestInput.value = settings.best;
+    precisionInput.value = settings.precision;
+    roundingInput.value = settings.rounding;
     loaded.value = true;
   } catch (e) {
     error.value = t('settings.loadError', { error: errorText(e) });
@@ -87,6 +114,8 @@ async function save(): Promise<void> {
           end: fromLocalInput(endInput.value),
           access: accessInput.value,
           best: bestInput.value,
+          precision: precisionInput.value,
+          rounding: roundingInput.value,
         },
       }),
     });
@@ -116,6 +145,27 @@ async function save(): Promise<void> {
           </label>
         </div>
         <p class="muted small">{{ BEST_OPTIONS.find((option) => option.value === bestInput)?.hint }}</p>
+      </fieldset>
+      <fieldset class="choice">
+        <legend>{{ $t('settings.precision.legend') }}</legend>
+        <div class="segmented" role="radiogroup">
+          <label v-for="option in PRECISION_OPTIONS" :key="option.value" :class="{ checked: precisionInput === option.value }">
+            <input v-model="precisionInput" type="radio" name="precision" :value="option.value" />
+            {{ option.label }}
+          </label>
+        </div>
+      </fieldset>
+      <fieldset class="choice">
+        <legend>{{ $t('settings.rounding.legend') }}</legend>
+        <div class="segmented" role="radiogroup">
+          <label v-for="option in ROUNDING_OPTIONS" :key="option.value" :class="{ checked: roundingInput === option.value }" :title="option.hint">
+            <input v-model="roundingInput" type="radio" name="rounding" :value="option.value" />
+            {{ option.label }}
+          </label>
+        </div>
+        <p class="muted small">
+          {{ ROUNDING_OPTIONS.find((option) => option.value === roundingInput)?.hint }}. {{ timeExample }}
+        </p>
       </fieldset>
       <div class="period">
         <label class="field">

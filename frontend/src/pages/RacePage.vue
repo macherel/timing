@@ -38,7 +38,15 @@ const loadError = ref<string | null>(null);
 
 const participants = ref<Participant[]>([]);
 const problems = ref<string[]>([]);
-const NO_SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto', best: 'shortest' };
+const NO_SETTINGS: DisciplineSettings = {
+  attempts: null,
+  start: null,
+  end: null,
+  access: 'auto',
+  best: 'shortest',
+  precision: 'hundredth',
+  rounding: 'up',
+};
 const settings = ref<DisciplineSettings>({ ...NO_SETTINGS });
 
 // The current time, refreshed often enough that the page opens and closes on the minute
@@ -112,6 +120,8 @@ let participantsRequest = 0;
 async function loadResults(): Promise<void> {
   try {
     results.value = (await getJson<ResultsResponse>(`${disciplinePath()}/results`)).results;
+    const last = lastResult.value;
+    if (last) lastResult.value = results.value.find((result) => sameRun(result, last)) ?? last;
   } catch (e) {
     loadError.value = t('race.errors.loadResults', { error: errorText(e) });
   }
@@ -149,6 +159,8 @@ function onMessage(message: ServerMessage): void {
     replaceResult(message.result);
   } else if (message.type === 'SETTINGS_UPDATE' && message.event === eventName.value && message.discipline === discipline.value) {
     settings.value = message.settings;
+    // The times depend on the precision and rounding
+    loadResults();
   } else if (message.type === 'SYNC_UPDATE') {
     // Another computer added or changed files: new events or disciplines, participants, settings or results
     loadEvents().then(() => {
@@ -351,6 +363,7 @@ onMounted(reload);
       :closed="closedReason"
       :attempts="settings.attempts"
       :best="settings.best"
+      :precision="settings.precision"
       v-if="selected"
       :participant="selected"
       :run="run"

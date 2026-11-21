@@ -46,7 +46,7 @@ export interface RunResult {
     name: string;
     start: string;          // Temporal.Instant as ISO 8601
     finish: string | null;  // null when the run was ended before the finish (invalidated or disqualified)
-    timeMs: number | null;  // Finish - start, rounded to the millisecond. null when the run was ended before the finish (invalidated or disqualified)
+    timeMs: number | null;  // Finish - start in milliseconds, with the precision and rounding of the discipline settings. null when the run was ended before the finish (invalidated or disqualified)
     status: RunStatus;
 }
 
@@ -80,7 +80,8 @@ export interface SettingsUpdateMessage {
     type: 'SETTINGS_UPDATE';
     event: string;
     discipline: string;
-    settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest' };
+    settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
+        precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up' };
 }
 
 /** Sent to every frontend client when files of a discipline were changed by the sync with another computer. */

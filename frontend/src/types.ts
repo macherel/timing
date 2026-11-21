@@ -268,7 +268,13 @@ export interface DisciplineSettings {
   access: 'auto' | 'open' | 'locked';
   // Which time is the best: the shortest (a race) or the longest (a slow race, the slowest participant wins)
   best: 'shortest' | 'longest';
+  // Unit of the times, and how the exact time is brought to it: truncated, to the nearest (a half goes up) or up.
+  // The times of the results already have them
+  precision: Precision;
+  rounding: 'truncate' | 'nearest' | 'up';
 }
+
+export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';
 
 export interface ParticipantsResponse {
   participants: Participant[];

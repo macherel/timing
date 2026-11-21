@@ -37,7 +37,17 @@ export interface DisciplineSettings {
     access: Access;
     // Which time is the best: the shortest (a race), or the longest (a slow race, where the slowest wins)
     best: Best;
+    // Unit of the measured times, and how a time is brought to it: truncated, rounded to the nearest (a half goes up)
+    // or rounded up. The time shown, ranked and written for the UDA is this one
+    precision: Precision;
+    rounding: Rounding;
 }
+
+export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';
+export const PRECISION_VALUES: Precision[] = ['second', 'tenth', 'hundredth', 'thousandth'];
+
+export type Rounding = 'truncate' | 'nearest' | 'up';
+export const ROUNDING_VALUES: Rounding[] = ['truncate', 'nearest', 'up'];
 
 export type Best = 'shortest' | 'longest';
 export const BEST_VALUES: Best[] = ['shortest', 'longest'];
@@ -45,7 +55,15 @@ export const BEST_VALUES: Best[] = ['shortest', 'longest'];
 export type Access = 'auto' | 'open' | 'locked';
 export const ACCESS_VALUES: Access[] = ['auto', 'open', 'locked'];
 
-const DEFAULT_SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto', best: 'shortest' };
+export const DEFAULT_SETTINGS: DisciplineSettings = {
+    attempts: null,
+    start: null,
+    end: null,
+    access: 'auto',
+    best: 'shortest',
+    precision: 'hundredth',
+    rounding: 'up',
+};
 
 /**
  * A start or end of the period as an ISO 8601 date-time in UTC (YYYY-MM-DDTHH:MMZ), or null when it is not a real
@@ -303,6 +321,12 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
         } else if (key === 'best') {
             if (BEST_VALUES.includes(value as Best)) settings.best = value as Best;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: best must be shortest or longest (the shortest time is the best)`);
+        } else if (key === 'precision') {
+            if (PRECISION_VALUES.includes(value as Precision)) settings.precision = value as Precision;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: precision must be second, tenth, hundredth or thousandth (times are in hundredths)`);
+        } else if (key === 'rounding') {
+            if (ROUNDING_VALUES.includes(value as Rounding)) settings.rounding = value as Rounding;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: rounding must be truncate, nearest or up (times are rounded up)`);
         } else if (key === 'locked') {
             // Older setting, replaced by access: locked
             if (value === true && parsed.access === undefined) settings.access = 'locked';
@@ -382,7 +406,15 @@ export function parseCsv(text: string): string[][] {
 /** Problems of settings sent by the race page. Empty when they are valid. */
 export function validateDisciplineSettings(settings: any): string[] {
     if (!settings || typeof settings !== 'object') return ['settings are missing'];
-    const { attempts = null, start = null, end = null, access = 'auto', best = 'shortest' } = settings;
+    const {
+        attempts = null,
+        start = null,
+        end = null,
+        access = DEFAULT_SETTINGS.access,
+        best = DEFAULT_SETTINGS.best,
+        precision = DEFAULT_SETTINGS.precision,
+        rounding = DEFAULT_SETTINGS.rounding,
+    } = settings;
     const problems: string[] = [];
     if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
         problems.push('attempts must be a whole number from 1, or null for unlimited attempts');
@@ -395,6 +427,8 @@ export function validateDisciplineSettings(settings: any): string[] {
     if (startAt && endAt && !isBefore(startAt, endAt)) problems.push('start must be before end');
     if (!ACCESS_VALUES.includes(access)) problems.push('access must be auto, open or locked');
     if (!BEST_VALUES.includes(best)) problems.push('best must be shortest or longest');
+    if (!PRECISION_VALUES.includes(precision)) problems.push('precision must be second, tenth, hundredth or thousandth');
+    if (!ROUNDING_VALUES.includes(rounding)) problems.push('rounding must be truncate, nearest or up');
     return problems;
 }
 
@@ -408,7 +442,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, ...rest } = parsed;
+            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -432,6 +466,11 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         '',
         '# Which time is the best: shortest (a race) or longest (a slow race, the slowest participant wins)',
         `best: ${settings.best}`,
+        '',
+        '# Unit of the times: second, tenth, hundredth or thousandth',
+        `precision: ${settings.precision}`,
+        '# How a time is brought to that unit: truncate, nearest (a half goes up) or up',
+        `rounding: ${settings.rounding}`,
     ];
     if (Object.keys(others).length > 0) lines.push('', '# Other settings', yaml.stringify(others).trimEnd());
     await fs.promises.writeFile(file, `${lines.join('\n')}\n`, 'utf8');

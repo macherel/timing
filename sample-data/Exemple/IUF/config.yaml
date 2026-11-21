@@ -14,3 +14,8 @@ access: auto
 
 # Which time is the best: shortest (a race) or longest (a slow race, the slowest participant wins)
 best: shortest
+
+# Unit of the times: second, tenth, hundredth or thousandth
+precision: hundredth
+# How a time is brought to that unit: truncate, nearest (a half goes up) or up
+rounding: up

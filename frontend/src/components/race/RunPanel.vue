@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DisciplineSettings, Participant, RunResult, RunState, RunStatus } from '../../types';
-import { formatDuration, formatTime, parseInstant } from '../../format';
+import { DECIMALS, formatDuration, formatTime, parseInstant } from '../../format';
 import { countsAsAttempt, isBetterTime, sameRun } from '../../race/results';
 
 // Refresh rate of the running clock
@@ -22,6 +22,8 @@ const props = defineProps<{
   attempts: number | null;
   // Which time is the best, from config.yaml: shortest, or longest for a slow race
   best: DisciplineSettings['best'];
+  // Unit of the times, from config.yaml: the times are shown with as many decimals
+  precision: DisciplineSettings['precision'];
 }>();
 const emit = defineEmits<{ ready: []; cancel: []; invalidate: []; disqualify: []; setStatus: [result: RunResult, status: RunStatus] }>();
 
@@ -30,6 +32,8 @@ const { t } = useI18n();
 const STATUSES: RunStatus[] = ['ok', 'invalid', 'dq'];
 const statusLabel = (status: RunStatus) => t(`common.status.${status}`);
 const statusHint = (status: RunStatus) => t(`run.hints.${status}`);
+
+const showTime = (ms: number) => formatDuration(ms, DECIMALS[props.precision]);
 
 const isThisRun = computed(() => props.run.status !== 'idle' && props.run.participant.bib === props.participant.bib);
 // Best time among the valid runs (shortest, or longest for a slow race); invalid and disqualified runs never count
@@ -105,7 +109,7 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
           {{ statusLabel(lastResult.status) }}
         </span>
         <span v-else-if="lastResult?.timeMs != null" class="clock mono done" :title="$t('run.justFinished')">
-          {{ formatDuration(lastResult.timeMs) }}
+          {{ showTime(lastResult.timeMs) }}
         </span>
         <button
           type="button"
@@ -154,8 +158,8 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
           >
             <td>{{ index + 1 }}</td>
             <td class="mono time">
-              <s v-if="result.status !== 'ok' && result.timeMs !== null">{{ formatDuration(result.timeMs) }}</s>
-              <template v-else-if="result.timeMs !== null">{{ formatDuration(result.timeMs) }}</template>
+              <s v-if="result.status !== 'ok' && result.timeMs !== null">{{ showTime(result.timeMs) }}</s>
+              <template v-else-if="result.timeMs !== null">{{ showTime(result.timeMs) }}</template>
               <span v-else class="muted" :title="$t('run.noTime')">—</span>
               <span v-if="result.status === 'ok' && result.timeMs === bestMs && validCount > 1" class="badge ok">{{ $t('run.best') }}</span>
             </td>

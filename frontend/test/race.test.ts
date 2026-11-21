@@ -21,6 +21,11 @@ describe('format', () => {
     expect(formatDuration(-5)).toBe('0.000');
   });
 
+  it('formats a time without decimals, in whole seconds', () => {
+    expect(formatDuration(12000, 0)).toBe('12');
+    expect(formatDuration(62000, 0)).toBe('1:02');
+  });
+
   it('reads backend instants with nanoseconds', () => {
     expect(parseInstant('2026-11-05T10:00:12.345678901Z')).toBe(Date.parse('2026-11-05T10:00:12.345Z'));
     const local = new Date('2026-11-05T10:00:12.345Z');
