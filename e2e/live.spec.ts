@@ -91,3 +91,17 @@ test('asks to choose the discipline when none is selected', async ({ page }) => 
   // The race page search field is not on this page
   await expect(participantInput(page)).toHaveCount(0);
 });
+
+test('updates the ranking at each finish, also for a participant who runs again', async ({ page, request }) => {
+  const { race, live, card } = await openPages(page);
+  await pickParticipant(race, 'hug', '7 Hugo Guérin');
+  for (const runs of ['1', '2', '3']) {
+    await getReady(race);
+    await cross(request, 'start');
+    await expect(card.getByRole('timer')).toBeVisible();
+    await cross(request, 'finish');
+    await expect(card.locator('.clock.done')).toBeVisible();
+    // The results are reloaded once the new one is saved
+    await expect(live.locator('.ranking tbody tr td.runs')).toHaveText(runs);
+  }
+});

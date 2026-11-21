@@ -128,8 +128,8 @@ function endRun(outcome: Pick<RunResult, 'finish' | 'timeMs' | 'status'>): void 
     const result: RunResult = { bib: participant.bib, name: participant.name, start: startedAt, ...outcome };
     lastResult = { event, discipline, result, endedAt: new Date().toISOString() };
     setState({ status: 'idle' });
-    broadcastToUI({ type: 'RUN_RESULT', event, discipline, result });
-    saveResult(event, discipline, result);
+    // Announced once saved: the pages that reload the results on this message (the live page) then get it
+    saveResult(event, discipline, result).finally(() => broadcastToUI({ type: 'RUN_RESULT', event, discipline, result }));
 }
 
 /** Seconds with millisecond precision, e.g. "12.345". */
@@ -339,8 +339,8 @@ async function readRows(file: string): Promise<Row[]> {
     }
 }
 
-function saveResult(event: string, discipline: string, result: RunResult): void {
-    enqueueWrite(async () => {
+function saveResult(event: string, discipline: string, result: RunResult): Promise<void> {
+    return enqueueWrite(async () => {
         const dir = await disciplineDir(event, discipline);
         if (!dir) {
             log.error(`Cannot save the result of ${result.bib}: ${event} / ${discipline} no longer exists.`);
