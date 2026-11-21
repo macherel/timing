@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import type { ConfigFileResponse } from '../types';
+import type { ConfigFileResponse, HidInterface } from '../types';
 import { useHardwareStatus } from '../composables/useHardwareStatus';
 import {
   emptyForm,
@@ -48,7 +48,17 @@ watch(message, (current) => {
 const conflict = ref(false);
 // Connected devices for the dropdowns, refreshed as the backend rescans (devices plugged or unplugged)
 const { status: hardwareStatus } = useHardwareStatus();
-const interfaces = computed(() => hardwareStatus.value?.interfaces ?? []);
+// One entry per connected device model, replaced only when the list changes: the status is polled every second,
+// and re-rendering the device editors that often closes the trigger action suggestions while they are open (Windows)
+const connectedModels = shallowRef<HidInterface[]>([]);
+watch(hardwareStatus, (current) => {
+  const models = new Map<string, HidInterface>();
+  for (const item of current?.interfaces ?? []) models.set(`${item.vendorId}:${item.productId}`, item);
+  const sorted = [...models.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, model]) => model);
+  const describe = (list: HidInterface[]) =>
+    JSON.stringify(list.map((m) => [m.vendorId, m.productId, m.manufacturer, m.product]));
+  if (describe(sorted) !== describe(connectedModels.value)) connectedModels.value = sorted;
+});
 
 const config = computed(() => toConfig(form.value));
 const isDirty = computed(() => loaded.value && JSON.stringify(config.value) !== savedSnapshot.value);
@@ -330,7 +340,7 @@ onUnmounted(() => {
             :index="index"
             :count="form.devices.length"
             :problems="validating ? [] : (groupedProblems.byDevice.get(index) ?? [])"
-            :interfaces="interfaces"
+            :connected-models="connectedModels"
             @remove="removeDevice(index)"
             @move="moveDevice(index, $event)"
           />

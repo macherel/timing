@@ -8,16 +8,10 @@ const props = defineProps<{
   index: number;
   count: number;
   problems: string[];
-  interfaces: HidInterface[];
+  // One entry per connected device model: the IDs are the same for all its interfaces
+  connectedModels: HidInterface[];
 }>();
 defineEmits<{ remove: []; move: [delta: number] }>();
-
-// One entry per connected device model: the IDs are the same for all its interfaces
-const connectedModels = computed(() => {
-  const models = new Map<string, HidInterface>();
-  for (const item of props.interfaces) models.set(`${item.vendorId}:${item.productId}`, item);
-  return [...models.values()];
-});
 
 const modelKey = (model: HidInterface) => `${model.vendorId}:${model.productId}`;
 
@@ -25,7 +19,7 @@ const modelKey = (model: HidInterface) => `${model.vendorId}:${model.productId}`
 const matchingModel = computed(() => {
   const vendorId = parseHex(device.value.vendorId);
   const productId = parseHex(device.value.productId);
-  return connectedModels.value.find(
+  return props.connectedModels.find(
     (m) => parseInt(m.vendorId, 16) === vendorId && parseInt(m.productId, 16) === productId,
   );
 });
@@ -34,7 +28,7 @@ const hasIds = computed(() => device.value.vendorId.trim() !== '' || device.valu
 
 function fillFromConnected(event: Event): void {
   const select = event.target as HTMLSelectElement;
-  const model = connectedModels.value.find((m) => modelKey(m) === select.value);
+  const model = props.connectedModels.find((m) => modelKey(m) === select.value);
   if (model) {
     device.value.vendorId = model.vendorId;
     device.value.productId = model.productId;
