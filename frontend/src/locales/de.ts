@@ -81,6 +81,13 @@ const de: Messages = {
     attempts: 'Versuche pro Teilnehmer',
     unlimited: 'Unbegrenzt',
     attemptsHint: 'Ungültige Läufe verbrauchen keinen Versuch. Leer lassen für unbegrenzte Versuche.',
+    best: {
+      legend: 'Beste Zeit',
+      shortest: 'Kürzeste',
+      shortestHint: 'Der schnellste Teilnehmer gewinnt (Rennen)',
+      longest: 'Längste',
+      longestHint: 'Der langsamste Teilnehmer gewinnt (Langsamfahren)',
+    },
     start: 'Beginn',
     end: 'Ende',
     periodHint:

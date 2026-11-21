@@ -80,6 +80,13 @@ const fr: Messages = {
     attempts: 'Essais par participant',
     unlimited: 'Illimité',
     attemptsHint: 'Les passages invalides ne comptent pas comme un essai. Laisser vide pour des essais illimités.',
+    best: {
+      legend: 'Meilleur temps',
+      shortest: 'Le plus court',
+      shortestHint: 'Le participant le plus rapide gagne (course)',
+      longest: 'Le plus long',
+      longestHint: 'Le participant le plus lent gagne (épreuve de lenteur)',
+    },
     start: 'Début',
     end: 'Fin',
     periodHint:

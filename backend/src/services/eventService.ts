@@ -35,12 +35,17 @@ export interface DisciplineSettings {
     // Whether runs can be timed and results changed: follow the start - end period (auto), always (open, e.g. to
     // correct a result after the period) or never (locked, results are final)
     access: Access;
+    // Which time is the best: the shortest (a race), or the longest (a slow race, where the slowest wins)
+    best: Best;
 }
+
+export type Best = 'shortest' | 'longest';
+export const BEST_VALUES: Best[] = ['shortest', 'longest'];
 
 export type Access = 'auto' | 'open' | 'locked';
 export const ACCESS_VALUES: Access[] = ['auto', 'open', 'locked'];
 
-const DEFAULT_SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto' };
+const DEFAULT_SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto', best: 'shortest' };
 
 /**
  * A start or end of the period as an ISO 8601 date-time in UTC (YYYY-MM-DDTHH:MMZ), or null when it is not a real
@@ -295,6 +300,9 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
         } else if (key === 'access') {
             if (ACCESS_VALUES.includes(value as Access)) settings.access = value as Access;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: access must be auto, open or locked (it is ignored)`);
+        } else if (key === 'best') {
+            if (BEST_VALUES.includes(value as Best)) settings.best = value as Best;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: best must be shortest or longest (the shortest time is the best)`);
         } else if (key === 'locked') {
             // Older setting, replaced by access: locked
             if (value === true && parsed.access === undefined) settings.access = 'locked';
@@ -374,7 +382,7 @@ export function parseCsv(text: string): string[][] {
 /** Problems of settings sent by the race page. Empty when they are valid. */
 export function validateDisciplineSettings(settings: any): string[] {
     if (!settings || typeof settings !== 'object') return ['settings are missing'];
-    const { attempts = null, start = null, end = null, access = 'auto' } = settings;
+    const { attempts = null, start = null, end = null, access = 'auto', best = 'shortest' } = settings;
     const problems: string[] = [];
     if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
         problems.push('attempts must be a whole number from 1, or null for unlimited attempts');
@@ -386,6 +394,7 @@ export function validateDisciplineSettings(settings: any): string[] {
     const endAt = toDateTime(end, 'end');
     if (startAt && endAt && !isBefore(startAt, endAt)) problems.push('start must be before end');
     if (!ACCESS_VALUES.includes(access)) problems.push('access must be auto, open or locked');
+    if (!BEST_VALUES.includes(best)) problems.push('best must be shortest or longest');
     return problems;
 }
 
@@ -399,7 +408,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, ...rest } = parsed;
+            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -420,6 +429,9 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         '# When runs can be timed and results changed: auto (during the period above), open (always, ignores the',
         '# period, e.g. to correct a result) or locked (never, results are final)',
         `access: ${settings.access}`,
+        '',
+        '# Which time is the best: shortest (a race) or longest (a slow race, the slowest participant wins)',
+        `best: ${settings.best}`,
     ];
     if (Object.keys(others).length > 0) lines.push('', '# Other settings', yaml.stringify(others).trimEnd());
     await fs.promises.writeFile(file, `${lines.join('\n')}\n`, 'utf8');

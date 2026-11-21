@@ -86,9 +86,11 @@ describe('RunPanel', () => {
     ...extra,
   });
 
-  function mountPanel(props: Partial<{ run: RunState; results: RunResult[]; attempts: number | null; closed: string | null; lastResult: RunResult | null }> = {}) {
+  function mountPanel(
+    props: Partial<{ run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; closed: string | null; lastResult: RunResult | null }> = {},
+  ) {
     return mountWithI18n(RunPanel, {
-      props: { participant: HUGO, run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, ...props },
+      props: { participant: HUGO, run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', ...props },
     });
   }
   const readyButton = (wrapper: ReturnType<typeof mountPanel>) => wrapper.find('button.ready');
@@ -155,6 +157,16 @@ describe('RunPanel', () => {
     expect(wrapper.emitted('setStatus')).toEqual([[results[0], 'invalid']]);
     // The select keeps the saved status until the saved result comes back
     expect((select.element as HTMLSelectElement).value).toBe('ok');
+  });
+
+  it('marks the longest valid time as best for a slow race', () => {
+    const results = [
+      result({ start: '2026-11-05T10:00:00Z', timeMs: 12345 }),
+      result({ start: '2026-11-05T10:05:00Z', timeMs: 11000 }),
+      result({ start: '2026-11-05T10:10:00Z', timeMs: 15000, status: 'dq' }),
+    ];
+    const rows = mountPanel({ results, best: 'longest' }).findAll('tbody tr');
+    expect(rows.map((row) => row.classes().includes('best'))).toEqual([true, false, false]);
   });
 
   it('cannot set a run without a time to OK', () => {

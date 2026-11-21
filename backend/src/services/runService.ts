@@ -5,7 +5,7 @@ import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
 import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
 import { notifyActivityChange, notifyLocalChange } from '../utils/localChanges.js';
-import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, readParticipants, RESULTS_FILE, UDA_RESULTS_FILE, type Participant } from './eventService.js';
+import { closedReason, disciplineDir, loadDisciplineSettings, parseCsv, readParticipants, RESULTS_FILE, UDA_RESULTS_FILE, type Best, type Participant } from './eventService.js';
 
 const log = createLogger('Run');
 
@@ -179,8 +179,26 @@ async function writeRows(file: string, rows: Row[]): Promise<void> {
     const csvCell = (value: string) => (/[;"\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
     const lines = rows.map((row) => COLUMNS.map((column) => csvCell(row[column])).join(';'));
     await writeAtomically(file, `${[RESULTS_HEADER, ...lines].join('\n')}\n`);
-    const { participants } = await readParticipants(path.dirname(file));
-    await writeAtomically(path.join(path.dirname(file), UDA_RESULTS_FILE), udaResults(rows, participants.map((p) => p.bib)));
+    await writeUdaFile(path.dirname(file), rows);
+}
+
+async function writeUdaFile(dir: string, rows: Row[]): Promise<void> {
+    const { participants, settings } = await readParticipants(dir);
+    await writeAtomically(path.join(dir, UDA_RESULTS_FILE), udaResults(rows, participants.map((p) => p.bib), settings.best));
+}
+
+/**
+ * Writes uda-results.csv again from results.csv, e.g. when the discipline settings changed which time is the best.
+ * Nothing is written when the discipline has no results.csv yet.
+ */
+export async function writeUdaResults(event: string, discipline: string): Promise<void> {
+    await enqueueWrite(async () => {
+        const dir = await disciplineDir(event, discipline);
+        if (!dir) return;
+        const file = path.join(dir, RESULTS_FILE);
+        if (!fs.existsSync(file)) return;
+        await writeUdaFile(dir, await readRows(file));
+    });
 }
 
 async function writeAtomically(file: string, content: string): Promise<void> {
@@ -192,22 +210,23 @@ async function writeAtomically(file: string, content: string): Promise<void> {
 /**
  * Results in the import format of the UDA (Unicycling Data Application): one line per participant (of the list, and
  * any other bib with runs), sorted by bib, without header, comma separated, CRLF line ends:
- *   bib,,minutes,seconds,hundredths   best OK run, e.g. "98,,1,13,23" for 1:13.23
+ *   bib,,minutes,seconds,hundredths   best OK run (shortest time, or longest for a slow race), e.g. "98,,1,13,23"
+ *                                     for 1:13.23
  *   bib,DQ,0,0,0                      no OK run, at least one DQ
  *   bib,DNF,0,0,0                     no valid run: only INVALID runs, or none
  * The time is truncated to the hundredth.
  */
-export function udaResults(rows: Row[], bibs: string[]): string {
-    const best = new Map<string, RunResult | null>(bibs.map((bib) => [bib, null]));
+export function udaResults(rows: Row[], bibs: string[], best: Best = 'shortest'): string {
+    const bestOf = new Map<string, RunResult | null>(bibs.map((bib) => [bib, null]));
     for (const result of rows.map(toResult)) {
         if (!result || result.status === 'invalid') {
-            if (result && !best.has(result.bib)) best.set(result.bib, null);
+            if (result && !bestOf.has(result.bib)) bestOf.set(result.bib, null);
             continue;
         }
-        const current = best.get(result.bib);
-        if (!current || isBetter(result, current)) best.set(result.bib, result);
+        const current = bestOf.get(result.bib);
+        if (!current || isBetter(result, current, best)) bestOf.set(result.bib, result);
     }
-    return [...best]
+    return [...bestOf]
         .sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
         .map(([bib, result]) => {
             if (!result) return `${bib},DNF,0,0,0\r\n`;
@@ -220,10 +239,11 @@ export function udaResults(rows: Row[], bibs: string[]): string {
         .join('');
 }
 
-/** An OK run beats a DQ, a shorter time beats a longer one. */
-function isBetter(result: RunResult, than: RunResult): boolean {
+/** An OK run beats a DQ; between OK runs, the shorter time wins (the longer one for a slow race). */
+function isBetter(result: RunResult, than: RunResult, best: Best): boolean {
     if (result.status !== than.status) return result.status === 'ok';
-    return result.status === 'ok' && result.timeMs! < than.timeMs!;
+    if (result.status !== 'ok') return false;
+    return best === 'longest' ? result.timeMs! > than.timeMs! : result.timeMs! < than.timeMs!;
 }
 
 const nowText = () => Temporal.Now.instant().toString({ smallestUnit: 'millisecond' });

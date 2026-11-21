@@ -29,6 +29,7 @@ import {
     RUN_STATUSES,
     setResultStatus,
     voidRun,
+    writeUdaResults,
 } from '../services/runService.js';
 import { WORK_DIR } from '../utils/workDir.js';
 import { createLogger } from '../utils/logger.js';
@@ -108,13 +109,16 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         res.status(422).json({ problems });
         return;
     }
-    const { attempts, start, end, access } = req.body.settings;
+    const { attempts, start, end, access, best } = req.body.settings;
     await saveDisciplineSettings(dir, {
         attempts,
         start: start ? toDateTime(start, 'start') : null,
         end: end ? toDateTime(end, 'end') : null,
         access: access ?? 'auto',
+        best: best ?? 'shortest',
     });
+    // The best result of each participant may have changed (shortest or longest time)
+    await writeUdaResults(event, discipline);
     const saved = await loadDisciplineSettings(dir);
     broadcastToUI({ type: 'SETTINGS_UPDATE', event, discipline, settings: saved.settings });
     notifyLocalChange(event, discipline);

@@ -663,9 +663,17 @@ components:
         When runs can be timed and results changed: during the start - end period (auto), always (open) or never
         (locked).
 
+    Best:
+      type: string
+      enum: [shortest, longest]
+      default: shortest
+      description: |
+        Which time is the best result of a participant, and ranks first: the shortest (a race) or the longest (a slow
+        race, where the slowest participant wins).
+
     DisciplineSettings:
       type: object
-      required: [attempts, start, end, access]
+      required: [attempts, start, end, access, best]
       properties:
         attempts:
           type: [integer, 'null']
@@ -680,11 +688,12 @@ components:
           description: End of the period (excluded), UTC to the minute. null for no limit
           examples: ['2026-11-05T17:00Z']
         access: { $ref: '#/components/schemas/Access' }
+        best: { $ref: '#/components/schemas/Best' }
 
     DisciplineSettingsInput:
       type: object
       description: |
-        Every field is optional (null, or auto for access). start and end accept any ISO 8601 date-time with an offset;
+        Every field is optional (null, auto for access, shortest for best). start and end accept any ISO 8601 date-time with an offset;
         without an offset they are read in the server's time zone, and a date alone means the start of that day (start)
         or the next midnight (end). The start must be before the end.
       properties:
@@ -692,6 +701,7 @@ components:
         start: { type: [string, 'null'], examples: ['2026-11-05T08:00+01:00'] }
         end: { type: [string, 'null'], examples: ['2026-11-05'] }
         access: { $ref: '#/components/schemas/Access' }
+        best: { $ref: '#/components/schemas/Best' }
 
     SettingsResponse:
       type: object

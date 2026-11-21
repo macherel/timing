@@ -56,7 +56,7 @@ describe('events and participants', () => {
         const { status, body } = await call('GET', '/events/CFM26/100m/participants');
         expect(status).toBe(200);
         expect(body.participants.map((p: any) => p.bib)).toEqual(['7', '12']);
-        expect(body.settings).toEqual({ attempts: null, start: null, end: null, access: 'auto' });
+        expect(body.settings).toEqual({ attempts: null, start: null, end: null, access: 'auto', best: 'shortest' });
         expect((await call('GET', '/events/CFM26/nope/participants')).status).toBe(404);
     });
 });
@@ -67,9 +67,23 @@ describe('discipline settings', () => {
         const { status, body } = await call('PUT', '/events/CFM26/100m/settings', { settings });
         expect(status).toBe(200);
         // Stored in UTC
-        expect(body.settings).toEqual({ attempts: 3, start: '2026-11-05T07:00Z', end: null, access: 'open' });
+        expect(body.settings).toEqual({ attempts: 3, start: '2026-11-05T07:00Z', end: null, access: 'open', best: 'shortest' });
         expect(readFile('CFM26/100m/config.yaml')).toContain('start: 2026-11-05T07:00Z');
         expect((await call('GET', '/events/CFM26/100m/settings')).body.settings).toEqual(body.settings);
+    });
+
+    it('rewrites uda-results.csv when the best time becomes the longest', async () => {
+        writeFiles({
+            'CFM26/100m/results.csv': [
+                'bib;name;start;finish;status;updated',
+                '7;Hugo;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;',
+                '7;Hugo;2026-11-05T10:01:00Z;2026-11-05T10:01:20Z;OK;',
+            ].join('\n'),
+        });
+        const { status, body } = await call('PUT', '/events/CFM26/100m/settings', { settings: { best: 'longest' } });
+        expect(status).toBe(200);
+        expect(body.settings.best).toBe('longest');
+        expect(readFile('CFM26/100m/uda-results.csv')).toBe('7,,0,20,0\r\n12,DNF,0,0,0\r\n');
     });
 
     it('refuses invalid settings with 422', async () => {

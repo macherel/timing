@@ -80,7 +80,7 @@ export interface SettingsUpdateMessage {
     type: 'SETTINGS_UPDATE';
     event: string;
     discipline: string;
-    settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked' };
+    settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest' };
 }
 
 /** Sent to every frontend client when files of a discipline were changed by the sync with another computer. */

@@ -38,7 +38,7 @@ const loadError = ref<string | null>(null);
 
 const participants = ref<Participant[]>([]);
 const problems = ref<string[]>([]);
-const NO_SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto' };
+const NO_SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto', best: 'shortest' };
 const settings = ref<DisciplineSettings>({ ...NO_SETTINGS });
 
 // The current time, refreshed often enough that the page opens and closes on the minute
@@ -350,6 +350,7 @@ onMounted(reload);
     <RunPanel
       :closed="closedReason"
       :attempts="settings.attempts"
+      :best="settings.best"
       v-if="selected"
       :participant="selected"
       :run="run"

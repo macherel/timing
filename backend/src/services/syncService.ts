@@ -11,7 +11,7 @@ import { onActivityChange, onLocalChange } from '../utils/localChanges.js';
 import { WORK_DIR, workDirPath } from '../utils/workDir.js';
 import { RESULTS_FILE, UDA_RESULTS_FILE } from './eventService.js';
 import { CONFIG_PATH } from './hardware/deviceConfig.js';
-import { getLastResult, getRunState, mergeResultRows, readResultRows, type ResultRow } from './runService.js';
+import { getLastResult, getRunState, mergeResultRows, readResultRows, writeUdaResults, type ResultRow } from './runService.js';
 
 const log = createLogger('Sync');
 
@@ -406,6 +406,7 @@ async function pullOnce(peer: Peer): Promise<void> {
 
     const changed = new Map<string, { event: string; discipline: string }>();
     const mark = (event: string, discipline: string) => changed.set(`${event}\n${discipline}`, { event, discipline });
+    const copied = new Set<string>();
 
     for (const remote of manifest.files) {
         const file = syncedFilePath(remote.path);
@@ -419,6 +420,7 @@ async function pullOnce(peer: Peer): Promise<void> {
         await writeSyncedFile(file, content, remote.mtimeMs);
         const [event, discipline] = remote.path.split('/');
         mark(event, discipline);
+        copied.add(`${event}\n${discipline}`);
         log.info(`${remote.path} copied from "${peer.name}".`);
     }
 
@@ -437,6 +439,8 @@ async function pullOnce(peer: Peer): Promise<void> {
     }
 
     for (const { event, discipline } of changed.values()) {
+        // A copied config.yaml or participants file can change the best result of the participants
+        if (copied.has(`${event}\n${discipline}`)) await writeUdaResults(event, discipline);
         broadcastToUI({ type: 'SYNC_UPDATE', event, discipline });
     }
 }

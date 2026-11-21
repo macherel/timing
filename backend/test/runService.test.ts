@@ -232,6 +232,16 @@ describe('uda-results.csv', () => {
         );
     });
 
+    it('keeps the longest time for a slow race', () => {
+        const rows = [
+            { bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:30Z', status: 'OK', updated: '' },
+            { bib: '7', name: 'X', start: '2026-11-05T10:01:00Z', finish: '2026-11-05T10:01:45.5Z', status: 'OK', updated: '' },
+            { bib: '7', name: 'X', start: '2026-11-05T10:02:00Z', finish: '2026-11-05T10:03:50Z', status: 'DQ', updated: '' },
+        ];
+        expect(runs.udaResults(rows, ['7'], 'longest')).toBe('7,,0,45,50\r\n');
+        expect(runs.udaResults(rows, ['7'])).toBe('7,,0,30,0\r\n');
+    });
+
     it('lists bibs with runs that are not in the participant list', async () => {
         const rows = [{ bib: '5', name: 'X', start: '2026-11-05T10:00:00Z', finish: '', status: 'INVALID', updated: '' }];
         expect(runs.udaResults(rows, ['7'])).toBe('5,DNF,0,0,0\r\n7,DNF,0,0,0\r\n');

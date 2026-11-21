@@ -84,6 +84,13 @@ export default {
     attempts: 'Attempts per participant',
     unlimited: 'Unlimited',
     attemptsHint: 'Invalid runs do not use up an attempt. Leave empty for unlimited attempts.',
+    best: {
+      legend: 'Best time',
+      shortest: 'Shortest',
+      shortestHint: 'The fastest participant wins (a race)',
+      longest: 'Longest',
+      longestHint: 'The slowest participant wins (a slow race)',
+    },
     start: 'Start',
     end: 'End',
     periodHint:

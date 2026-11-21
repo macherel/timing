@@ -5,7 +5,7 @@ import type { DisciplineSettings } from '../../types';
 import { fromLocalInput, toLocalInput } from '../../race/dateTime';
 
 /**
- * Edits a discipline's config.yaml: attempts, period and access. Loads the settings itself; the race pages get the
+ * Edits a discipline's config.yaml: attempts, best time, period and access. Loads the settings itself; the race pages get the
  * saved ones through the SETTINGS_UPDATE message.
  */
 const props = defineProps<{ event: string; discipline: string }>();
@@ -21,12 +21,21 @@ const ACCESS_OPTIONS = computed(() =>
   })),
 );
 
+const BEST_OPTIONS = computed(() =>
+  (['shortest', 'longest'] as const).map((value) => ({
+    value,
+    label: t(`settings.best.${value}`),
+    hint: t(`settings.best.${value}Hint`),
+  })),
+);
+
 // The attempts as typed, empty for unlimited (Vue gives a number input's value as a number)
 const attemptsInput = ref<string | number>('');
 // Local YYYY-MM-DDTHH:MM from the datetime inputs, empty for no limit
 const startInput = ref('');
 const endInput = ref('');
 const accessInput = ref<DisciplineSettings['access']>('auto');
+const bestInput = ref<DisciplineSettings['best']>('shortest');
 const loaded = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
@@ -48,6 +57,7 @@ onMounted(async () => {
     startInput.value = toLocalInput(settings.start);
     endInput.value = toLocalInput(settings.end);
     accessInput.value = settings.access;
+    bestInput.value = settings.best;
     loaded.value = true;
   } catch (e) {
     error.value = t('settings.loadError', { error: errorText(e) });
@@ -71,7 +81,13 @@ async function save(): Promise<void> {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        settings: { attempts, start: fromLocalInput(startInput.value), end: fromLocalInput(endInput.value), access: accessInput.value },
+        settings: {
+          attempts,
+          start: fromLocalInput(startInput.value),
+          end: fromLocalInput(endInput.value),
+          access: accessInput.value,
+          best: bestInput.value,
+        },
       }),
     });
     emit('done');
@@ -91,6 +107,16 @@ async function save(): Promise<void> {
         <input v-model="attemptsInput" type="number" min="1" step="1" :placeholder="$t('settings.unlimited')" class="attempts" />
       </label>
       <p class="muted small">{{ $t('settings.attemptsHint') }}</p>
+      <fieldset class="choice">
+        <legend>{{ $t('settings.best.legend') }}</legend>
+        <div class="segmented" role="radiogroup">
+          <label v-for="option in BEST_OPTIONS" :key="option.value" :class="{ checked: bestInput === option.value }" :title="option.hint">
+            <input v-model="bestInput" type="radio" name="best" :value="option.value" />
+            {{ option.label }}
+          </label>
+        </div>
+        <p class="muted small">{{ BEST_OPTIONS.find((option) => option.value === bestInput)?.hint }}</p>
+      </fieldset>
       <div class="period">
         <label class="field">
           {{ $t('settings.start') }}
@@ -102,7 +128,7 @@ async function save(): Promise<void> {
         </label>
       </div>
       <p class="muted small">{{ $t('settings.periodHint') }}</p>
-      <fieldset class="access">
+      <fieldset class="choice">
         <legend>{{ $t('settings.accessLegend') }}</legend>
         <div class="segmented" role="radiogroup">
           <label v-for="option in ACCESS_OPTIONS" :key="option.value" :class="[option.value, { checked: accessInput === option.value }]" :title="option.hint">
@@ -123,12 +149,12 @@ async function save(): Promise<void> {
 </template>
 
 <style scoped>
-.access {
+.choice {
   margin: 12px 0 0;
   padding: 0;
   border: none;
 }
-.access legend {
+.choice legend {
   font-size: 0.85em;
   color: var(--text-muted);
   margin-bottom: 4px;

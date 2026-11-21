@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { LiveInstance, Participant, ParticipantsResponse, ResultsResponse, RunResult, ServerMessage } from '../types';
+import type { DisciplineSettings, LiveInstance, Participant, ParticipantsResponse, ResultsResponse, RunResult, ServerMessage } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import { formatDuration, parseInstant } from '../format';
-import { countsAsAttempt, sameRun } from '../race/results';
+import { countsAsAttempt, isBetterTime, sameRun } from '../race/results';
 import { discipline, disciplineExists, eventName, eventsLoaded, loadEvents, switcherOpen } from '../selection';
 
 /**
@@ -25,6 +25,8 @@ const results = ref<RunResult[]>([]);
 const participants = ref<Participant[]>([]);
 // Runs allowed per participant in the discipline, null: unlimited
 const attempts = ref<number | null>(null);
+// Which time is the best: shortest, or longest for a slow race
+const best = ref<DisciplineSettings['best']>('shortest');
 const error = ref<string | null>(null);
 
 const isHere = (item: { event: string; discipline: string } | null | undefined) =>
@@ -102,13 +104,18 @@ const ranking = computed(() => {
     if (result.status === 'invalid') continue;
     const entry = byBib.get(result.bib) ?? { bib: result.bib, name: result.name, best: null, runs: 0 };
     entry.runs++;
-    if (result.status === 'ok' && result.timeMs !== null && (entry.best === null || result.timeMs < entry.best)) {
+    if (result.status === 'ok' && result.timeMs !== null && (entry.best === null || isBetterTime(result.timeMs, entry.best, best.value))) {
       entry.best = result.timeMs;
     }
     byBib.set(result.bib, entry);
   }
+  // Longest first for a slow race; the participants without a valid time always come last
+  const sign = best.value === 'longest' ? -1 : 1;
   return [...byBib.values()].sort(
-    (a, b) => (a.best ?? Infinity) - (b.best ?? Infinity) || Number(a.bib) - Number(b.bib),
+    (a, b) =>
+      Number(a.best === null) - Number(b.best === null) ||
+      sign * ((a.best ?? 0) - (b.best ?? 0)) ||
+      Number(a.bib) - Number(b.bib),
   );
 });
 const bestOf = computed(() => new Map(ranking.value.map((entry) => [entry.bib, entry.best])));
@@ -147,6 +154,7 @@ async function loadResults(): Promise<void> {
     results.value = [];
     participants.value = [];
     attempts.value = null;
+    best.value = 'shortest';
     return;
   }
   try {
@@ -158,6 +166,7 @@ async function loadResults(): Promise<void> {
     results.value = resultsBody.results ?? [];
     participants.value = participantsBody.participants ?? [];
     attempts.value = participantsBody.settings?.attempts ?? null;
+    best.value = participantsBody.settings?.best ?? 'shortest';
     error.value = null;
   } catch (e) {
     if (request === resultsRequest) error.value = t('race.errors.loadResults', { error: e instanceof Error ? e.message : String(e) });
@@ -167,6 +176,9 @@ async function loadResults(): Promise<void> {
 function onMessage(message: ServerMessage): void {
   if (message.type === 'LIVE_UPDATE') {
     instances.value = message.instances;
+  } else if (message.type === 'SETTINGS_UPDATE' && isHere(message)) {
+    attempts.value = message.settings.attempts;
+    best.value = message.settings.best;
   } else if (
     (message.type === 'RUN_RESULT' || message.type === 'RESULT_UPDATE' || message.type === 'SYNC_UPDATE') &&
     isHere(message)

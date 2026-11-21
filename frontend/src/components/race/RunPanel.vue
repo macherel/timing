@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { Participant, RunResult, RunState, RunStatus } from '../../types';
+import type { DisciplineSettings, Participant, RunResult, RunState, RunStatus } from '../../types';
 import { formatDuration, formatTime, parseInstant } from '../../format';
-import { countsAsAttempt, sameRun } from '../../race/results';
+import { countsAsAttempt, isBetterTime, sameRun } from '../../race/results';
 
 // Refresh rate of the running clock
 const CLOCK_INTERVAL_MS = 50;
@@ -20,6 +20,8 @@ const props = defineProps<{
   closed: string | null;
   // Runs allowed per participant, from config.yaml (in the discipline folder). null: unlimited
   attempts: number | null;
+  // Which time is the best, from config.yaml: shortest, or longest for a slow race
+  best: DisciplineSettings['best'];
 }>();
 const emit = defineEmits<{ ready: []; cancel: []; invalidate: []; disqualify: []; setStatus: [result: RunResult, status: RunStatus] }>();
 
@@ -30,10 +32,10 @@ const statusLabel = (status: RunStatus) => t(`common.status.${status}`);
 const statusHint = (status: RunStatus) => t(`run.hints.${status}`);
 
 const isThisRun = computed(() => props.run.status !== 'idle' && props.run.participant.bib === props.participant.bib);
-// Best time among the valid runs; invalid and disqualified runs never count
+// Best time among the valid runs (shortest, or longest for a slow race); invalid and disqualified runs never count
 const bestMs = computed(() => {
   const times = props.results.flatMap((result) => (result.status !== 'ok' || result.timeMs === null ? [] : [result.timeMs]));
-  return times.length > 0 ? Math.min(...times) : null;
+  return times.reduce<number | null>((best, time) => (best === null || isBetterTime(time, best, props.best) ? time : best), null);
 });
 const validCount = computed(() => props.results.filter((result) => result.status === 'ok').length);
 const usedAttempts = computed(() => props.results.filter(countsAsAttempt).length);

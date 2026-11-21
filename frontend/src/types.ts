@@ -266,6 +266,8 @@ export interface DisciplineSettings {
   end: string | null;
   // auto: follow the start - end period; open: always (ignores the period); locked: never (results are final)
   access: 'auto' | 'open' | 'locked';
+  // Which time is the best: the shortest (a race) or the longest (a slow race, the slowest participant wins)
+  best: 'shortest' | 'longest';
 }
 
 export interface ParticipantsResponse {

@@ -11,3 +11,6 @@ attempts: 2
 # When runs can be timed and results changed: auto (during the period above), open (always, ignores the
 # period, e.g. to correct a result) or locked (never, results are final)
 access: auto
+
+# Which time is the best: shortest (a race) or longest (a slow race, the slowest participant wins)
+best: shortest

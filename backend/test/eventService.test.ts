@@ -14,7 +14,7 @@ import {
 } from '../src/services/eventService.js';
 import { minutesFromNow, readFile, resetWorkDir, workDir, writeFiles } from './helpers.js';
 
-const SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto' };
+const SETTINGS: DisciplineSettings = { attempts: null, start: null, end: null, access: 'auto', best: 'shortest' };
 
 beforeEach(resetWorkDir);
 
@@ -217,9 +217,9 @@ describe('discipline settings', () => {
     });
 
     it('reads every setting', async () => {
-        writeFiles({ 'E/D/config.yaml': 'attempts: 3\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\n' });
+        writeFiles({ 'E/D/config.yaml': 'attempts: 3\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\n' });
         expect(await loadDisciplineSettings(dir())).toEqual({
-            settings: { attempts: 3, start: '2026-11-05T07:00Z', end: '2026-11-05T17:00Z', access: 'open' },
+            settings: { attempts: 3, start: '2026-11-05T07:00Z', end: '2026-11-05T17:00Z', access: 'open', best: 'longest' },
             problems: [],
         });
     });
@@ -230,11 +230,11 @@ describe('discipline settings', () => {
     });
 
     it('ignores wrong settings and lists them', async () => {
-        writeFiles({ 'E/D/config.yaml': 'attempts: 0\naccess: maybe\nstart: someday\ncolour: red\n' });
+        writeFiles({ 'E/D/config.yaml': 'attempts: 0\naccess: maybe\nstart: someday\nbest: fastest\ncolour: red\n' });
         const { settings, problems } = await loadDisciplineSettings(dir());
         expect(settings).toEqual(SETTINGS);
-        expect(problems).toHaveLength(4);
-        expect(problems.join('\n')).toMatch(/attempts.*access.*start.*unknown setting "colour"/s);
+        expect(problems).toHaveLength(5);
+        expect(problems.join('\n')).toMatch(/attempts.*access.*start.*best.*unknown setting "colour"/s);
     });
 
     it('ignores a period whose start is not before its end', async () => {
@@ -248,13 +248,13 @@ describe('discipline settings', () => {
         expect(validateDisciplineSettings({ attempts: 2, start: '2026-11-05T07:00Z', end: null, access: 'auto' })).toEqual([]);
         expect(validateDisciplineSettings({})).toEqual([]);
         expect(validateDisciplineSettings(null)).toEqual(['settings are missing']);
-        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never' })).toHaveLength(3);
+        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest' })).toHaveLength(4);
         expect(validateDisciplineSettings({ start: '2026-11-05T17:00Z', end: '2026-11-05T07:00Z' })).toEqual(['start must be before end']);
     });
 
     it('saves the settings so they read back the same, keeping other settings', async () => {
         writeFiles({ 'E/D/config.yaml': 'attempts: 5\nlocked: true\nnote: keep me\n' });
-        const saved: DisciplineSettings = { attempts: 2, start: '2026-11-05T07:00Z', end: null, access: 'locked' };
+        const saved: DisciplineSettings = { attempts: 2, start: '2026-11-05T07:00Z', end: null, access: 'locked', best: 'longest' };
         await saveDisciplineSettings(dir(), saved);
 
         const text = readFile('E/D/config.yaml')!;

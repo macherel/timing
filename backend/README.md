@@ -300,6 +300,9 @@ end: 2026-11-06T17:00Z
 
 # When runs can be timed and results changed: auto (during the period), open (always) or locked (never)
 access: auto
+
+# Which time is the best: shortest (a race) or longest (a slow race)
+best: shortest
 ```
 
 - `attempts`: how many runs each participant may do. `OK` and `DQ` runs use up an attempt; `INVALID` runs do not (the participant is not at fault, so they run again). Once all attempts are used, the participant cannot be made ready: the race page shows "All 3 attempt(s) used" and disables _Ready to start_. Setting a run back to `INVALID` frees an attempt.
@@ -310,6 +313,8 @@ access: auto
   - `locked`: never, the results are final (the race page says they are locked).
 
   It is the _Runs and result changes_ choice in _⚙ Discipline settings_. The older `locked: true` setting is read as `access: locked`.
+
+- `best`: which time is a participant's best result, and ranks first: `shortest` (default, a race) or `longest` (a slow race, where the slowest participant wins). It decides the run highlighted as best on the race page, the ranking of the live page and the time written to `uda-results.csv`, which is rewritten when the setting changes. It is the _Best time_ choice in _⚙ Discipline settings_.
 
 - The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
 - _⚙ Discipline settings_, in the event menu of the title on the race pages ("CFM26 · 100m ▾"), edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
@@ -340,7 +345,7 @@ On the race page, select a participant and click _Ready to start_. The next cros
   98,,1,13,23
   ```
 
-  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and hundredths. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (`98,,1,13,23` is 1:13.23), the time truncated to the hundredth. Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `results.csv`.
+  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and hundredths. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (the shortest, or the longest with `best: longest`; `98,,1,13,23` is 1:13.23), the time truncated to the hundredth. Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `results.csv`.
 
 
 ## 🔄 Syncing Several Computers
@@ -427,9 +432,9 @@ The full reference, with every request and response schema, is [`openapi.yaml`](
 - `POST /api/config/validate` `{ config }`: the problems found in a config object, without saving it.
 - `PUT /api/config` `{ config, modifiedAt }`: writes the config to `config.yaml`. `422` with the problems if it is invalid; `409` if the file changed since `modifiedAt` (the value returned by `GET`).
 - `GET /api/events`: the working directory (`workDir`) and its `events`, each with its `disciplines`.
-- `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the category, from the `Age Group` column or else the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
+- `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the category, from the `Age Group` column or else the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited, `start`, `end`, `access`, `best`) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
 - `GET /api/events/:event/:discipline/settings`: the discipline's `settings` from its `config.yaml`, and the `problems` found in it.
-- `PUT /api/events/:event/:discipline/settings` `{ settings: { attempts, start, end, access } }`: saves the discipline's `config.yaml` (`attempts`: a whole number from 1, or `null` for unlimited; `start`, `end`: ISO 8601 date-times, saved in UTC, or `null`; `access`: `auto`, `open` or `locked`) and returns the `settings` read back with their `problems`. `422` for an invalid value.
+- `PUT /api/events/:event/:discipline/settings` `{ settings: { attempts, start, end, access, best } }`: saves the discipline's `config.yaml` (`attempts`: a whole number from 1, or `null` for unlimited; `start`, `end`: ISO 8601 date-times, saved in UTC, or `null`; `access`: `auto`, `open` or `locked`; `best`: `shortest` or `longest`) and returns the `settings` read back with their `problems`. `422` for an invalid value.
 - `GET /api/events/:event/:discipline/results`: every run of the discipline from `results.csv`, oldest first.
 - `PATCH /api/events/:event/:discipline/results` `{ bib, start, status }`: sets the status (`ok`, `invalid` or `dq`) of the saved run of `bib` that started at `start` (bib and start together identify a run, as several participants can share a start). `404` when there is no such run, `409` to set `ok` on a run without a time, or when the discipline is closed (outside its period with `access: auto`, or `access: locked`).
 - `GET /api/run`: the current run (see `RUN_UPDATE`).
