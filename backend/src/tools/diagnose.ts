@@ -2,7 +2,7 @@
  * Hardware diagnose tool, run with `npm run diagnose`. Does not need the server.
  *
  *   npm run diagnose                          List every HID interface, try to open it, check config.yaml
- *   npm run diagnose -- --listen 046d:c548    Print raw reports of a device and suggest triggers on exit
+ *   npm run diagnose -- --listen 046d:c548    Print raw reports of a device and suggest button patterns on exit
  *   npm run diagnose -- --listen <path>       Same, for one interface (path as shown by the list)
  *   ... --duration 30                         Stop listening automatically after 30 seconds
  *   ... --work-dir <dir>                      Read config.yaml from <dir> (or set TIMING_WORK_DIR)
@@ -85,10 +85,10 @@ async function listDevices(): Promise<void> {
             }
             console.log(`      open: ${probe.ok ? '✔ readable' : `✘ ${probe.message}`}`);
             if (probe.hint) console.log(`      hint: ${probe.hint}`);
-            for (const { rule, conflict } of rules) {
+            for (const { rule, used, conflict } of rules) {
                 console.log(
                     `      config: rule "${rule!.name}"` +
-                    (rule!.enabled ? '' : ' (disabled)') +
+                    (used ? '' : ' (no enabled line uses it)') +
                     (conflict ? ' (ignored: rule already used by another interface)' : '')
                 );
             }
@@ -101,11 +101,11 @@ async function listDevices(): Promise<void> {
         return;
     }
     const unmatched = explainUnmatchedRules(config, devices, assignments);
-    console.log(unmatched.length === 0 ? 'config.yaml: every enabled rule matches a device.' : 'config.yaml problems:');
+    console.log(unmatched.length === 0 ? 'config.yaml: every device used by an enabled line is found.' : 'config.yaml problems:');
     unmatched.forEach((explanation) => console.log(`  ${explanation}`));
 
     console.log(
-        '\nNext step: npm run diagnose -- --listen <vid:pid or path>, press each button, then Ctrl+C for suggested triggers.'
+        '\nNext step: npm run diagnose -- --listen <vid:pid or path>, press each button, then Ctrl+C for suggested button patterns.'
     );
 }
 
@@ -270,14 +270,14 @@ function printSuggestions(listeners: Listener[]): void {
             continue;
         }
 
-        console.log('\n  Suggested triggers for config.yaml (rename the actions):');
-        console.log('    triggers:');
+        console.log('\n  Buttons found, to use as the start or finish of a line in config.yaml (or on the configuration page):');
         buttons.forEach(({ reportId, byteIndex, bit }, i) => {
             const mask = `0x${(1 << bit).toString(16).padStart(2, '0')}`;
-            console.log(`      - ${listener.numberedReports ? `reportId: ${reportId}\n        ` : ''}byteIndex: ${byteIndex}`);
-            console.log(`        mask: ${mask}`);
-            console.log(`        value: ${mask}`);
-            console.log(`        action: "button_${i + 1}"`);
+            console.log(`    # Button ${i + 1}`);
+            if (listener.numberedReports) console.log(`    reportId: ${reportId}`);
+            console.log(`    byteIndex: ${byteIndex}`);
+            console.log(`    mask: ${mask}`);
+            console.log(`    value: ${mask}`);
         });
     }
 }

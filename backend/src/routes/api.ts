@@ -1,8 +1,10 @@
 import fs from 'fs';
 import { Router, Request, Response } from 'express';
-import { getHardwareStatus } from '../services/hardwareService.js';
+import { getHardwareStatus, reloadDevicesConfig } from '../services/hardwareService.js';
+import { getLines, isLine, SIMULATE_GATES } from '../services/lines.js';
 import {
     CONFIG_PATH,
+    GATES,
     parseDevicesConfig,
     readDevicesConfigFile,
     stringifyDevicesConfig,
@@ -22,6 +24,7 @@ import {
 import { broadcastToUI } from '../websocket/wsServer.js';
 import {
     cancelRun,
+    getLineRuns,
     getRunState,
     loadResults,
     resetRuns,
@@ -34,7 +37,7 @@ import {
 } from '../services/runService.js';
 import { WORK_DIR } from '../utils/workDir.js';
 import { createLogger } from '../utils/logger.js';
-import { handleRaceEvent } from '../services/raceService.js';
+import { handleCrossing } from '../services/raceService.js';
 import { notifyLocalChange } from '../utils/localChanges.js';
 import {
     buildManifest,
@@ -50,10 +53,6 @@ import {
 const router = Router();
 const log = createLogger('API');
 
-// Gate crossings sent over HTTP instead of by the USB gates, for the end-to-end tests and for training without
-// hardware. Off unless the server is started with TIMING_SIMULATE_GATES=1, so it cannot fire during a real race.
-export const SIMULATE_GATES = process.env.TIMING_SIMULATE_GATES === '1';
-const SIMULATED_ACTIONS = ['start_crossed', 'finish_crossed'];
 
 // Server health check route
 router.get('/status', (req: Request, res: Response) => {
@@ -154,13 +153,23 @@ router.patch('/events/:event/:discipline/results', async (req: Request, res: Res
     res.json(outcome.result);
 });
 
-// Race page: the current run (idle, ready or running)
-router.get('/run', (req: Request, res: Response) => {
-    res.json(getRunState());
+// Race page: the lines of this computer, each with its run (idle, ready or running) and the last run it ended
+router.get('/lines', (req: Request, res: Response) => {
+    res.json({ lines: getLineRuns() });
 });
 
-// Race page: a participant is ready, the next start crossing starts their run. `bib` must be in the discipline
-router.post('/run/ready', async (req: Request, res: Response) => {
+// The run of the line of the URL, or a 404 answer
+function lineRun(req: Request, res: Response): { line: string } | null {
+    const line = String(req.params.line);
+    if (getRunState(line)) return { line };
+    res.status(404).json({ problems: [`Unknown line "${line}".`] });
+    return null;
+}
+
+// Race page: a participant is ready on a line, its next start crossing starts their run. `bib` must be in the discipline
+router.post('/lines/:line/ready', async (req: Request, res: Response) => {
+    const target = lineRun(req, res);
+    if (!target) return;
     const { event, discipline, bib } = req.body ?? {};
     const list = typeof event === 'string' && typeof discipline === 'string' ? await loadParticipants(event, discipline) : null;
     const participant = list?.participants.find((p) => p.bib === String(bib));
@@ -168,50 +177,61 @@ router.post('/run/ready', async (req: Request, res: Response) => {
         res.status(404).json({ problems: ['Unknown event, discipline or participant.'] });
         return;
     }
-    const problem = await prepareRun(event, discipline, participant);
+    const problem = await prepareRun(target.line, event, discipline, participant);
     if (problem) {
         res.status(409).json({ problems: [problem] });
         return;
     }
-    res.json(getRunState());
+    res.json(getRunState(target.line));
 });
 
-// Race page: ends the running run now and saves it as DQ (disqualify) or INVALID (invalidate), without a time.
-// 409 when no run is in progress
+// Race page: ends the running run of a line now and saves it as DQ (disqualify) or INVALID (invalidate), without a
+// time. 409 when no run is in progress on the line
 for (const [action, status] of [['disqualify', 'dq'], ['invalidate', 'invalid']] as const) {
-    router.post(`/run/${action}`, (req: Request, res: Response) => {
-        const problem = voidRun(status);
+    router.post(`/lines/:line/${action}`, (req: Request, res: Response) => {
+        const target = lineRun(req, res);
+        if (!target) return;
+        const problem = voidRun(target.line, status);
         if (problem) {
             res.status(409).json({ problems: [problem] });
             return;
         }
-        res.json(getRunState());
+        res.json(getRunState(target.line));
     });
 }
 
-// Race page: abandons the ready or running run, nothing is saved
-router.post('/run/cancel', (req: Request, res: Response) => {
-    cancelRun();
-    res.json(getRunState());
+// Race page: abandons the ready or running run of a line, nothing is saved
+router.post('/lines/:line/cancel', (req: Request, res: Response) => {
+    const target = lineRun(req, res);
+    if (!target) return;
+    cancelRun(target.line);
+    res.json(getRunState(target.line));
 });
 
-// Simulated gates (see SIMULATE_GATES): fires a start_crossed or finish_crossed action now, as a gate would
+// Simulated gates (see SIMULATE_GATES): a crossing of the start or finish gate of a line (the first one by default)
+// now, as a device button would fire it
 if (SIMULATE_GATES) {
     log.warn('Simulated gates are on (TIMING_SIMULATE_GATES=1): POST /api/simulate/crossing fires crossings, POST /api/simulate/reset starts over.');
     router.post('/simulate/crossing', (req: Request, res: Response) => {
-        const action = req.body?.action;
-        if (!SIMULATED_ACTIONS.includes(action)) {
-            res.status(400).json({ problems: [`action must be ${SIMULATED_ACTIONS.join(' or ')}.`] });
+        const { gate, line = getLines()[0] } = req.body ?? {};
+        if (!GATES.includes(gate)) {
+            res.status(400).json({ problems: [`gate must be ${GATES.join(' or ')}.`] });
             return;
         }
-        handleRaceEvent('simulator', 'Simulator', action, Temporal.Now.instant());
-        res.json(getRunState());
+        if (!isLine(line)) {
+            res.status(404).json({ problems: [`Unknown line "${line}".`] });
+            return;
+        }
+        handleCrossing(line, gate, 'Simulator', Temporal.Now.instant());
+        res.json(getRunState(line));
     });
 
-    // Starts over: no run in progress and no last result on the live pages (between end-to-end tests)
-    router.post('/simulate/reset', (req: Request, res: Response) => {
+    // Starts over: reads config.yaml again (no file: no line, so the simulated lines), no run in progress and no last
+    // result on the live pages (between end-to-end tests)
+    router.post('/simulate/reset', async (req: Request, res: Response) => {
+        await reloadDevicesConfig();
         resetRuns();
-        res.json(getRunState());
+        res.json({ lines: getLineRuns() });
     });
 }
 

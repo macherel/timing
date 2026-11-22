@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { HidInterface } from '../../types';
-import { emptyTrigger, parseHex, type DeviceForm } from '../../config/configForm';
+import { parseHex, type DeviceForm } from '../../config/configForm';
 
 const device = defineModel<DeviceForm>({ required: true });
 const props = defineProps<{
@@ -10,6 +10,8 @@ const props = defineProps<{
   problems: string[];
   // One entry per connected device model: the IDs are the same for all its interfaces
   connectedModels: HidInterface[];
+  // Names of the lines that use this device
+  usedBy: string[];
 }>();
 defineEmits<{ remove: []; move: [delta: number] }>();
 
@@ -49,17 +51,14 @@ const hasAdvanced = computed(
 </script>
 
 <template>
-  <article class="card device" :class="{ disabled: !device.enabled, invalid: problems.length > 0 }">
+  <article class="card device" :class="{ unused: usedBy.length === 0, invalid: problems.length > 0 }">
     <header class="device-header">
       <span class="device-number">#{{ index + 1 }}</span>
       <label class="field grow">
         <span>{{ $t('device.name') }}</span>
         <input v-model="device.name" type="text" :placeholder="$t('device.namePlaceholder')" />
       </label>
-      <label class="switch">
-        <input v-model="device.enabled" type="checkbox" />
-        {{ $t('device.enabled') }}
-      </label>
+      <span class="used-by muted small">{{ usedBy.length > 0 ? $t('device.usedBy', { lines: usedBy.join(', ') }) : $t('device.unused') }}</span>
       <div class="device-actions">
         <button type="button" class="icon" :disabled="index === 0" :title="$t('device.moveUp')" @click="$emit('move', -1)">↑</button>
         <button type="button" class="icon" :disabled="index === count - 1" :title="$t('device.moveDown')" @click="$emit('move', 1)">↓</button>
@@ -114,40 +113,6 @@ const hasAdvanced = computed(
       <p class="muted small">{{ $t('device.advancedHint') }}</p>
     </details>
 
-    <h4>{{ $t('hid.triggers') }}</h4>
-    <i18n-t keypath="device.triggersHint" tag="p" class="muted small">
-      <template #condition><code>(report[byte] &amp; mask) == value</code></template>
-    </i18n-t>
-    <div class="scroll">
-      <table class="triggers">
-        <thead>
-          <tr>
-            <th>{{ $t('hid.reportId') }}</th>
-            <th>{{ $t('hid.byte') }}</th>
-            <th>{{ $t('hid.mask') }}</th>
-            <th>{{ $t('hid.value') }}</th>
-            <th>{{ $t('hid.pressAction') }}</th>
-            <th>{{ $t('hid.releaseAction') }}</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(trigger, j) in device.triggers" :key="j">
-            <td><input v-model="trigger.reportId" type="text" inputmode="numeric" class="tiny" :placeholder="$t('common.any')" /></td>
-            <td><input v-model="trigger.byteIndex" type="text" inputmode="numeric" class="tiny" placeholder="1" /></td>
-            <td><input v-model="trigger.mask" type="text" class="mono tiny" placeholder="0x01" /></td>
-            <td><input v-model="trigger.value" type="text" class="mono tiny" placeholder="0x01" /></td>
-            <td><input v-model="trigger.action" type="text" list="trigger-actions" placeholder="start_crossed" /></td>
-            <td><input v-model="trigger.releaseAction" type="text" list="trigger-actions" :placeholder="$t('device.noAction')" /></td>
-            <td>
-              <button type="button" class="icon danger" :title="$t('device.removeTrigger')" @click="device.triggers.splice(j, 1)">✕</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <button type="button" class="secondary small-button" @click="device.triggers.push(emptyTrigger())">{{ $t('device.addTrigger') }}</button>
-
     <ul v-if="problems.length > 0" class="alert error problems">
       <li v-for="problem in problems" :key="problem">{{ problem }}</li>
     </ul>
@@ -155,8 +120,11 @@ const hasAdvanced = computed(
 </template>
 
 <style scoped>
-.device.disabled {
-  opacity: 0.7;
+.device.unused {
+  opacity: 0.8;
+}
+.used-by {
+  padding-bottom: 8px;
 }
 .device.invalid {
   border-color: var(--error);
@@ -197,16 +165,6 @@ const hasAdvanced = computed(
 .small {
   font-size: 0.85em;
   margin-top: 6px;
-}
-.scroll {
-  overflow-x: auto;
-}
-.triggers td {
-  padding: 4px 6px 4px 0;
-  border-bottom: none;
-}
-.small-button {
-  margin-top: 8px;
 }
 .problems {
   padding-left: 32px;

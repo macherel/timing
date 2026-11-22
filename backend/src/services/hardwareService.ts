@@ -1,10 +1,14 @@
 import type { EventEmitter } from 'events';
 import HID from 'node-hid';
-import { handleRaceEvent } from './raceService.js';
-import { getRunState } from './runService.js';
+import { handleCrossing } from './raceService.js';
+import { isAnyRunActive } from './runService.js';
+import { setConfiguredLines } from './lines.js';
 import {
     CONFIG_PATH,
+    enabledLines,
     loadDevicesConfig,
+    parseDevicesConfig,
+    readDevicesConfigFile,
     watchDevicesConfig,
     unwatchDevicesConfig,
     type DevicesConfig,
@@ -20,8 +24,9 @@ import {
     type DeviceAssignment,
     type HidDevice,
 } from './hardware/deviceMatching.js';
-import { evaluateReport, mergeTriggers, type ActiveTrigger } from './hardware/triggers.js';
+import { evaluateReport, gateTriggers, mergeTriggers, type ActiveTrigger, type GateTrigger } from './hardware/triggers.js';
 import {
+    type BitChange,
     changedBits,
     describeBitChange,
     describeUsage,
@@ -75,6 +80,8 @@ interface RecentReport {
     hex: string;
     // e.g. "byte 1 bit 0 ↑ (mask 0x01)"; empty for the first report with this ID
     changes: string[];
+    // The same changes, to find which button was pressed (configuration page)
+    bits: BitChange[];
 }
 
 interface Failure {
@@ -122,7 +129,8 @@ export interface HardwareStatus {
         osOwned: boolean;
         // usb: read with libusb, because the OS HID driver does not handle it (e.g. WinUSB installed with Zadig)
         transport: 'hid' | 'usb';
-        rules: Array<{ name: string; enabled: boolean; conflict: boolean }>;
+        // used: an enabled line uses the rule
+        rules: Array<{ name: string; used: boolean; conflict: boolean }>;
         monitor?: MonitorStatus;
     }>;
     lastScanAt: string | null;
@@ -292,7 +300,7 @@ function describeInterfaces(): HardwareStatus['interfaces'] {
             osOwned: !isUsbPath(path) && collections.some(isOsOwned),
             rules: lastAssignments
                 .filter((a) => a.device.path === path && a.rule)
-                .map(({ rule, conflict }) => ({ name: rule!.name, enabled: rule!.enabled, conflict })),
+                .map(({ rule, used, conflict }) => ({ name: rule!.name, used, conflict })),
             monitor: describeMonitor(path),
         };
     });
@@ -314,6 +322,27 @@ function renewMonitorLeases(models: string[]): void {
     }
     // Opens a newly asked device now rather than on the next poll
     if (isNew) requestSync();
+}
+
+/**
+ * Reads config.yaml now, a missing file meaning no line and no device (simulated gates only, see api.ts: the
+ * end-to-end tests start each test from the config.yaml of its working directory).
+ */
+export async function reloadDevicesConfig(): Promise<void> {
+    const { content } = await readDevicesConfigFile();
+    const loaded = content === null ? { devices: [] } : parseDevicesConfig(content).config;
+    configValid = loaded !== null;
+    // Unchanged: nothing to reopen, and no USB scan (it can block the event loop for a while)
+    if (!loaded || JSON.stringify(loaded) === JSON.stringify(config)) return;
+    applyConfig(loaded);
+    lastLoggedState = '';
+    usbScanRequested = true;
+    requestSync();
+}
+
+function applyConfig(loaded: DevicesConfig): void {
+    config = loaded;
+    setConfiguredLines(enabledLines(loaded).map((line) => line.name));
 }
 
 function onConfigChange(): void {
@@ -359,7 +388,7 @@ async function syncConnectedDevices(): Promise<void> {
         const loaded = await loadDevicesConfig();
         configValid = loaded !== null;
         // An invalid file keeps the previous config, so a half-saved edit doesn't drop the devices
-        if (loaded) config = loaded;
+        if (loaded) applyConfig(loaded);
     }
     if (!config) return;
 
@@ -386,7 +415,7 @@ async function syncConnectedDevices(): Promise<void> {
     lastSystemDevices = systemDevices;
     lastAssignments = assignments;
     lastScanAt = Temporal.Now.instant();
-    const stateChanged = logAssignmentsIfChanged(assignments);
+    const stateChanged = logAssignmentsIfChanged(assignments, config.lines);
     logUnmatchedRulesIfChanged(explainUnmatchedRules(config, systemDevices, assignments));
 
     const collectionsByPath = groupByPath(systemDevices);
@@ -398,9 +427,9 @@ async function syncConnectedDevices(): Promise<void> {
     for (const { device, rule } of activeAssignments) {
         const conn = connections.get(device.path);
         if (conn) {
-            updateConnection(conn, rule, stateChanged);
+            updateConnection(conn, rule, gateTriggers(config, rule.name), stateChanged);
         } else {
-            openConnection(rule, device, hasNumberedReports(device.path, collectionsByPath));
+            openConnection(rule, gateTriggers(config, rule.name), device, hasNumberedReports(device.path, collectionsByPath));
         }
     }
 
@@ -447,7 +476,7 @@ function syncMonitors(collectionsByPath: Map<string, HID.Device[]>, activePaths:
 
 function isUsbScanDue(): boolean {
     // A participant is ready or running: a crossing can come at any time. The interfaces already found keep working.
-    if (getRunState().status !== 'idle') return false;
+    if (isAnyRunActive()) return false;
     const now = Date.now();
     if (now - lastUsbScanAt < USB_SCAN_INTERVAL_MS) return false;
     return (
@@ -477,17 +506,19 @@ function openReportSource(devicePath: string): ReportSource {
 /**
  * Logs the device list when it differs from the last logged one. Returns whether it changed.
  */
-function logAssignmentsIfChanged(assignments: DeviceAssignment[]): boolean {
-    // Includes triggers so that changes to masks/actions count as a change
-    const state = JSON.stringify(
-        assignments.map(({ device, usbPort, rule, conflict }) => ({
+function logAssignmentsIfChanged(assignments: DeviceAssignment[], lines: DevicesConfig['lines']): boolean {
+    // Includes the lines so that changes to their gates count as a change
+    const state = JSON.stringify({
+        lines,
+        assignments: assignments.map(({ device, usbPort, rule, used, conflict }) => ({
             path: device.path,
             serial: device.serialNumber,
             usbPort,
             rule,
+            used,
             conflict,
-        }))
-    );
+        })),
+    });
     if (state === lastLoggedState) return false;
     lastLoggedState = state;
 
@@ -507,11 +538,11 @@ function logUnmatchedRulesIfChanged(explanations: string[]): void {
 /**
  * Applies the latest rule to an open connection (config hot-reload).
  */
-function updateConnection(conn: Connection, rule: DeviceRule, logIt: boolean): void {
+function updateConnection(conn: Connection, rule: DeviceRule, triggers: GateTrigger[], logIt: boolean): void {
     conn.deviceName = rule.name;
-    conn.triggers = mergeTriggers(conn.triggers, rule.triggers ?? []);
+    conn.triggers = mergeTriggers(conn.triggers, triggers);
     conn.logReports = rule.logReports ?? false;
-    if (logIt) log.info(`Updated triggers for "${rule.name}"`);
+    if (logIt) log.info(`Updated the line gates of "${rule.name}"`);
 }
 
 function closeStaleConnections(activePaths: Set<string>): void {
@@ -531,7 +562,7 @@ function closeStaleConnections(activePaths: Set<string>): void {
 /**
  * Opens an interface and starts listening to its reports. A failure is recorded and retried on the next poll.
  */
-function openConnection(rule: DeviceRule, hidDevice: HidDevice, numberedReports: boolean): void {
+function openConnection(rule: DeviceRule, triggers: GateTrigger[], hidDevice: HidDevice, numberedReports: boolean): void {
     let device: ReportSource;
     try {
         device = openReportSource(hidDevice.path);
@@ -545,7 +576,7 @@ function openConnection(rule: DeviceRule, hidDevice: HidDevice, numberedReports:
     }
     log.info(`Listening to "${rule.name}" at ${hidDevice.path}${rule.logReports ? ' (logging raw reports)' : ''}`);
 
-    const conn = newConnection(rule.name, device, numberedReports, mergeTriggers([], rule.triggers ?? []));
+    const conn = newConnection(rule.name, device, numberedReports, mergeTriggers([], triggers));
     conn.logReports = rule.logReports ?? false;
     connections.set(hidDevice.path, conn);
 
@@ -616,9 +647,9 @@ function onReport(conn: Connection, report: Buffer): void {
 
     trackReport(conn, report, instant);
 
-    for (const { kind, action } of evaluateReport(conn.triggers, report)) {
-        log.info(`${kind === 'press' ? 'Pressed' : 'Released'}: ${conn.deviceName} | Action: ${action}`);
-        handleRaceEvent(conn.deviceName, conn.deviceName, action, instant);
+    for (const { line, gate, edge } of evaluateReport(conn.triggers, report)) {
+        log.info(`${edge === 'press' ? 'Pressed' : 'Released'}: ${conn.deviceName} | ${line} ${gate}`);
+        handleCrossing(line, gate, conn.deviceName, instant);
     }
 }
 
@@ -645,6 +676,7 @@ function trackReportChanges(conn: Connection, report: Buffer, instant: Temporal.
         reportId: conn.numberedReports ? reportId : null,
         hex: toHex(report),
         changes: previous ? changes.map(describeBitChange) : [],
+        bits: previous ? changes : [],
     });
     if (conn.recentReports.length > RECENT_REPORTS_KEPT) conn.recentReports.shift();
 

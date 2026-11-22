@@ -87,10 +87,10 @@ describe('RunPanel', () => {
   });
 
   function mountPanel(
-    props: Partial<{ run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; lastResult: RunResult | null }> = {},
+    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; lastResult: RunResult | null }> = {},
   ) {
     return mountWithI18n(RunPanel, {
-      props: { participant: HUGO, run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth', ...props },
+      props: { participant: HUGO, line: 'Line 1', run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth', ...props },
     });
   }
   const readyButton = (wrapper: ReturnType<typeof mountPanel>) => wrapper.find('button.ready');
@@ -131,6 +131,12 @@ describe('RunPanel', () => {
       await running.findAll('button').find((button) => button.text() === label)!.trigger('click');
       expect(running.emitted(event), event).toHaveLength(1);
     }
+  });
+
+  it('cannot get ready without a line on this computer', () => {
+    const wrapper = mountPanel({ line: null });
+    expect(readyButton(wrapper).attributes('disabled')).toBeDefined();
+    expect(readyButton(wrapper).attributes('title')).toBe('No line on this computer');
   });
 
   it('tells when another participant is running', () => {

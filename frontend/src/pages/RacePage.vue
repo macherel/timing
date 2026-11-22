@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type {
   DisciplineSettings,
+  LineRun,
   RunStatus,
   Participant,
   ParticipantsResponse,
@@ -27,6 +28,8 @@ import {
   loadEvents,
   reloadRequests,
   select,
+  selectedLine,
+  selectLine,
   selectionLock,
   switcherOpen,
   workDir,
@@ -75,12 +78,16 @@ const loadingParticipants = ref(false);
 const selected = ref<Participant | null>(null);
 const picker = ref<InstanceType<typeof ParticipantPicker> | null>(null);
 
-// The timed run is kept by the backend and pushed to every open page
-const run = ref<RunState>({ status: 'idle' });
+// The lines of this computer and their runs are kept by the backend and pushed to every open page
+const lines = ref<LineRun[]>([]);
+const linesLoaded = ref(false);
+// The line this page times on: the one chosen in this browser, or else the first one
+const line = computed(() => lines.value.find((l) => l.line === selectedLine.value) ?? lines.value[0] ?? null);
+const run = computed<RunState>(() => line.value?.run ?? { status: 'idle' });
 const results = ref<RunResult[]>([]);
 const lastResult = ref<RunResult | null>(null);
 const busy = ref(false);
-// While a participant is ready or running, the event, discipline and participant cannot change
+// While a participant is ready or running on the line, the event, discipline and participant cannot change
 const locked = computed(() => run.value.status !== 'idle');
 watch(
   [locked, locale],
@@ -127,7 +134,7 @@ async function loadResults(): Promise<void> {
   }
 }
 
-/** Shows the event, discipline and participant of a run in progress, e.g. started from another browser. */
+/** Shows the event, discipline and participant of the run in progress on the line, e.g. started from another browser. */
 function showRun(): void {
   const current = run.value;
   if (current.status === 'idle') return;
@@ -138,19 +145,38 @@ function showRun(): void {
   }
 }
 
-async function loadRun(): Promise<void> {
+async function loadLines(): Promise<void> {
   try {
-    run.value = await getJson<RunState>('/api/run');
+    lines.value = (await getJson<{ lines: LineRun[] }>('/api/lines')).lines;
+    linesLoaded.value = true;
     showRun();
   } catch (e) {
     loadError.value = t('race.errors.loadRun', { error: errorText(e) });
   }
 }
 
+/** Sets the run of a line, as the backend reported it. */
+function setRun(name: string, next: RunState): void {
+  const entry = lines.value.find((l) => l.line === name);
+  if (!entry) return;
+  entry.run = next;
+  if (entry === line.value) {
+    if (next.status === 'ready') lastResult.value = null;
+    showRun();
+  }
+}
+
+function chooseLine(name: string): void {
+  selectLine(name);
+  lastResult.value = null;
+  showRun();
+}
+
 function onMessage(message: ServerMessage): void {
   if (message.type === 'RUN_UPDATE') {
-    if (message.run.status === 'ready') lastResult.value = null;
-    run.value = message.run;
+    setRun(message.line, message.run);
+  } else if (message.type === 'LINES_UPDATE') {
+    lines.value = message.lines;
     showRun();
   } else if (message.type === 'RUN_RESULT' && message.event === eventName.value && message.discipline === discipline.value) {
     results.value = [...results.value, message.result];
@@ -194,34 +220,39 @@ async function setStatus(result: RunResult, status: RunStatus): Promise<void> {
   }
 }
 
-// Reloads the run on each WebSocket (re)connection, so a run that changed while disconnected is shown
-// Tells the backend which event, discipline and participant this race page shows, for the live page of every synced computer
+// Tells the backend which event, discipline, line and participant this race page shows, for the live page of every
+// synced computer
 function sendViewing(): void {
   send({
     type: 'VIEWING',
     event: disciplineExists.value ? eventName.value : null,
     discipline: disciplineExists.value ? discipline.value : null,
+    line: line.value?.line ?? null,
     participant: disciplineExists.value && selected.value ? { bib: selected.value.bib, name: selected.value.name } : null,
   });
 }
+// Reloads the lines on each WebSocket (re)connection, so a run that changed while disconnected is shown
 const { send } = useRaceSocket({
   onMessage,
   onConnect: () => {
-    loadRun();
+    loadLines();
     sendViewing();
   },
 });
-watch([eventName, discipline, disciplineExists, selected], sendViewing);
+watch([eventName, discipline, disciplineExists, selected, () => line.value?.line], sendViewing);
 
 async function postRun(action: 'ready' | 'cancel' | 'invalidate' | 'disqualify'): Promise<void> {
+  const name = line.value?.line;
+  if (!name) return;
   busy.value = true;
   try {
     const body = action === 'ready' ? { event: eventName.value, discipline: discipline.value, bib: selected.value?.bib } : {};
-    run.value = await getJson<RunState>(`/api/run/${action}`, {
+    const next = await getJson<RunState>(`/api/lines/${encodeURIComponent(name)}/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    setRun(name, next);
     if (action === 'ready') lastResult.value = null;
     loadError.value = null;
   } catch (e) {
@@ -296,6 +327,27 @@ onMounted(reload);
   <main class="page">
     <p v-if="loadError || eventsError" class="alert error">{{ loadError ?? eventsError }}</p>
 
+    <i18n-t v-if="linesLoaded && lines.length === 0" keypath="race.noLine" tag="p" class="alert warn">
+      <template #config><RouterLink to="/config">{{ $t('pages.config') }}</RouterLink></template>
+    </i18n-t>
+    <nav v-else-if="lines.length > 1" class="lines" role="tablist" :aria-label="$t('race.lines')">
+      <button
+        v-for="item in lines"
+        :key="item.line"
+        type="button"
+        role="tab"
+        class="line-tab"
+        :aria-selected="item === line"
+        :title="$t(`race.lineState.${item.run.status}`)"
+        @click="chooseLine(item.line)"
+      >
+        <span class="dot" :class="item.run.status"></span>
+        {{ item.line }}
+        <span v-if="item.run.status !== 'idle'" class="muted mono">{{ item.run.participant.bib }}</span>
+      </button>
+    </nav>
+    <p v-else-if="line" class="muted line-name">{{ $t('race.line', { line: line.line }) }}</p>
+
     <div v-if="eventsLoaded && events.length === 0 && !eventsError" class="alert hint">
       <i18n-t keypath="race.noEvent" tag="p">
         <template #dir><code>{{ workDir }}</code></template>
@@ -314,7 +366,7 @@ onMounted(reload);
       <button type="button" @click.stop="switcherOpen = true">{{ $t('common.choose') }}</button>
     </div>
 
-    <section v-else-if="disciplineExists" class="card">
+    <section v-if="disciplineExists" class="card">
       <div class="field participant">
         <span>
           {{ $t('race.participant') }}
@@ -361,6 +413,7 @@ onMounted(reload);
 
     <RunPanel
       :closed="closedReason"
+      :line="line?.line ?? null"
       :attempts="settings.attempts"
       :best="settings.best"
       :precision="settings.precision"
@@ -389,6 +442,46 @@ onMounted(reload);
 }
 .choose button {
   margin: 0;
+}
+.lines {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.line-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 6px 6px 0 0;
+}
+.line-tab[aria-selected='true'] {
+  background: var(--surface);
+  border-color: var(--border);
+  border-bottom-color: var(--surface);
+  color: var(--text-h);
+  font-weight: 600;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.dot.ready {
+  background: var(--warn);
+}
+.dot.running {
+  background: var(--ok);
+}
+.line-name {
+  margin: 0 0 8px;
 }
 .tree {
   font-family: var(--mono);

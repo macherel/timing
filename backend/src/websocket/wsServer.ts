@@ -8,12 +8,12 @@ const log = createLogger('WebSocket');
 
 let wss: WebSocketServer | null = null;
 
-// The event, discipline and selected participant each connected race page shows
+// The event, discipline, line and selected participant each connected race page shows
 const views = new Map<WebSocket, Viewing>();
 
 /** What the race pages connected now show, without duplicates. */
 export function getViewing(): Viewing[] {
-    const key = (view: Viewing) => `${view.event}\n${view.discipline}\n${view.participant?.bib ?? ''}`;
+    const key = (view: Viewing) => `${view.event}\n${view.discipline}\n${view.line ?? ''}\n${view.participant?.bib ?? ''}`;
     const unique = new Map([...views.values()].map((view) => [key(view), view]));
     return [...unique.values()];
 }
@@ -33,7 +33,8 @@ function onClientMessage(ws: WebSocket, data: unknown): void {
         const participant = isParticipant(message.participant)
             ? { bib: message.participant.bib, name: message.participant.name }
             : null;
-        views.set(ws, { event: message.event, discipline: message.discipline, participant });
+        const line = typeof message.line === 'string' && message.line ? message.line : null;
+        views.set(ws, { event: message.event, discipline: message.discipline, line, participant });
     } else {
         views.delete(ws);
     }

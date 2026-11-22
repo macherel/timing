@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import type { Activity, RunResult, RunState, RunStatus } from '../types/messages.js';
+import type { Gate, LastResult, LineRun, RunResult, RunState, RunStatus } from '../types/messages.js';
+import { getLines, isLine, onLinesChange } from './lines.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
 import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
@@ -22,44 +23,85 @@ import {
 const log = createLogger('Run');
 
 /**
- * Timed runs, one at a time:
- *   idle → ready (a participant is announced) → running (first "start" crossing) → idle (first "finish" crossing,
- *   the result is appended to <event>/<discipline>/<event>-<discipline>-results.csv) or idle (cancelled, nothing saved).
+ * Timed runs, one at a time on each line (see lines.ts):
+ *   idle → ready (a participant is announced) → running (first start crossing of the line) → idle (first finish
+ *   crossing of the line, the result is appended to <event>/<discipline>/<event>-<discipline>-results.csv) or idle
+ *   (cancelled, nothing saved).
  * Each write of the results file also rewrites <event>-<discipline>-uda-results.csv beside it, the results in the
  * import format of the UDA.
  */
 
-let state: RunState = { status: 'idle' };
-// The last run ended here, shown on the live pages until the next participant is ready
-let lastResult: Activity['lastResult'] = null;
-// How the time of the run in progress is measured, from the settings of its discipline when the participant got ready
-let runTimeRule: TimeRule = DEFAULT_SETTINGS;
+interface LineState {
+    run: RunState;
+    // The last run ended on the line, shown on the live pages until the next participant is ready on it
+    lastResult: LastResult | null;
+    // How the time of the run in progress is measured, from the settings of its discipline when the participant got ready
+    timeRule: TimeRule;
+}
 
-export function getRunState(): RunState {
+const lineStates = new Map<string, LineState>();
+
+function stateOf(line: string): LineState {
+    let state = lineStates.get(line);
+    if (!state) {
+        state = { run: { status: 'idle' }, lastResult: null, timeRule: DEFAULT_SETTINGS };
+        lineStates.set(line, state);
+    }
     return state;
 }
 
-export function getLastResult(): Activity['lastResult'] {
-    return lastResult;
+// A line removed from config.yaml loses its run: no crossing can reach it any more
+onLinesChange(() => {
+    const lines = getLines();
+    for (const [line, state] of lineStates) {
+        if (lines.includes(line)) continue;
+        if (state.run.status !== 'idle') {
+            log.warn(`Line "${line}" is no longer in config.yaml: the run of ${state.run.participant.bib} ${state.run.participant.name} is dropped.`);
+        }
+        lineStates.delete(line);
+    }
+    broadcastToUI({ type: 'LINES_UPDATE', lines: getLineRuns() });
+    notifyActivityChange();
+});
+
+/** Every line with its run and last result, in the order of config.yaml. */
+export function getLineRuns(): LineRun[] {
+    return getLines().map((line) => {
+        const { run, lastResult } = stateOf(line);
+        return { line, run, lastResult };
+    });
 }
 
-function setState(next: RunState): void {
-    state = next;
-    if (next.status === 'ready') lastResult = null;
-    broadcastToUI({ type: 'RUN_UPDATE', run: state });
+/** The run of a line, null for an unknown line. */
+export function getRunState(line: string): RunState | null {
+    return isLine(line) ? stateOf(line).run : null;
+}
+
+/** Whether a participant is ready or running on a line: a crossing can come at any time. */
+export function isAnyRunActive(): boolean {
+    return [...lineStates.values()].some((state) => state.run.status !== 'idle');
+}
+
+function setRun(line: string, next: RunState): void {
+    const state = stateOf(line);
+    state.run = next;
+    if (next.status === 'ready') state.lastResult = null;
+    broadcastToUI({ type: 'RUN_UPDATE', line, run: next });
     notifyActivityChange();
 }
 
-/** Announces that a participant is ready: the next start crossing starts their run. */
-export async function prepareRun(event: string, discipline: string, participant: Participant): Promise<string | null> {
-    if (state.status === 'running') return 'A run is in progress. Cancel it first.';
+const unknownLine = (line: string) => `Unknown line "${line}".`;
+
+/** Announces that a participant is ready on a line: its next start crossing starts their run. */
+export async function prepareRun(line: string, event: string, discipline: string, participant: Participant): Promise<string | null> {
+    if (!isLine(line)) return unknownLine(line);
+    if (stateOf(line).run.status === 'running') return `A run is in progress on ${line}. Cancel it first.`;
     const dir = await disciplineDir(event, discipline);
     if (!dir) return 'Unknown event or discipline.';
 
     const { settings } = await loadDisciplineSettings(dir);
     const closed = closedReason(settings);
     if (closed) return `${event} / ${discipline} is closed: ${closed}.`;
-    runTimeRule = settings;
     const { attempts } = settings;
     if (attempts !== null) {
         const used = ((await loadResults(event, discipline)) ?? []).filter(
@@ -70,12 +112,24 @@ export async function prepareRun(event: string, discipline: string, participant:
 
     // Once ready, a start crossing can come at any time, and a USB scan would delay its timestamp (it blocks the event
     // loop on Windows). No scan starts during a run (see hardwareService), so wait for the one running, if any. The
-    // check and the change of state happen in the same tick, so no scan can start in between.
+    // checks and the change of state happen in the same tick, so no scan can start in between.
     while (isUsbScanInProgress()) await waitForUsbScan();
+    if (!isLine(line)) return unknownLine(line);
     // A crossing may have started another participant's run meanwhile
-    if (getRunState().status === 'running') return 'A run is in progress. Cancel it first.';
-    setState({ status: 'ready', event, discipline, participant });
-    log.info(`${participant.bib} ${participant.name} is ready (${event} / ${discipline}).`);
+    if (stateOf(line).run.status === 'running') return `A run is in progress on ${line}. Cancel it first.`;
+    const elsewhere = getLineRuns().find(
+        (other) =>
+            other.line !== line &&
+            other.run.status !== 'idle' &&
+            other.run.event === event &&
+            other.run.discipline === discipline &&
+            other.run.participant.bib === participant.bib
+    );
+    if (elsewhere) return `${participant.bib} ${participant.name} is already ${elsewhere.run.status} on ${elsewhere.line}.`;
+
+    stateOf(line).timeRule = settings;
+    setRun(line, { status: 'ready', event, discipline, participant });
+    log.info(`${participant.bib} ${participant.name} is ready on ${line} (${event} / ${discipline}).`);
     return null;
 }
 
@@ -84,52 +138,63 @@ export function countsAsAttempt(result: RunResult): boolean {
     return result.status !== 'invalid';
 }
 
-/** Forgets the run in progress and the last result, as when the app starts (simulated gates only, see api.ts). */
+/** Forgets the runs in progress and the last results, as when the app starts (simulated gates only, see api.ts). */
 export function resetRuns(): void {
-    lastResult = null;
-    setState({ status: 'idle' });
+    for (const line of getLines()) {
+        stateOf(line).lastResult = null;
+        setRun(line, { status: 'idle' });
+    }
 }
 
-export function cancelRun(): void {
-    if (state.status === 'idle') return;
-    log.info(`Run of ${state.participant.bib} ${state.participant.name} cancelled.`);
-    setState({ status: 'idle' });
+/** Abandons the run of a line, nothing is saved. Returns a problem for an unknown line. */
+export function cancelRun(line: string): string | null {
+    if (!isLine(line)) return unknownLine(line);
+    const { run } = stateOf(line);
+    if (run.status === 'idle') return null;
+    log.info(`Run of ${run.participant.bib} ${run.participant.name} on ${line} cancelled.`);
+    setRun(line, { status: 'idle' });
+    return null;
 }
 
 /**
- * Called for every recorded crossing. `instant` is when the HID report was received.
+ * Called for every crossing of a gate of a line. `instant` is when the HID report was received.
  */
-export function onCrossing(action: string, deviceName: string, instant: Temporal.Instant): void {
-    if (state.status === 'ready' && action.includes('start')) {
-        log.info(`Start of ${state.participant.bib} ${state.participant.name} on "${deviceName}".`);
-        setState({ ...state, status: 'running', startedAt: instant.toString() });
-    } else if (state.status === 'running' && action.includes('finish')) {
+export function onCrossing(line: string, gate: Gate, deviceName: string, instant: Temporal.Instant): void {
+    if (!isLine(line)) return;
+    const { run, timeRule } = stateOf(line);
+    if (run.status === 'ready' && gate === 'start') {
+        log.info(`Start of ${run.participant.bib} ${run.participant.name} on ${line} ("${deviceName}").`);
+        setRun(line, { ...run, status: 'running', startedAt: instant.toString() });
+    } else if (run.status === 'running' && gate === 'finish') {
         const finish = instant.toString();
-        const timeMs = runTimeMs(state.startedAt, finish, runTimeRule)!;
-        log.info(`Finish of ${state.participant.bib} ${state.participant.name} on "${deviceName}": ${formatSeconds(timeMs)} s`);
-        endRun({ finish, timeMs, status: 'ok' });
+        const timeMs = runTimeMs(run.startedAt, finish, timeRule)!;
+        log.info(`Finish of ${run.participant.bib} ${run.participant.name} on ${line} ("${deviceName}"): ${formatSeconds(timeMs)} s`);
+        endRun(line, { finish, timeMs, status: 'ok' });
     }
 }
 
 /**
- * Ends the run now, without waiting for the finish, and saves it as invalid or DQ (no finish, no time).
- * Returns a problem when no run is in progress.
+ * Ends the run of a line now, without waiting for the finish, and saves it as invalid or DQ (no finish, no time).
+ * Returns a problem when no run is in progress on the line.
  */
-export function voidRun(status: 'invalid' | 'dq'): string | null {
-    if (state.status !== 'running') return 'No run in progress.';
-    log.info(`Run of ${state.participant.bib} ${state.participant.name} ${status === 'dq' ? 'disqualified' : 'invalidated'}.`);
-    endRun({ finish: null, timeMs: null, status });
+export function voidRun(line: string, status: 'invalid' | 'dq'): string | null {
+    if (!isLine(line)) return unknownLine(line);
+    const { run } = stateOf(line);
+    if (run.status !== 'running') return `No run in progress on ${line}.`;
+    log.info(`Run of ${run.participant.bib} ${run.participant.name} on ${line} ${status === 'dq' ? 'disqualified' : 'invalidated'}.`);
+    endRun(line, { finish: null, timeMs: null, status });
     return null;
 }
 
-function endRun(outcome: Pick<RunResult, 'finish' | 'timeMs' | 'status'>): void {
-    if (state.status !== 'running') return;
-    const { event, discipline, participant, startedAt } = state;
+function endRun(line: string, outcome: Pick<RunResult, 'finish' | 'timeMs' | 'status'>): void {
+    const state = stateOf(line);
+    if (state.run.status !== 'running') return;
+    const { event, discipline, participant, startedAt } = state.run;
     const result: RunResult = { bib: participant.bib, name: participant.name, start: startedAt, ...outcome };
-    lastResult = { event, discipline, result, endedAt: new Date().toISOString() };
-    setState({ status: 'idle' });
+    state.lastResult = { event, discipline, result, endedAt: new Date().toISOString() };
+    setRun(line, { status: 'idle' });
     // Announced once saved: the pages that reload the results on this message (the live page) then get it
-    saveResult(event, discipline, result).finally(() => broadcastToUI({ type: 'RUN_RESULT', event, discipline, result }));
+    saveResult(event, discipline, result).finally(() => broadcastToUI({ type: 'RUN_RESULT', line, event, discipline, result }));
 }
 
 /** Seconds with millisecond precision, e.g. "12.345". */
@@ -386,10 +451,13 @@ export async function setResultStatus(
         row.updated = nowText();
         await writeRows(file, rows);
         notifyLocalChange(event, discipline);
-        // The live pages show the last run ended here: keep its status right
-        if (lastResult?.event === event && lastResult.discipline === discipline && lastResult.result.bib === bib && lastResult.result.start === start) {
-            lastResult = { ...lastResult, result: { ...lastResult.result, status } };
-            notifyActivityChange();
+        // The live pages show the last run ended on each line: keep its status right
+        for (const state of lineStates.values()) {
+            const last = state.lastResult;
+            if (last?.event === event && last.discipline === discipline && last.result.bib === bib && last.result.start === start) {
+                state.lastResult = { ...last, result: { ...last.result, status } };
+                notifyActivityChange();
+            }
         }
         const result = { ...current, status };
         log.info(`Run of ${result.bib} ${result.name} started at ${start} set to ${STATUS_TEXT[status]}.`);

@@ -64,7 +64,7 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
           <td>
             <div v-for="rule in item.rules" :key="rule.name">
               {{ rule.name }}
-              <span v-if="!rule.enabled" class="badge">{{ $t('interfaces.disabled') }}</span>
+              <span v-if="!rule.used" class="badge" :title="$t('interfaces.unusedHint')">{{ $t('interfaces.unused') }}</span>
               <span v-if="rule.conflict" class="badge error" :title="$t('interfaces.conflict')">{{ $t('interfaces.ignored') }}</span>
             </div>
             <span v-if="item.rules.length === 0" class="muted">—</span>

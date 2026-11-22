@@ -1,4 +1,5 @@
-# Saved from the configuration page. Field reference: backend/README.md
+# Example configuration: three timing lines on this computer. Field reference: backend/README.md
+# The Hardware configuration page edits it; saving there rewrites the file without these comments.
 
 # Port of the app, used when the app starts (--port or PORT override it)
 port: 3001
@@ -8,19 +9,69 @@ discoveryFilter:
   usagePage: 1
   usage: 2
 
+# Timing lines: the device button that starts each one, and the one that finishes it.
+# A mouse report has its buttons in byte 1: left 0x01, right 0x02, middle 0x04, back 0x08, forward 0x10.
+lines:
+  # Two lines can share a device, each with its own buttons: here a mouse on a Logitech receiver,
+  # left and right buttons for line 1...
+  - name: "Line 1"
+    enabled: true
+    start:
+      device: "Receiver"
+      reportId: 2
+      byteIndex: 1
+      mask: 0x01
+      value: 0x01
+    finish:
+      device: "Receiver"
+      reportId: 2
+      byteIndex: 1
+      mask: 0x02
+      value: 0x02
+
+  # ...and its back and forward side buttons for line 2
+  - name: "Line 2"
+    enabled: true
+    start:
+      device: "Receiver"
+      reportId: 2
+      byteIndex: 1
+      mask: 0x08
+      value: 0x08
+    finish:
+      device: "Receiver"
+      reportId: 2
+      byteIndex: 1
+      mask: 0x10
+      value: 0x10
+
+  # One device per gate: two identical wired mice, told apart by their USB port. This line is disabled:
+  # it is shown on the race page, but no run starts on it and its devices are not opened
+  - name: "Line 3"
+    enabled: false
+    start:
+      device: "Start mouse"
+      byteIndex: 0
+      mask: 0x01
+      value: 0x01
+    finish:
+      device: "Finish mouse"
+      byteIndex: 0
+      mask: 0x01
+      value: 0x01
+
+# USB HID devices used by the lines
 devices:
-  - name: "Lane 1"
+  - name: "Receiver"
     vendorId: 0x046d
     productId: 0xc548
-    enabled: true
-    triggers:
-      - reportId: 2
-        byteIndex: 1
-        mask: 0x01
-        value: 0x01
-        action: "start_crossed"
-      - reportId: 2
-        byteIndex: 1
-        mask: 0x02
-        value: 0x02
-        action: "finish_crossed"
+
+  - name: "Start mouse"
+    vendorId: 0x046d
+    productId: 0xc077
+    usbPort: "1-1"
+
+  - name: "Finish mouse"
+    vendorId: 0x046d
+    productId: 0xc077
+    usbPort: "1-2"

@@ -1,21 +1,14 @@
-/**
- * One recorded line crossing for a lane.
- */
-export interface CrossingEvent {
-    action: string;     // e.g. 'start_crossed' or 'finish_crossed'
-    timestamp: string;  // Temporal.Instant as ISO 8601, nanosecond precision
-}
+export type Gate = 'start' | 'finish';
 
 /**
- * Sent to every frontend client each time a crossing is recorded.
+ * Sent to every frontend client each time a gate of a line is crossed (whether or not a run uses it).
  */
 export interface RaceUpdateMessage {
     type: 'RACE_UPDATE';
-    deviceId: string;   // Lane ID (the device rule name in config.yaml)
-    deviceName: string;
-    action: string;
-    timestamp: string;
-    allCrossings: CrossingEvent[];
+    line: string;
+    gate: Gate;
+    deviceName: string; // The device whose button fired, "Simulator" for the simulated gates
+    timestamp: string;  // Temporal.Instant as ISO 8601, nanosecond precision
 }
 
 /** Participant of a run, as listed in the discipline's CSV files. */
@@ -26,7 +19,7 @@ export interface RunParticipant {
 }
 
 /**
- * The timed run: idle, ready (waiting for a start crossing) or running (waiting for a finish crossing).
+ * The timed run of a line: idle, ready (waiting for a start crossing) or running (waiting for a finish crossing).
  */
 export type RunState =
     | { status: 'idle' }
@@ -50,15 +43,38 @@ export interface RunResult {
     status: RunStatus;
 }
 
-/** Sent to every frontend client each time the run state changes. */
+/** The last run a line ended, shown on the live pages until the next participant is ready on it. */
+export interface LastResult {
+    event: string;
+    discipline: string;
+    result: RunResult;
+    endedAt: string;
+}
+
+/** A line of this computer and its run. */
+export interface LineRun {
+    line: string;
+    run: RunState;
+    lastResult: LastResult | null;
+}
+
+/** Sent to every frontend client each time the run state of a line changes. */
 export interface RunUpdateMessage {
     type: 'RUN_UPDATE';
+    line: string;
     run: RunState;
+}
+
+/** Sent to every frontend client when the lines of this computer change (config.yaml). */
+export interface LinesUpdateMessage {
+    type: 'LINES_UPDATE';
+    lines: LineRun[];
 }
 
 /** Sent to every frontend client when a run finishes or the participant is disqualified. */
 export interface RunResultMessage {
     type: 'RUN_RESULT';
+    line: string;
     event: string;
     discipline: string;
     result: RunResult;
@@ -95,16 +111,17 @@ export interface SyncUpdateMessage {
 export interface Viewing {
     event: string;
     discipline: string;
-    participant?: { bib: string; name: string } | null;
+    // The line the race page times on (null: none)
+    line: string | null;
+    participant: { bib: string; name: string } | null;
 }
 
 export interface Activity {
-    // Event and discipline open on its race pages (several browsers may show different ones), with the participant
-    // selected there, before they are ready (null: none; missing from older versions)
+    // Event, discipline and line open on its race pages (several browsers may show different ones), with the
+    // participant selected there, before they are ready (null: none)
     viewing: Viewing[];
-    run: RunState;
-    // The last run it ended, shown until the next participant is ready
-    lastResult: { event: string; discipline: string; result: RunResult; endedAt: string } | null;
+    // Its lines, each with its run and the last run it ended
+    lines: LineRun[];
 }
 
 /** An instance on the live page: this computer or a synced one. */
@@ -123,14 +140,15 @@ export interface LiveUpdateMessage {
 }
 
 /**
- * Messages a page sends to its backend. VIEWING: the event and discipline its race page shows (null: none), and the
- * participant selected there (null: none).
+ * Messages a page sends to its backend. VIEWING: the event and discipline its race page shows (null: none), the line
+ * it times on and the participant selected there (null: none).
  */
 export type ClientMessage = {
     type: 'VIEWING';
     event: string | null;
     discipline: string | null;
-    participant?: { bib: string; name: string } | null;
+    line: string | null;
+    participant: { bib: string; name: string } | null;
 };
 
 export type ServerMessage =
@@ -138,6 +156,7 @@ export type ServerMessage =
     | SyncUpdateMessage
     | RaceUpdateMessage
     | RunUpdateMessage
+    | LinesUpdateMessage
     | RunResultMessage
     | ResultUpdateMessage
     | SettingsUpdateMessage;

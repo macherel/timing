@@ -4,8 +4,8 @@ import { resetServer, cross, getReady, participantInput, pickParticipant, resetW
 const RESULTS_HEADER = 'bib;name;start;finish;status;updated';
 
 test.beforeEach(async ({ request }) => {
-  await resetServer(request);
   resetWorkDir();
+  await resetServer(request);
 });
 
 /** The race page and the live page of the same computer, side by side. */

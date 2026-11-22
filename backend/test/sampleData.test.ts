@@ -17,6 +17,8 @@ describe('sample data of the release packages', () => {
         const { config, problems } = parseDevicesConfig(fs.readFileSync(path.join(SAMPLE_DATA, 'config.yaml'), 'utf8'));
         expect(problems).toEqual([]);
         expect(config?.devices.length).toBeGreaterThan(0);
+        // Several lines, to show how they are configured
+        expect(config?.lines?.length).toBeGreaterThan(1);
         // A shared key would sync unrelated computers that installed the same release
         expect(config?.sync).toBeUndefined();
     });

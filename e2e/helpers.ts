@@ -32,14 +32,18 @@ export function readFile(relative: string, dir = WORK_DIR): string | null {
   }
 }
 
-/** Fires a crossing of the simulated start or finish gate. */
-export async function cross(request: APIRequestContext, gate: 'start' | 'finish', baseURL?: string): Promise<void> {
-  const response = await request.post(`${baseURL ?? ''}/api/simulate/crossing`, { data: { action: `${gate}_crossed` } });
+/**
+ * Fires a crossing of the simulated start or finish gate of a line: the first one by default. Without lines in
+ * config.yaml, the server has two simulated lines, "Line 1" and "Line 2".
+ */
+export async function cross(request: APIRequestContext, gate: 'start' | 'finish', baseURL?: string, line?: string): Promise<void> {
+  const response = await request.post(`${baseURL ?? ''}/api/simulate/crossing`, { data: { gate, line } });
   expect(response.ok()).toBe(true);
 }
 
 /**
- * Starts the server over: no run in progress and no last result, so a test does not see what the previous one did.
+ * Starts the server over: reads config.yaml of the working directory again (none: the simulated lines), no run in
+ * progress and no last result, so a test does not see what the previous one did. Call it after resetWorkDir.
  */
 export async function resetServer(request: APIRequestContext): Promise<void> {
   expect((await request.post('/api/simulate/reset')).ok()).toBe(true);

@@ -2,25 +2,33 @@
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import type { ConfigFileResponse, HidInterface } from '../types';
+import type { ConfigFileResponse, Gate, HidInterface, RecentReport } from '../types';
 import { useHardwareStatus } from '../composables/useHardwareStatus';
 import {
   emptyForm,
   emptyDevice,
+  emptyLine,
+  findPressedButton,
+  GATES,
   groupProblems,
+  hex,
+  parseHex,
+  reportKey,
   toConfig,
   toForm,
   type ConfigForm,
+  type DeviceForm,
 } from '../config/configForm';
 import DeviceEditor from '../components/config/DeviceEditor.vue';
+import LineEditor from '../components/config/LineEditor.vue';
 import ToastMessage from '../components/ToastMessage.vue';
 
 // Delay between the last change and the server-side validation
 const VALIDATE_DELAY_MS = 300;
 // How long the "Saved" confirmation stays visible; errors and warnings stay until the next action
 const SAVED_MESSAGE_MS = 4000;
-// Suggestions for trigger actions; only actions containing start, finish or click are recorded as crossings
-const SUGGESTED_ACTIONS = ['start_crossed', 'finish_crossed'];
+// How long the detection of a button waits for a press
+const DETECT_TIMEOUT_MS = 20_000;
 
 const { t } = useI18n();
 
@@ -46,10 +54,31 @@ watch(message, (current) => {
   if (current?.kind === 'ok') messageTimer = setTimeout(() => (message.value = null), SAVED_MESSAGE_MS);
 });
 const conflict = ref(false);
-// Connected devices for the dropdowns, refreshed as the backend rescans (devices plugged or unplugged)
-const { status: hardwareStatus } = useHardwareStatus();
+// The gate waiting for a button press (see startDetection)
+const detection = ref<{
+  lineKey: number;
+  gate: Gate;
+  deviceKey: number;
+  // Reports already received when the detection started
+  known: Set<string> | null;
+  startedAt: number;
+  message: { kind: 'hint' | 'error'; text: string } | null;
+} | null>(null);
+
+// Connected devices for the dropdowns, refreshed as the backend rescans (devices plugged or unplugged). While a button
+// is detected, its device is opened even if no saved line uses it yet, to read its reports
+const detectedModel = computed(() => {
+  const deviceKey = detection.value?.deviceKey;
+  const device = form.value.devices.find((d) => d.key === deviceKey);
+  if (!device) return null;
+  const vendorId = parseHex(device.vendorId);
+  const productId = parseHex(device.productId);
+  if (vendorId === undefined || productId === undefined || Number.isNaN(vendorId) || Number.isNaN(productId)) return null;
+  return `${hex(vendorId, 4)}:${hex(productId, 4)}`;
+});
+const { status: hardwareStatus } = useHardwareStatus(() => (detectedModel.value ? [detectedModel.value] : []));
 // One entry per connected device model, replaced only when the list changes: the status is polled every second,
-// and re-rendering the device editors that often closes the trigger action suggestions while they are open (Windows)
+// and re-rendering the editors that often closes the open dropdowns (Windows)
 const connectedModels = shallowRef<HidInterface[]>([]);
 watch(hardwareStatus, (current) => {
   const models = new Map<string, HidInterface>();
@@ -75,6 +104,7 @@ const canSave = computed(
 
 async function load(): Promise<void> {
   if (isDirty.value && !confirm(t('config.confirmDiscard'))) return;
+  stopDetection();
   try {
     const response = await fetch('/api/config');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -140,6 +170,104 @@ function addDevice(): void {
   form.value.devices.push(emptyDevice(t('config.defaultDeviceName', { n: form.value.devices.length + 1 })));
 }
 
+/** A new line, on the only device when there is one. */
+function addLine(): void {
+  const { lines, devices } = form.value;
+  lines.push(emptyLine(t('config.defaultLineName', { n: lines.length + 1 }), devices.length === 1 ? devices[0].key : null));
+}
+
+function removeLine(index: number): void {
+  const name = form.value.lines[index].name || `#${index + 1}`;
+  if (!confirm(t('config.confirmRemoveLine', { name }))) return;
+  if (detection.value?.lineKey === form.value.lines[index].key) stopDetection();
+  form.value.lines.splice(index, 1);
+}
+
+function moveLine(index: number, delta: number): void {
+  const [line] = form.value.lines.splice(index, 1);
+  form.value.lines.splice(index + delta, 0, line);
+}
+
+/** Names of the lines that use a device, to show on the device. */
+function linesUsing(device: DeviceForm): string[] {
+  return form.value.lines
+    .filter((line) => GATES.some((gate) => line[gate].deviceKey === device.key))
+    .map((line, i) => line.name.trim() || `#${i + 1}`);
+}
+
+// ---------------------------------------------------------------------------
+// Detection of a button: waits for a press on the device of a gate, and fills the gate's pattern with it
+// ---------------------------------------------------------------------------
+
+
+/** The recent reports of the connected interfaces of a device, oldest first, and why they cannot be read. */
+function deviceReports(device: DeviceForm): { reports: { path: string; report: RecentReport }[]; failure: string | null; found: boolean } {
+  const status = hardwareStatus.value;
+  const vendorId = parseHex(device.vendorId);
+  const productId = parseHex(device.productId);
+  const interfaces = (status?.interfaces ?? []).filter(
+    (item) =>
+      parseInt(item.vendorId, 16) === vendorId &&
+      parseInt(item.productId, 16) === productId &&
+      (!device.serialNumber.trim() || item.serialNumber === device.serialNumber.trim()) &&
+      (!device.usbPort.trim() || item.usbPort === device.usbPort.trim()),
+  );
+  const reports: { path: string; report: RecentReport }[] = [];
+  let failure: string | null = null;
+  for (const item of interfaces) {
+    const state = status?.devices.find((d) => d.path === item.path) ?? item.monitor;
+    if (state?.state === 'failing') failure = [state.error, state.hint].filter(Boolean).join(' ');
+    for (const report of state?.recentReports ?? []) reports.push({ path: item.path, report });
+  }
+  return { reports, failure: reports.length === 0 ? failure : null, found: interfaces.length > 0 };
+}
+
+function startDetection(lineKey: number, gate: Gate): void {
+  const line = form.value.lines.find((l) => l.key === lineKey);
+  const deviceKey = line?.[gate].deviceKey;
+  if (deviceKey == null) return;
+  detection.value = { lineKey, gate, deviceKey, known: null, startedAt: Date.now(), message: { kind: 'hint', text: t('line.detectPress') } };
+  checkDetection();
+}
+
+function stopDetection(): void {
+  detection.value = null;
+}
+
+function checkDetection(): void {
+  const current = detection.value;
+  if (!current) return;
+  const line = form.value.lines.find((l) => l.key === current.lineKey);
+  const device = form.value.devices.find((d) => d.key === current.deviceKey);
+  if (!line || !device || line[current.gate].deviceKey !== current.deviceKey) {
+    stopDetection();
+    return;
+  }
+  const { reports, failure, found } = deviceReports(device);
+  // The reports already there were received before the click
+  if (!current.known) {
+    current.known = new Set(reports.map(({ path, report }) => reportKey(path, report)));
+  }
+  const button = findPressedButton(reports, current.known);
+  if (button) {
+    const gate = line[current.gate];
+    gate.reportId = button.reportId === null ? '' : String(button.reportId);
+    gate.byteIndex = String(button.byteIndex);
+    gate.mask = hex(button.mask, 2);
+    gate.value = hex(button.mask, 2);
+    stopDetection();
+  } else if (Date.now() - current.startedAt > DETECT_TIMEOUT_MS) {
+    current.message = { kind: 'error', text: t('line.detectTimeout') };
+  } else if (!found && hardwareStatus.value) {
+    current.message = { kind: 'error', text: t('line.detectNotConnected') };
+  } else if (failure) {
+    current.message = { kind: 'error', text: t('line.detectCannotRead', { error: failure }) };
+  } else {
+    current.message = { kind: 'hint', text: t('line.detectPress') };
+  }
+}
+watch(hardwareStatus, checkDetection);
+
 const route = useRoute();
 const router = useRouter();
 
@@ -160,8 +288,13 @@ function addDeviceFromLink(): void {
 }
 
 function removeDevice(index: number): void {
-  const name = form.value.devices[index].name || `#${index + 1}`;
-  if (confirm(t('config.confirmRemove', { name }))) form.value.devices.splice(index, 1);
+  const device = form.value.devices[index];
+  const name = device.name || `#${index + 1}`;
+  const usedBy = linesUsing(device);
+  const question = usedBy.length > 0 ? t('config.confirmRemoveUsed', { name, lines: usedBy.join(', ') }) : t('config.confirmRemove', { name });
+  if (!confirm(question)) return;
+  if (detection.value?.deviceKey === device.key) stopDetection();
+  form.value.devices.splice(index, 1);
 }
 
 function moveDevice(index: number, delta: number): void {
@@ -281,6 +414,47 @@ onUnmounted(() => {
         </ul>
 
         <section>
+          <h2>{{ $t('config.lines') }}</h2>
+          <p v-if="form.lines.length === 0" class="muted">{{ $t('config.noLine') }}</p>
+          <p v-else class="muted small">{{ $t('config.linesHint') }}</p>
+          <LineEditor
+            v-for="(line, index) in form.lines"
+            :key="line.key"
+            v-model="form.lines[index]"
+            :index="index"
+            :count="form.lines.length"
+            :problems="validating ? [] : (groupedProblems.byLine.get(index) ?? [])"
+            :devices="form.devices"
+            :detecting="detection?.lineKey === line.key ? detection.gate : null"
+            :detect-message="detection?.lineKey === line.key ? detection.message : null"
+            @remove="removeLine(index)"
+            @move="moveLine(index, $event)"
+            @detect="startDetection(line.key, $event)"
+            @stop-detect="stopDetection"
+          />
+          <button type="button" class="secondary" @click="addLine">{{ $t('config.addLine') }}</button>
+        </section>
+
+        <section>
+          <h2>{{ $t('config.devices') }}</h2>
+          <p v-if="form.devices.length === 0" class="muted">{{ $t('config.noDevice') }}</p>
+          <p v-else class="muted small">{{ $t('config.devicesHint') }}</p>
+          <DeviceEditor
+            v-for="(device, index) in form.devices"
+            :key="device.key"
+            v-model="form.devices[index]"
+            :index="index"
+            :count="form.devices.length"
+            :problems="validating ? [] : (groupedProblems.byDevice.get(index) ?? [])"
+            :connected-models="connectedModels"
+            :used-by="linesUsing(device)"
+            @remove="removeDevice(index)"
+            @move="moveDevice(index, $event)"
+          />
+          <button type="button" class="secondary" @click="addDevice">{{ $t('config.addDevice') }}</button>
+        </section>
+
+        <section>
           <h2>{{ $t('config.port.title') }}</h2>
           <div class="row">
             <label class="field">
@@ -329,29 +503,9 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <section>
-          <h2>{{ $t('config.devices') }}</h2>
-          <p v-if="form.devices.length === 0" class="muted">{{ $t('config.noDevice') }}</p>
-          <p v-else class="muted small">{{ $t('config.devicesHint') }}</p>
-          <DeviceEditor
-            v-for="(device, index) in form.devices"
-            :key="device.key"
-            v-model="form.devices[index]"
-            :index="index"
-            :count="form.devices.length"
-            :problems="validating ? [] : (groupedProblems.byDevice.get(index) ?? [])"
-            :connected-models="connectedModels"
-            @remove="removeDevice(index)"
-            @move="moveDevice(index, $event)"
-          />
-          <button type="button" class="secondary" @click="addDevice">{{ $t('config.addDevice') }}</button>
-        </section>
       </template>
     </template>
 
-    <datalist id="trigger-actions">
-      <option v-for="action in SUGGESTED_ACTIONS" :key="action" :value="action" />
-    </datalist>
   </main>
 </template>
 

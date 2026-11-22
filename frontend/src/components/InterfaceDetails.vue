@@ -4,8 +4,8 @@ import { formatTime, hexByte } from '../format';
 import ReportBytes from './ReportBytes.vue';
 import ReportHistory from './ReportHistory.vue';
 
-// State and reports of one open (or failing) HID interface. `triggers` is only set on an interface that a rule
-// listens to; the others are opened for the diagnostics page only.
+// State and reports of one open (or failing) HID interface. `triggers` (the gates of the lines on it) is only set on
+// an interface used by a line; the others are opened for the diagnostics page only.
 defineProps<{ status: MonitorStatus & { triggers?: TriggerState[] } }>();
 </script>
 
@@ -37,23 +37,25 @@ defineProps<{ status: MonitorStatus & { triggers?: TriggerState[] } }>();
       <table v-else>
         <thead>
           <tr>
+            <th>{{ $t('eventLog.line') }}</th>
+            <th>{{ $t('eventLog.gate') }}</th>
             <th>{{ $t('hid.reportId') }}</th>
             <th>{{ $t('hid.byte') }}</th>
             <th>{{ $t('hid.mask') }}</th>
             <th>{{ $t('hid.value') }}</th>
-            <th>{{ $t('hid.pressAction') }}</th>
-            <th>{{ $t('hid.releaseAction') }}</th>
+            <th>{{ $t('line.edge') }}</th>
             <th>{{ $t('deviceCard.state') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(trigger, i) in status.triggers" :key="i">
+            <td>{{ trigger.line }}</td>
+            <td>{{ $t(`line.${trigger.gate}`) }}</td>
             <td>{{ trigger.reportId ?? $t('common.any') }}</td>
             <td>{{ trigger.byteIndex }}</td>
             <td class="mono">{{ hexByte(trigger.mask) }}</td>
             <td class="mono">{{ hexByte(trigger.value) }}</td>
-            <td>{{ trigger.action ?? '—' }}</td>
-            <td>{{ trigger.releaseAction ?? '—' }}</td>
+            <td>{{ $t(`line.${trigger.edge}`) }}</td>
             <td>
               <span class="badge" :class="{ ok: trigger.isMatched }">{{ trigger.isMatched ? $t('deviceCard.pressed') : $t('deviceCard.idle') }}</span>
             </td>

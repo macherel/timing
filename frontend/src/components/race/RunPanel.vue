@@ -10,6 +10,9 @@ const CLOCK_INTERVAL_MS = 50;
 
 const props = defineProps<{
   participant: Participant;
+  // The line the run is timed on, null when this computer has none
+  line: string | null;
+  // The run of the line
   run: RunState;
   // This participant's results in the discipline, oldest first
   results: RunResult[];
@@ -114,8 +117,16 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
         <button
           type="button"
           class="ready"
-          :disabled="busy || run.status !== 'idle' || noAttemptLeft || closed !== null"
-          :title="closed ? $t('run.closedTitle', { reason: closed }) : noAttemptLeft ? $t('run.noAttemptLeft') : undefined"
+          :disabled="busy || line === null || run.status !== 'idle' || noAttemptLeft || closed !== null"
+          :title="
+            line === null
+              ? $t('run.noLine')
+              : closed
+                ? $t('run.closedTitle', { reason: closed })
+                : noAttemptLeft
+                  ? $t('run.noAttemptLeft')
+                  : undefined
+          "
           @click="$emit('ready')"
         >
           {{ $t('run.ready') }}

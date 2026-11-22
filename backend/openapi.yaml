@@ -30,7 +30,7 @@ tags:
   - name: Results
     description: Saved runs of a discipline (<event>-<discipline>-results.csv)
   - name: Run
-    description: The timed run, one at a time on a computer
+    description: The timed runs, one at a time on each line of a computer
   - name: Live
     description: What this computer and the synced ones are doing
   - name: Device configuration
@@ -71,7 +71,7 @@ paths:
           in: query
           required: false
           description: >-
-            Comma-separated device models (vendorId:productId, as in `interfaces`) to open even though no enabled rule
+            Comma-separated device models (vendorId:productId, as in `interfaces`) to open even though no line uses
             listens to them, so that their reports are shown. They stay open while requests keep asking for them, and
             close 5 seconds after the last one.
           schema: { type: string, examples: ['0x046d:0xc548'] }
@@ -216,23 +216,35 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Problems' }
 
-  /run:
+  /lines:
     get:
       tags: [Run]
-      summary: The current run
-      operationId: getRun
+      summary: The lines of this computer, with their runs
+      description: |
+        The enabled lines of config.yaml, in its order. With simulated gates and no line in config.yaml, two simulated
+        lines, "Line 1" and "Line 2". Pages get the changes through `RUN_UPDATE` and `LINES_UPDATE` messages.
+      operationId: getLines
       responses:
         '200':
-          description: Idle, ready (waiting for a start crossing) or running (waiting for a finish crossing)
+          description: Each line with its run and the last run it ended
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/RunState' }
+              schema:
+                type: object
+                required: [lines]
+                properties:
+                  lines:
+                    type: array
+                    items: { $ref: '#/components/schemas/LineRun' }
 
-  /run/ready:
+  /lines/{line}/ready:
+    parameters:
+      - $ref: '#/components/parameters/Line'
     post:
       tags: [Run]
-      summary: A participant is ready
-      description: The next start crossing starts their run, the next finish crossing ends it and saves the result.
+      summary: A participant is ready on a line
+      description: |
+        The next start crossing of the line starts their run, its next finish crossing ends it and saves the result.
       operationId: prepareRun
       requestBody:
         required: true
@@ -253,50 +265,62 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/RunState' }
         '404':
-          description: Unknown event, discipline or participant
+          description: Unknown line, event, discipline or participant
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problems' }
         '409':
-          description: A run is in progress, the participant has no attempt left, or the discipline is closed
+          description: |
+            A run is in progress on the line, the participant is ready or running on another line, has no attempt
+            left, or the discipline is closed
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problems' }
 
-  /run/invalidate:
+  /lines/{line}/invalidate:
+    parameters:
+      - $ref: '#/components/parameters/Line'
     post:
       tags: [Run]
-      summary: Ends the running run now and saves it as invalid
+      summary: Ends the running run of a line now and saves it as invalid
       description: An invalid run is not the participant's fault and does not use up an attempt. It has no time.
       operationId: invalidateRun
       responses:
         '200': { $ref: '#/components/responses/Idle' }
+        '404': { $ref: '#/components/responses/UnknownLine' }
         '409': { $ref: '#/components/responses/NoRun' }
 
-  /run/disqualify:
+  /lines/{line}/disqualify:
+    parameters:
+      - $ref: '#/components/parameters/Line'
     post:
       tags: [Run]
-      summary: Ends the running run now and saves it as disqualified (DQ)
+      summary: Ends the running run of a line now and saves it as disqualified (DQ)
       operationId: disqualifyRun
       responses:
         '200': { $ref: '#/components/responses/Idle' }
+        '404': { $ref: '#/components/responses/UnknownLine' }
         '409': { $ref: '#/components/responses/NoRun' }
 
-  /run/cancel:
+  /lines/{line}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/Line'
     post:
       tags: [Run]
-      summary: Abandons the ready or running run, nothing is saved
+      summary: Abandons the ready or running run of a line, nothing is saved
       operationId: cancelRun
       responses:
         '200': { $ref: '#/components/responses/Idle' }
+        '404': { $ref: '#/components/responses/UnknownLine' }
 
   /simulate/crossing:
     post:
       tags: [Simulated gates]
-      summary: Fires a gate crossing now
+      summary: Fires a gate crossing of a line now
       description: |
-        Acts as if a gate fired the action now. Only when the server is started with `TIMING_SIMULATE_GATES=1`
-        (end-to-end tests, training without hardware); the route does not exist otherwise (404).
+        Acts as if the start or finish gate of the line was crossed now. Only when the server is started with
+        `TIMING_SIMULATE_GATES=1` (end-to-end tests, training without hardware); the route does not exist otherwise
+        (404).
       operationId: simulateCrossing
       requestBody:
         required: true
@@ -304,27 +328,39 @@ paths:
           application/json:
             schema:
               type: object
-              required: [action]
+              required: [gate]
               properties:
-                action: { type: string, enum: [start_crossed, finish_crossed] }
+                gate: { type: string, enum: [start, finish] }
+                line: { type: string, description: 'The line, the first one by default', examples: [Line 1] }
       responses:
         '200':
-          description: The run after the crossing
+          description: The run of the line after the crossing
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RunState' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/UnknownLine' }
 
   /simulate/reset:
     post:
       tags: [Simulated gates]
       summary: Starts over
       description: |
-        Forgets the run in progress and the last result shown on the live pages, as when the app starts. Only with
-        `TIMING_SIMULATE_GATES=1`.
+        Reads config.yaml again (no file: no line, so the simulated lines), and forgets the runs in progress and the
+        last results shown on the live pages, as when the app starts. Only with `TIMING_SIMULATE_GATES=1`.
       operationId: simulateReset
       responses:
-        '200': { $ref: '#/components/responses/Idle' }
+        '200':
+          description: The lines, all idle
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lines]
+                properties:
+                  lines:
+                    type: array
+                    items: { $ref: '#/components/schemas/LineRun' }
 
   /live:
     get:
@@ -409,7 +445,7 @@ paths:
     post:
       tags: [Device configuration]
       summary: Checks a config without saving it
-      description: Always 200; `problems` is empty when the config is valid. Problems of a device start with `devices[<index>]`.
+      description: Always 200; `problems` is empty when the config is valid. Problems of a line start with `lines[<index>]`, of a device with `devices[<index>]`.
       operationId: validateConfig
       requestBody:
         required: true
@@ -513,7 +549,7 @@ paths:
     post:
       tags: [Sync]
       summary: A peer's activity changed
-      description: A peer pushes its activity (race pages shown, run, last result) as soon as it changes.
+      description: A peer pushes its activity (race pages shown, run and last result of each line) as soon as it changes.
       operationId: postSyncActivity
       security: [{ syncKey: [] }]
       requestBody:
@@ -572,6 +608,12 @@ components:
       required: true
       description: Name of a discipline folder of the event
       schema: { type: string, examples: [100m] }
+    Line:
+      name: line
+      in: path
+      required: true
+      description: Name of a line of this computer (URL-encoded)
+      schema: { type: string, examples: [Line 1] }
 
   responses:
     UnknownDiscipline:
@@ -589,8 +631,13 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Problems' }
+    UnknownLine:
+      description: Unknown line
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problems' }
     NoRun:
-      description: No run in progress
+      description: No run in progress on the line
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Problems' }
@@ -755,7 +802,7 @@ components:
         status: { $ref: '#/components/schemas/RunStatus' }
 
     RunState:
-      description: The run of this computer, told apart by `status`
+      description: The run of a line, told apart by `status`
       oneOf:
         - $ref: '#/components/schemas/RunIdle'
         - $ref: '#/components/schemas/RunReady'
@@ -795,32 +842,15 @@ components:
         participant: { $ref: '#/components/schemas/Participant' }
         startedAt: { type: string, format: date-time, description: Instant of the start crossing }
 
-    Activity:
+    LineRun:
       type: object
-      description: What an instance is doing, shown on the live pages
-      required: [viewing, run, lastResult]
+      description: A line of a computer, with its run
+      required: [line, run, lastResult]
       properties:
-        viewing:
-          type: array
-          description: Event and discipline open on its race pages, with the participant selected there
-          items:
-            type: object
-            required: [event, discipline]
-            properties:
-              event: { type: string }
-              discipline: { type: string }
-              participant:
-                description: Selected on the race page, not ready yet. null or missing for none
-                oneOf:
-                  - type: object
-                    required: [bib, name]
-                    properties:
-                      bib: { type: string }
-                      name: { type: string }
-                  - type: 'null'
+        line: { type: string, examples: [Line 1] }
         run: { $ref: '#/components/schemas/RunState' }
         lastResult:
-          description: The last run it ended, shown until the next participant is ready. null for none
+          description: The last run ended on the line, shown until the next participant is ready on it. null for none
           oneOf:
             - type: object
               required: [event, discipline, result, endedAt]
@@ -830,6 +860,34 @@ components:
                 result: { $ref: '#/components/schemas/RunResult' }
                 endedAt: { type: string, format: date-time }
             - type: 'null'
+
+    Activity:
+      type: object
+      description: What an instance is doing, shown on the live pages
+      required: [viewing, lines]
+      properties:
+        viewing:
+          type: array
+          description: Event, discipline and line open on its race pages, with the participant selected there
+          items:
+            type: object
+            required: [event, discipline, line, participant]
+            properties:
+              event: { type: string }
+              discipline: { type: string }
+              line: { type: [string, 'null'], description: The line the race page times on }
+              participant:
+                description: Selected on the race page, not ready yet. null for none
+                oneOf:
+                  - type: object
+                    required: [bib, name]
+                    properties:
+                      bib: { type: string }
+                      name: { type: string }
+                  - type: 'null'
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/LineRun' }
 
     LiveInstance:
       allOf:
@@ -844,34 +902,50 @@ components:
               type: number
               description: Its clock minus this computer's clock, to show its running clock right
 
-    TriggerRule:
+    ReportPattern:
       type: object
       required: [byteIndex, mask, value]
-      description: Fires `action` when `(report[byteIndex] & mask) == value` starts being true, `releaseAction` when it stops
+      description: A button of a device, pressed while `(report[byteIndex] & mask) == value`
       properties:
         reportId: { type: integer, description: Only reports with this report ID (byte 0) }
         byteIndex: { type: integer, minimum: 0 }
         mask: { type: integer, minimum: 0, maximum: 255 }
         value: { type: integer, minimum: 0, maximum: 255 }
-        action: { type: string, examples: [start_crossed] }
-        releaseAction: { type: string }
+
+    GateRule:
+      description: The device button that starts or finishes a line
+      allOf:
+        - $ref: '#/components/schemas/ReportPattern'
+        - type: object
+          required: [device]
+          properties:
+            device: { type: string, description: Name of a device of `devices`, examples: [Receiver] }
+            edge:
+              type: string
+              enum: [press, release]
+              description: 'When the crossing is recorded: when the button is pressed (default) or released'
+
+    LineRule:
+      type: object
+      required: [name, enabled, start, finish]
+      properties:
+        name: { type: string, description: 'Unique, shown on the race and live pages', examples: [Line 1] }
+        enabled: { type: boolean }
+        start: { $ref: '#/components/schemas/GateRule' }
+        finish: { $ref: '#/components/schemas/GateRule' }
 
     DeviceRule:
       type: object
-      required: [name, vendorId, productId, enabled]
+      required: [name, vendorId, productId]
       properties:
-        name: { type: string, description: 'Unique, identifies the device in race events', examples: [Start gate] }
+        name: { type: string, description: 'Unique, the lines refer to it', examples: [Receiver] }
         vendorId: { type: integer, examples: [1133] }
         productId: { type: integer, examples: [50504] }
         usagePage: { type: integer, description: 'HID interface to use, with usage (overrides discoveryFilter)' }
         usage: { type: integer }
         serialNumber: { type: string, description: Only the unit with this serial number }
         usbPort: { type: string, description: Only the device on this USB port (Linux), examples: ['3-5'] }
-        enabled: { type: boolean }
         logReports: { type: boolean, description: Log every changed raw report }
-        triggers:
-          type: array
-          items: { $ref: '#/components/schemas/TriggerRule' }
 
     DevicesConfig:
       type: object
@@ -897,13 +971,18 @@ components:
           properties:
             usagePage: { type: integer }
             usage: { type: integer }
+        lines:
+          type: array
+          description: The timing lines. Missing for none
+          items: { $ref: '#/components/schemas/LineRule' }
         devices:
           type: array
+          description: The devices; only those used by an enabled line are opened
           items: { $ref: '#/components/schemas/DeviceRule' }
 
     RecentReport:
       type: object
-      required: [at, reportId, hex, changes]
+      required: [at, reportId, hex, changes, bits]
       properties:
         at: { type: string, format: date-time }
         reportId: { type: [integer, 'null'] }
@@ -912,6 +991,16 @@ components:
           type: array
           items: { type: string }
           examples: [['byte 1 bit 0 ↑ (mask 0x01)']]
+        bits:
+          type: array
+          description: The same changes; empty for the first report with this report ID
+          items:
+            type: object
+            required: [byteIndex, bit, isSet]
+            properties:
+              byteIndex: { type: integer }
+              bit: { type: integer, minimum: 0, maximum: 7 }
+              isSet: { type: boolean, description: New state of the bit }
 
     HardwareStatus:
       type: object
@@ -941,12 +1030,16 @@ components:
                 items: { $ref: '#/components/schemas/RecentReport' }
               triggers:
                 type: array
+                description: The gates of the lines that use this device
                 items:
                   allOf:
-                    - $ref: '#/components/schemas/TriggerRule'
+                    - $ref: '#/components/schemas/ReportPattern'
                     - type: object
-                      required: [isMatched]
+                      required: [line, gate, edge, isMatched]
                       properties:
+                        line: { type: string }
+                        gate: { type: string, enum: [start, finish] }
+                        edge: { type: string, enum: [press, release] }
                         isMatched: { type: boolean, description: Whether its pattern matches now (pressed) }
               error: { type: string }
               hint: { type: string }
@@ -981,14 +1074,14 @@ components:
                 type: array
                 items:
                   type: object
-                  required: [name, enabled, conflict]
+                  required: [name, used, conflict]
                   properties:
                     name: { type: string }
-                    enabled: { type: boolean }
+                    used: { type: boolean, description: An enabled line uses this device }
                     conflict: { type: boolean, description: Another interface already uses this rule }
               monitor:
                 description: >-
-                  Only on the interfaces of a device model asked for with the `monitor` parameter that no enabled rule
+                  Only on the interfaces of a device model asked for with the `monitor` parameter that no used device
                   listens to: opened for the diagnostics page only (it fires no race event)
                 type: object
                 required: [state, since]
@@ -1009,7 +1102,7 @@ components:
         lastScanAt: { type: [string, 'null'], format: date-time }
         unmatchedRules:
           type: array
-          description: Why each enabled rule matches no device
+          description: Why each device used by an enabled line matches no connected device
           items: { type: string }
 
     SyncStatus:
@@ -1036,7 +1129,7 @@ components:
       type: object
       required: [protocol, serverTime, files, results]
       properties:
-        protocol: { type: string, const: timing-sync/1 }
+        protocol: { type: string, const: timing-sync/3 }
         serverTime: { type: string, format: date-time }
         files:
           type: array

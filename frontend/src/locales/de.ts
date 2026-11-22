@@ -154,6 +154,14 @@ const de: Messages = {
     noParticipant:
       'Keine Teilnehmer in {event} / {discipline}: lege CSV-Dateien mit Zeilen im Format {format} in ihren Ordner.',
     problems: '{n} Problem in den Dateien von {discipline} | {n} Probleme in den Dateien von {discipline}',
+    lines: 'Bahnen dieses Computers',
+    line: 'Bahn: {line}',
+    noLine: 'Auf diesem Computer ist keine Bahn konfiguriert: fügen Sie auf der Seite {config} eine hinzu, um zu zeitmessen.',
+    lineState: {
+      idle: 'Frei',
+      ready: 'Ein Teilnehmer wartet auf den Start',
+      running: 'Ein Lauf ist im Gange',
+    },
   },
 
   run: {
@@ -187,6 +195,7 @@ const de: Messages = {
     noTime: 'Vor dem Ziel beendet: keine Zeit',
     best: 'beste',
     statusOf: 'Status von Lauf {n}',
+    noLine: 'Keine Bahn auf diesem Computer',
   },
 
   picker: {
@@ -264,15 +273,47 @@ const de: Messages = {
     devices: 'Geräte',
     noDevice: 'Noch kein Gerät.',
     devicesHint:
-      'Wenn mehrere Einträge zur selben HID-Schnittstelle passen, wird der erste in dieser Liste verwendet. Der Gerätename kennzeichnet es in den Rennereignissen und muss daher eindeutig sein.',
+      'Wenn mehrere Einträge zur selben HID-Schnittstelle passen, wird der erste in dieser Liste verwendet. Die Bahnen verweisen über den Namen auf ein Gerät, er muss daher eindeutig sein. Nur die von einer aktivierten Bahn verwendeten Geräte werden geöffnet.',
     addDevice: '+ Gerät hinzufügen',
-    triggerProblem: 'Auslöser {n}: {problem}',
+    defaultLineName: 'Bahn {n}',
+    confirmRemoveLine: 'Bahn „{name}“ entfernen?',
+    confirmRemoveUsed: 'Gerät „{name}“ entfernen? Es wird verwendet von: {lines}. Ihr Start oder Ziel hat dann kein Gerät mehr.',
+    lines: 'Bahnen',
+    noLine: 'Noch keine Bahn: fügen Sie eine hinzu, um auf diesem Computer zu zeitmessen.',
+    linesHint:
+      'Auf jeder Bahn wird jeweils ein Teilnehmer gemessen, vom Drücken ihrer Start-Taste bis zum Drücken ihrer Ziel-Taste. Mehrere Bahnen können sich ein Gerät teilen (je eine Taste).',
+    addLine: '+ Bahn hinzufügen',
+    gateProblem: '{gate}: {problem}',
+  },
+
+  line: {
+    name: 'Name der Bahn',
+    namePlaceholder: 'Bahn 1',
+    enabled: 'Aktiviert',
+    moveUp: 'Nach oben',
+    moveDown: 'Nach unten',
+    remove: 'Bahn entfernen',
+    start: 'Start',
+    finish: 'Ziel',
+    device: 'Gerät',
+    chooseDevice: 'Gerät wählen…',
+    noDevice: 'Zuerst unten ein Gerät hinzufügen',
+    detect: 'Taste erkennen',
+    detectTitle: 'Drücken Sie die Taste am Gerät: ihr Muster wird ausgefüllt',
+    detectPress: 'Drücken Sie jetzt die Taste am Gerät (ohne die Maus zu bewegen)…',
+    detectTimeout: 'Kein Tastendruck empfangen. Drücken Sie erneut oder prüfen Sie das Gerät auf der Seite Diagnose.',
+    detectNotConnected: 'Dieses Gerät ist nicht angeschlossen (oder seine IDs stimmen nicht).',
+    detectCannotRead: 'Gerät kann nicht gelesen werden: {error}',
+    edge: 'Durchgang beim',
+    press: 'Drücken',
+    release: 'Loslassen',
+    patternHint:
+      'Die Taste ist gedrückt, solange {condition}. Maske und Wert sind hexadezimal. {button} füllt sie aus, wenn Sie die Taste drücken.',
   },
 
   device: {
     name: 'Gerätename',
     namePlaceholder: 'Startschranke',
-    enabled: 'Aktiviert',
     moveUp: 'Nach oben',
     moveDown: 'Nach unten',
     remove: 'Gerät entfernen',
@@ -289,11 +330,8 @@ const de: Messages = {
     logReports: 'Rohe Reports protokollieren',
     advancedHint:
       'Usage Page und Usage wählen eine Schnittstelle des Geräts aus (sonst gilt die Standardschnittstelle). Seriennummer oder USB-Anschluss unterscheiden identische Geräte. Die Diagnoseseite zeigt diese Werte für jedes Gerät.',
-    triggersHint:
-      'Ein Auslöser löst seine Drück-Aktion aus, wenn {condition} wahr wird, und seine Loslass-Aktion, wenn es nicht mehr wahr ist. Maske und Wert sind hexadezimal.',
-    noAction: 'keine',
-    removeTrigger: 'Auslöser entfernen',
-    addTrigger: '+ Auslöser hinzufügen',
+    usedBy: 'Verwendet von: {lines}',
+    unused: 'Von keiner Bahn verwendet',
   },
 
   hid: {
@@ -305,8 +343,6 @@ const de: Messages = {
     byte: 'Byte',
     mask: 'Maske',
     value: 'Wert',
-    pressAction: 'Drück-Aktion',
-    releaseAction: 'Loslass-Aktion',
     interface: 'Schnittstelle',
     serial: 'Seriennr.',
     usbPort: 'USB-Anschluss',
@@ -390,9 +426,10 @@ const de: Messages = {
     none: 'Keine HID-Schnittstelle gefunden.',
     vidPid: 'VID:PID',
     rule: 'Regel',
-    disabled: 'deaktiviert',
     ignored: 'ignoriert',
     conflict: 'Eine andere Schnittstelle verwendet diese Regel bereits',
+    unused: 'nicht verwendet',
+    unusedHint: 'Keine aktivierte Bahn verwendet dieses Gerät: es wird nicht geöffnet',
   },
 
   report: {
@@ -404,9 +441,9 @@ const de: Messages = {
 
   eventLog: {
     none: 'Seit dem Öffnen dieser Seite wurde keine Durchfahrt empfangen.',
-    action: 'Aktion',
-    crossings: 'Durchfahrten des Geräts',
     timestamp: 'Genauer Zeitstempel',
+    line: 'Bahn',
+    gate: 'Schranke',
   },
 };
 

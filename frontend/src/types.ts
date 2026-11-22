@@ -3,21 +3,19 @@
  * Keep in sync with backend/src/types/messages.ts and HardwareStatus in backend/src/services/hardwareService.ts.
  */
 
-export interface CrossingEvent {
-  action: string;
+export type Gate = 'start' | 'finish';
+
+/** A gate of a line was crossed (whether or not a run uses it) */
+export interface RaceUpdateMessage {
+  type: 'RACE_UPDATE';
+  line: string;
+  gate: Gate;
+  // The device whose button fired, "Simulator" for the simulated gates
+  deviceName: string;
   timestamp: string; // ISO 8601, nanosecond precision
 }
 
-export interface RaceUpdateMessage {
-  type: 'RACE_UPDATE';
-  deviceId: string;
-  deviceName: string;
-  action: string;
-  timestamp: string;
-  allCrossings: CrossingEvent[];
-}
-
-/** The timed run: idle, ready (waiting for a start crossing) or running (waiting for a finish crossing). */
+/** The timed run of a line: idle, ready (waiting for a start crossing) or running (waiting for a finish crossing). */
 export type RunState =
   | { status: 'idle' }
   | { status: 'ready'; event: string; discipline: string; participant: Participant }
@@ -37,13 +35,36 @@ export interface RunResult {
   status: RunStatus;
 }
 
+/** The last run a line ended, until the next participant is ready on it */
+export interface LastResult {
+  event: string;
+  discipline: string;
+  result: RunResult;
+  endedAt: string;
+}
+
+/** A line of a computer and its run (GET /api/lines) */
+export interface LineRun {
+  line: string;
+  run: RunState;
+  lastResult: LastResult | null;
+}
+
 export interface RunUpdateMessage {
   type: 'RUN_UPDATE';
+  line: string;
   run: RunState;
+}
+
+/** The lines of this computer changed (config.yaml) */
+export interface LinesUpdateMessage {
+  type: 'LINES_UPDATE';
+  lines: LineRun[];
 }
 
 export interface RunResultMessage {
   type: 'RUN_RESULT';
+  line: string;
   event: string;
   discipline: string;
   result: RunResult;
@@ -88,12 +109,10 @@ export interface SyncStatus {
 
 /** What an instance is doing (keep in sync with backend/src/types/messages.ts) */
 export interface Activity {
-  // Event and discipline open on its race pages
-  // What its race pages show, with the participant selected there (null or missing: none)
-  viewing: { event: string; discipline: string; participant?: { bib: string; name: string } | null }[];
-  run: RunState;
-  // The last run it ended, until the next participant is ready
-  lastResult: { event: string; discipline: string; result: RunResult; endedAt: string } | null;
+  // What its race pages show: event, discipline, the line they time on and the participant selected there (null: none)
+  viewing: { event: string; discipline: string; line: string | null; participant: { bib: string; name: string } | null }[];
+  // Its lines, each with its run and the last run it ended
+  lines: LineRun[];
 }
 
 /** GET /api/live: this computer and the synced ones */
@@ -115,17 +134,16 @@ export type ServerMessage =
   | SyncUpdateMessage
   | RaceUpdateMessage
   | RunUpdateMessage
+  | LinesUpdateMessage
   | RunResultMessage
   | ResultUpdateMessage
   | SettingsUpdateMessage;
 
-export interface TriggerState {
-  reportId?: number;
-  byteIndex: number;
-  mask: number;
-  value: number;
-  action?: string;
-  releaseAction?: string;
+/** A gate of a line on an open device */
+export interface TriggerState extends ReportPattern {
+  line: string;
+  gate: Gate;
+  edge: 'press' | 'release';
   isMatched: boolean;
 }
 
@@ -134,6 +152,8 @@ export interface RecentReport {
   reportId: number | null;
   hex: string;
   changes: string[];
+  // The same changes; empty for the first report with this report ID
+  bits: { byteIndex: number; bit: number; isSet: boolean }[];
 }
 
 export interface DeviceStatus {
@@ -179,7 +199,8 @@ export interface HidInterface {
   osOwned: boolean;
   // usb: read over USB with libusb, because the OS HID driver does not handle it (e.g. WinUSB installed with Zadig)
   transport: 'hid' | 'usb';
-  rules: Array<{ name: string; enabled: boolean; conflict: boolean }>;
+  // used: an enabled line uses the device
+  rules: Array<{ name: string; used: boolean; conflict: boolean }>;
   // Set while the diagnostics page asks for this device (GET /api/hardware/status?monitor=vid:pid)
   monitor?: MonitorStatus;
 }
@@ -195,13 +216,26 @@ export interface HardwareStatus {
 }
 
 /** config.yaml content. Keep in sync with backend/src/services/hardware/deviceConfig.ts. */
-export interface TriggerRule {
+/** A button: pressed while (report[byteIndex] & mask) == value */
+export interface ReportPattern {
   reportId?: number;
   byteIndex: number;
   mask: number;
   value: number;
-  action?: string;
-  releaseAction?: string;
+}
+
+/** The device button that starts or finishes a line */
+export interface GateRule extends ReportPattern {
+  device: string;
+  // When the crossing is recorded: when the button is pressed (default) or released
+  edge?: 'press' | 'release';
+}
+
+export interface LineRule {
+  name: string;
+  enabled: boolean;
+  start: GateRule;
+  finish: GateRule;
 }
 
 export interface DeviceRule {
@@ -212,9 +246,7 @@ export interface DeviceRule {
   usage?: number;
   serialNumber?: string;
   usbPort?: string;
-  enabled: boolean;
   logReports?: boolean;
-  triggers?: TriggerRule[];
 }
 
 export interface DevicesConfig {
@@ -223,6 +255,8 @@ export interface DevicesConfig {
   // Sync with the computers on the local network that have the same key
   sync?: { key: string | number; name?: string };
   discoveryFilter?: { usagePage: number; usage: number };
+  // Missing in a file without lines
+  lines?: LineRule[];
   devices: DeviceRule[];
 }
 

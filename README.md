@@ -7,7 +7,8 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 ## 📌 Features
 
 - **Dynamic Hardware Monitoring**: Automatically enumerates USB HID devices by `usagePage` and `usage` parameters with hot-plugging detection.
-- **YAML Configuration & Hot-Reloading**: Real-time configuration parsing (`config.yaml`) with bitmask trigger rules and live file watching.
+- **YAML Configuration & Hot-Reloading**: Real-time configuration parsing (`config.yaml`) and live file watching: timing lines whose start and finish are device buttons (bitmask rules on the HID reports).
+- **Several Lines per Computer**: One computer times several lines at once (e.g. two lanes side by side, each with its operator), one participant at a time on each. The configuration page is organised around the lines: pick the device of the start and of the finish of each line, and press its button to detect it. The race page has a tab per line.
 - **State-Aware Edge Detection**: Eliminates false positives when multiple buttons are pressed simultaneously or released in complex sequences.
 - **High-Precision Timing with `Temporal`**: Uses the modern ECMAScript `Temporal` API (`Temporal.Now.instant()`) for timezone-agnostic timing records.
 - **Events & Participants**: The race page picks an event and a discipline from the working directory, then finds a participant by partial bib or name (case and accents ignored), times their runs between the start and finish crossings, and keeps every result in the discipline's `<event>-<discipline>-results.csv`.
@@ -26,8 +27,8 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   ├── src/
 │   │   ├── middlewares/      # Serves the built frontend
 │   │   ├── routes/           # REST API endpoints (status, diagnostics, configuration)
-│   │   ├── services/         # Hardware listener (hardware/: config, device matching, triggers) & race timing
-│   │   ├── tools/            # diagnose CLI to find devices and trigger bytes
+│   │   ├── services/         # Hardware listener (hardware/: config, device matching, line gates) & race timing per line
+│   │   ├── tools/            # diagnose CLI to find devices and button bytes
 │   │   ├── types/            # WebSocket message types
 │   │   ├── utils/            # Logger, working directory, browser opening
 │   │   ├── websocket/        # Real-time WebSocket broadcasting server
@@ -37,7 +38,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   └── package.json
 ├── frontend/                 # Vue + TypeScript frontend (Vite)
 │   ├── src/
-│   │   ├── components/       # Navigation menu & event switcher, device cards, race panels, config editor...
+│   │   ├── components/       # Navigation menu & event switcher, device cards, race panels, line and device editors...
 │   │   ├── composables/      # Hardware status polling, race WebSocket, dropdowns
 │   │   ├── config/           # Configuration form state
 │   │   ├── locales/          # Interface texts: en.ts (the reference), fr.ts and de.ts
@@ -109,7 +110,7 @@ This builds the app and creates, in `release/`:
 
 Each package runs on a computer without Node.js or npm. It contains the built app, its production dependencies, the Node runtime (the same version as the one running the script, downloaded from nodejs.org and checked against the official checksums), a `data` folder, and a `README.txt` (English), `LISEZMOI.txt` (French) and `LIESMICH.txt` (German) that explain how to start the app and configure a device, with the Zadig procedure for mice on Windows. Their text is in `scripts/packageReadme.mjs`. Unpack it and run `timing.sh` / `timing.cmd` (server) or `diagnose.sh` / `diagnose.cmd` (device diagnostics).
 
-The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and the results files are written there. It starts with the content of `sample-data/`, so the app has something to show on its first start: an example `config.yaml` (one Logitech receiver as the start and finish gates, no sync key) and an example event (`Exemple`: two disciplines with fictitious participants). Your own `workdir/` is never copied. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.
+The launchers use the `data` folder beside them as the working directory, whatever folder they are started from: `config.yaml` (devices) and the event folders go there, and the results files are written there. It starts with the content of `sample-data/`, so the app has something to show on its first start: an example `config.yaml` (no sync key, three lines: two sharing the buttons of a mouse on a Logitech receiver, and a disabled one with a wired mouse for each gate, told apart by their USB port) and an example event (`Exemple`: two disciplines with fictitious participants). Your own `workdir/` is never copied. `TIMING_WORK_DIR` or `--work-dir <dir>` still selects another folder.
 
 The script runs on Linux and Windows, but build the Linux package on Linux: archives made on Windows lose the executable permissions. Building the Windows zip on Linux needs `zip`.
 
@@ -122,9 +123,9 @@ npm test            # Unit tests of the backend and the frontend, then a type ch
 npm run test:e2e    # Builds the app, then runs the end-to-end tests in Chrome
 ```
 
-- **Backend** (`backend/test`, Vitest): CSV and participant files, discipline settings and periods, the run from ready to result, attempts, the results file and its merge between computers, HID trigger edges, device matching, `config.yaml`, and the HTTP API. Each test file works in its own temporary working directory.
+- **Backend** (`backend/test`, Vitest): CSV and participant files, discipline settings and periods, the run from ready to result, attempts, the results file and its merge between computers, the runs of several lines at once, HID gate edges, device matching, `config.yaml` (lines and devices), and the HTTP API. Each test file works in its own temporary working directory.
 - **Frontend** (`frontend/test`, Vitest in a simulated browser): participant search, time formats, the configuration form, the texts of every language (same keys and placeholders, plurals, language choice), and the participant picker and run panel components.
-- **End-to-end** (`e2e`, Playwright): the built app in a browser against a server with its own temporary working directory: timing a run, cancel, disqualify and invalid runs, attempts, locked disciplines, the live page and ranking, the configuration page, the language, and two computers syncing. There are no USB gates: the server is started with `TIMING_SIMULATE_GATES=1`, and the tests fire the start and finish crossings over HTTP.
+- **End-to-end** (`e2e`, Playwright): the built app in a browser against a server with its own temporary working directory: timing a run, two lines at once, cancel, disqualify and invalid runs, attempts, locked disciplines, the live page and ranking, the configuration page, the language, and two computers syncing. There are no USB gates: the server is started with `TIMING_SIMULATE_GATES=1`, and the tests fire the start and finish crossings of the simulated lines over HTTP.
 
 `npm run test:watch` in `backend` or `frontend` reruns the tests on each change. The end-to-end tests use the installed Google Chrome; with `E2E_CHANNEL=chromium` they use Playwright's Chromium instead (`npx playwright install chromium` once). On a failure, `npx playwright show-trace test-results/<test>/trace.zip` replays it step by step.
 

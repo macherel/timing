@@ -8,32 +8,45 @@ const log = createLogger('Config');
 
 export const CONFIG_PATH = workDirPath('config.yaml');
 
-/**
- * A byte pattern in a HID report that fires race actions.
- */
-export interface TriggerRule {
+/** Bits of a HID report that a button sets: it is pressed while (report[byteIndex] & mask) === value. */
+export interface ReportPattern {
     reportId?: number;       // Optional: only look at reports whose byte 0 (report ID) has this value
     byteIndex: number;       // Byte to inspect (index 0 is the report ID for numbered reports)
     mask: number;            // Bits of that byte to compare
     value: number;           // Matches when (byte & mask) === value
-    action?: string;         // Fired when the pattern starts matching (press)
-    releaseAction?: string;  // Fired when the pattern stops matching (release)
+}
+
+export type Gate = 'start' | 'finish';
+export const GATES: Gate[] = ['start', 'finish'];
+
+/** The button of a device that marks the start or the finish of a line. */
+export interface GateRule extends ReportPattern {
+    device: string;               // Name of a device of the devices list
+    edge?: 'press' | 'release';   // When the crossing is recorded: when the pattern starts matching (default) or stops
 }
 
 /**
- * A device to listen to: which HID interface it is, and which report patterns fire race actions.
+ * A timing line: one participant at a time is timed on it, from a crossing of its start gate to one of its finish gate.
+ */
+export interface LineRule {
+    name: string;            // Shown on the race and live pages, so it must be unique
+    enabled: boolean;
+    start: GateRule;
+    finish: GateRule;
+}
+
+/**
+ * A device to listen to: which HID interface it is. The lines say which of its buttons start or finish them.
  */
 export interface DeviceRule {
-    name: string;           // Identifies the device in race events, so it must be unique
+    name: string;           // Referred to by the lines, so it must be unique
     vendorId: number;
     productId: number;
     usagePage?: number;     // Optional: HID interface to use, overrides discoveryFilter for this rule
     usage?: number;
     serialNumber?: string;  // Optional: bind the rule to one specific unit
     usbPort?: string;       // Optional: bind the rule to a physical USB port, e.g. "3-5" (Linux, and Windows over WinUSB)
-    enabled: boolean;
-    logReports?: boolean;   // Optional: log every changed raw report, to work out trigger bytes
-    triggers?: TriggerRule[];
+    logReports?: boolean;   // Optional: log every changed raw report, to work out the button bits
 }
 
 export interface SyncSettings {
@@ -51,7 +64,19 @@ export interface DevicesConfig {
         usagePage: number;
         usage: number;
     };
+    // Missing in a file without lines: nothing is timed
+    lines?: LineRule[];
     devices: DeviceRule[];
+}
+
+/** The enabled lines, in the order of the file. */
+export function enabledLines(config: DevicesConfig | null): LineRule[] {
+    return (config?.lines ?? []).filter((line) => line.enabled);
+}
+
+/** Names of the devices an enabled line uses: only those are opened. */
+export function usedDeviceNames(config: DevicesConfig): Set<string> {
+    return new Set(enabledLines(config).flatMap((line) => GATES.map((gate) => line[gate].device)));
 }
 
 /**
@@ -139,12 +164,39 @@ export function stringifyDevicesConfig(config: DevicesConfig): string {
         );
     }
 
+    const pattern = (rule: ReportPattern, indent: string) =>
+        [
+            rule.reportId !== undefined ? `reportId: ${rule.reportId}` : null,
+            `byteIndex: ${rule.byteIndex}`,
+            `mask: ${hex(rule.mask, 2)}`,
+            `value: ${hex(rule.value, 2)}`,
+        ]
+            .filter((field) => field !== null)
+            .map((field) => `${indent}${field}`);
+
+    const lineRules = config.lines ?? [];
+    if (lineRules.length === 0) {
+        lines.push('lines: []', '');
+    } else {
+        lines.push('# Timing lines: the device button that starts each one, and the one that finishes it', 'lines:');
+        lineRules.forEach((line, i) => {
+            if (i > 0) lines.push('');
+            lines.push(`  - name: ${text(line.name)}`, `    enabled: ${line.enabled}`);
+            for (const gate of GATES) {
+                const rule = line[gate];
+                lines.push(`    ${gate}:`, `      device: ${text(rule.device)}`, ...pattern(rule, '      '));
+                if (rule.edge !== undefined) lines.push(`      edge: ${rule.edge}`);
+            }
+        });
+        lines.push('');
+    }
+
     if (config.devices.length === 0) {
         lines.push('devices: []');
         return `${lines.join('\n')}\n`;
     }
 
-    lines.push('devices:');
+    lines.push('# USB HID devices used by the lines', 'devices:');
     config.devices.forEach((rule, i) => {
         if (i > 0) lines.push('');
         lines.push(`  - name: ${text(rule.name)}`);
@@ -155,22 +207,7 @@ export function stringifyDevicesConfig(config: DevicesConfig): string {
         }
         if (rule.serialNumber !== undefined) lines.push(`    serialNumber: ${text(rule.serialNumber)}`);
         if (rule.usbPort !== undefined) lines.push(`    usbPort: ${text(rule.usbPort)}`);
-        lines.push(`    enabled: ${rule.enabled}`);
         if (rule.logReports !== undefined) lines.push(`    logReports: ${rule.logReports}`);
-
-        if (!rule.triggers?.length) return;
-        lines.push('    triggers:');
-        for (const trigger of rule.triggers) {
-            const fields = [
-                trigger.reportId !== undefined ? `reportId: ${trigger.reportId}` : null,
-                `byteIndex: ${trigger.byteIndex}`,
-                `mask: ${hex(trigger.mask, 2)}`,
-                `value: ${hex(trigger.value, 2)}`,
-                trigger.action !== undefined ? `action: ${text(trigger.action)}` : null,
-                trigger.releaseAction !== undefined ? `releaseAction: ${text(trigger.releaseAction)}` : null,
-            ].filter((field) => field !== null);
-            lines.push(`      - ${fields[0]}`, ...fields.slice(1).map((field) => `        ${field}`));
-        }
     });
     return `${lines.join('\n')}\n`;
 }
@@ -266,17 +303,57 @@ export function validateDevicesConfig(config: any): string[] {
         return problems;
     }
 
-    const seenNames = new Set<string>();
+    const deviceNames = new Set<string>();
     config.devices.forEach((rule: any, i: number) => {
         problems.push(...validateDeviceRule(rule, `devices[${i}]`));
-
         if (typeof rule?.name === 'string') {
-            if (seenNames.has(rule.name)) {
-                problems.push(`devices[${i}].name "${rule.name}" is used twice (names identify devices in race events and must be unique)`);
+            if (deviceNames.has(rule.name)) {
+                problems.push(`devices[${i}].name "${rule.name}" is used twice (the lines refer to devices by name, so it must be unique)`);
             }
-            seenNames.add(rule.name);
+            deviceNames.add(rule.name);
         }
     });
+
+    if (config.lines === undefined) return problems;
+    if (!Array.isArray(config.lines)) {
+        problems.push('lines must be a list');
+        return problems;
+    }
+    const lineNames = new Set<string>();
+    config.lines.forEach((line: any, i: number) => {
+        problems.push(...validateLine(line, `lines[${i}]`, deviceNames));
+        if (typeof line?.name === 'string') {
+            if (lineNames.has(line.name)) problems.push(`lines[${i}].name "${line.name}" is used twice (it must be unique)`);
+            lineNames.add(line.name);
+        }
+    });
+    return problems;
+}
+
+function validateLine(line: any, where: string, deviceNames: Set<string>): string[] {
+    const problems: string[] = [];
+    if (typeof line?.name !== 'string' || line.name.trim() === '') {
+        problems.push(`${where}.name must be a non-empty string`);
+    }
+    if (typeof line?.enabled !== 'boolean') {
+        problems.push(`${where}.enabled must be true or false`);
+    }
+    for (const gate of GATES) {
+        const rule = line?.[gate];
+        if (!rule || typeof rule !== 'object') {
+            problems.push(`${where}.${gate} must say which device button ${gate === 'start' ? 'starts' : 'finishes'} the line`);
+            continue;
+        }
+        if (typeof rule.device !== 'string' || rule.device === '') {
+            problems.push(`${where}.${gate}.device must be the name of a device`);
+        } else if (!deviceNames.has(rule.device)) {
+            problems.push(`${where}.${gate}.device "${rule.device}" is not in the devices list`);
+        }
+        problems.push(...validatePattern(rule, `${where}.${gate}`));
+        if (rule.edge !== undefined && rule.edge !== 'press' && rule.edge !== 'release') {
+            problems.push(`${where}.${gate}.edge must be press or release`);
+        }
+    }
     return problems;
 }
 
@@ -288,9 +365,6 @@ function validateDeviceRule(rule: any, where: string): string[] {
     }
     if (!isInteger(rule?.vendorId) || !isInteger(rule?.productId)) {
         problems.push(`${where}.vendorId and productId must be integers`);
-    }
-    if (typeof rule?.enabled !== 'boolean') {
-        problems.push(`${where}.enabled must be true or false`);
     }
     if (rule?.serialNumber !== undefined && typeof rule.serialNumber !== 'string') {
         problems.push(`${where}.serialNumber must be a string`);
@@ -306,36 +380,19 @@ function validateDeviceRule(rule: any, where: string): string[] {
     if (rule?.logReports !== undefined && typeof rule.logReports !== 'boolean') {
         problems.push(`${where}.logReports must be true or false`);
     }
-
-    if (rule?.triggers === undefined) return problems;
-    if (!Array.isArray(rule.triggers)) {
-        problems.push(`${where}.triggers must be a list`);
-        return problems;
-    }
-    rule.triggers.forEach((trigger: any, j: number) => {
-        problems.push(...validateTrigger(trigger, `${where}.triggers[${j}]`));
-    });
     return problems;
 }
 
-function validateTrigger(trigger: any, where: string): string[] {
+function validatePattern(pattern: any, where: string): string[] {
     const problems: string[] = [];
 
-    if (!isInteger(trigger?.byteIndex) || !isInteger(trigger?.mask) || !isInteger(trigger?.value)) {
+    if (!isInteger(pattern?.byteIndex) || !isInteger(pattern?.mask) || !isInteger(pattern?.value)) {
         problems.push(`${where}.byteIndex, mask and value must be integers`);
-    } else if ((trigger.value & ~trigger.mask) !== 0) {
+    } else if ((pattern.value & ~pattern.mask) !== 0) {
         problems.push(`${where}.value has bits outside mask, so it can never match`);
     }
-    if (trigger?.reportId !== undefined && !isInteger(trigger.reportId)) {
+    if (pattern?.reportId !== undefined && !isInteger(pattern.reportId)) {
         problems.push(`${where}.reportId must be an integer`);
-    }
-    if (trigger?.action === undefined && trigger?.releaseAction === undefined) {
-        problems.push(`${where} needs an action or a releaseAction`);
-    }
-    for (const field of ['action', 'releaseAction']) {
-        if (trigger?.[field] !== undefined && (typeof trigger[field] !== 'string' || trigger[field] === '')) {
-            problems.push(`${where}.${field} must be a non-empty string`);
-        }
     }
     return problems;
 }

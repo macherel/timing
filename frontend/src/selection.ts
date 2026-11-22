@@ -12,6 +12,7 @@ import { t } from './i18n';
  */
 
 const STORAGE_KEY = 'timing.selection';
+const LINE_STORAGE_KEY = 'timing.line';
 
 export const events = ref<EventSummary[]>([]);
 export const workDir = ref('');
@@ -32,6 +33,29 @@ export const eventName = computed(() => query.value.event);
 export const discipline = computed(() => query.value.discipline);
 export const currentEvent = computed(() => events.value.find((event) => event.name === eventName.value));
 export const disciplineExists = computed(() => currentEvent.value?.disciplines.includes(discipline.value) ?? false);
+
+/**
+ * The line the race page times on, chosen on the page. Each browser remembers its own, so the operators of the
+ * lines of a computer (e.g. on tablets) each keep theirs. Empty: none chosen yet (the first line is used).
+ */
+export const selectedLine = ref(rememberedLine());
+
+function rememberedLine(): string {
+  try {
+    return localStorage.getItem(LINE_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function selectLine(line: string): void {
+  selectedLine.value = line;
+  try {
+    localStorage.setItem(LINE_STORAGE_KEY, line);
+  } catch {
+    // Private window or blocked storage: the choice is kept until the page is reloaded
+  }
+}
 
 /** Whether a page works on the selected event and discipline (the race pages, not the administration). */
 export const usesSelection = (route: RouteLocationNormalized) => route.meta.section === 'race';

@@ -11,7 +11,7 @@ import { onActivityChange, onLocalChange } from '../utils/localChanges.js';
 import { WORK_DIR, workDirPath } from '../utils/workDir.js';
 import { isResultsFileName, resultsFileName } from './eventService.js';
 import { CONFIG_PATH } from './hardware/deviceConfig.js';
-import { getLastResult, getRunState, mergeResultRows, readResultRows, writeUdaResults, type ResultRow } from './runService.js';
+import { getLineRuns, mergeResultRows, readResultRows, writeUdaResults, type ResultRow } from './runService.js';
 
 const log = createLogger('Sync');
 
@@ -26,8 +26,8 @@ const log = createLogger('Sync');
  *       sent back.
  *     - <event>-<discipline>-results.csv is merged line by line (bib + start identify a run), the most recently changed line wins.
  *   Peers are told when something changes here, so they pull at once; they also pull every few seconds.
- * - Live: each instance also shares its activity (the event, discipline and participant selected on its race pages, its run in
- *   progress and its last result), pushed to the peers when it changes and repeated in every announcement. The live
+ * - Live: each instance also shares its activity (the event, discipline, line and participant selected on its race
+ *   pages, and the run in progress and last result of each of its lines), pushed to the peers when it changes and repeated in every announcement. The live
  *   page shows the activity of every computer.
  * - Not synced: config.yaml at the root of the working directory, and runs in progress.
  *   A deleted file or result line comes back from a peer that still has it.
@@ -46,7 +46,8 @@ const REQUEST_TIMEOUT_MS = 5000;
 // Files that can be synced inside <event>/<discipline>/ (the results file is merged, not copied)
 const SYNCED_EXTENSIONS = ['.csv', '.yaml', '.yml'];
 // 2: results files are named <event>-<discipline>-results.csv (an older peer would copy them as participant lists)
-const PROTOCOL = 'timing-sync/2';
+// 3: the activity has a run per line
+const PROTOCOL = 'timing-sync/3';
 
 // Identifies this process in announcements, so it ignores its own and tells peers apart on one computer
 const INSTANCE_ID = crypto.randomUUID();
@@ -478,7 +479,7 @@ export function onPeerNotification(id: unknown): void {
 // ---------------------------------------------------------------------------
 
 function localActivity(): Activity {
-    return { viewing: getViewing(), run: getRunState(), lastResult: getLastResult() };
+    return { viewing: getViewing(), lines: getLineRuns() };
 }
 
 /** A light check of an activity received from a peer (the page shows it as text only). */
@@ -491,9 +492,11 @@ function isActivity(value: any): value is Activity {
             (v: any) =>
                 typeof v?.event === 'string' &&
                 typeof v?.discipline === 'string' &&
-                (v.participant == null || (typeof v.participant.bib === 'string' && typeof v.participant.name === 'string')),
+                (v.line === null || typeof v.line === 'string') &&
+                (v.participant === null || (typeof v.participant?.bib === 'string' && typeof v.participant.name === 'string')),
         ) &&
-        typeof value.run?.status === 'string'
+        Array.isArray(value.lines) &&
+        value.lines.every((l: any) => typeof l?.line === 'string' && typeof l.run?.status === 'string')
     );
 }
 

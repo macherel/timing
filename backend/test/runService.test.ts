@@ -18,33 +18,38 @@ beforeEach(async () => {
     writeFiles({ 'CFM26/100m/men.csv': 'bib;name\n7;Hugo Guérin\n', 'CFM26/100m/women.csv': '12;Léa Martin\n' });
     vi.resetModules();
     runs = await import('../src/services/runService.js');
+    (await import('../src/services/lines.js')).setConfiguredLines([LINE, OTHER_LINE]);
 });
+
+const LINE = 'Line 1';
+const OTHER_LINE = 'Line 2';
+const lastResult = (line = LINE) => runs.getLineRuns().find((l) => l.line === line)?.lastResult;
 
 const at = (iso: string) => Temporal.Instant.from(iso);
 
 /** Runs a participant from ready to finish, then waits until the result is in the results file. */
 async function timeRun(participant = HUGO, start = '2026-11-05T10:00:00Z', finish = '2026-11-05T10:00:12.345Z') {
-    expect(await runs.prepareRun('CFM26', '100m', participant)).toBeNull();
+    expect(await runs.prepareRun(LINE, 'CFM26', '100m', participant)).toBeNull();
     const before = (await runs.loadResults('CFM26', '100m'))!.length;
-    runs.onCrossing('start_crossed', 'Start gate', at(start));
-    runs.onCrossing('finish_crossed', 'Finish gate', at(finish));
+    runs.onCrossing(LINE, 'start', 'Start gate', at(start));
+    runs.onCrossing(LINE, 'finish', 'Finish gate', at(finish));
     await vi.waitFor(async () => expect((await runs.loadResults('CFM26', '100m'))!.length).toBe(before + 1));
 }
 
 describe('a timed run', () => {
     it('goes from idle to ready, running, and back to idle with the result saved', async () => {
-        expect(runs.getRunState()).toEqual({ status: 'idle' });
+        expect(runs.getRunState(LINE)!).toEqual({ status: 'idle' });
 
-        await runs.prepareRun('CFM26', '100m', HUGO);
-        expect(runs.getRunState()).toMatchObject({ status: 'ready', event: 'CFM26', discipline: '100m', participant: HUGO });
+        await runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
+        expect(runs.getRunState(LINE)!).toMatchObject({ status: 'ready', event: 'CFM26', discipline: '100m', participant: HUGO });
 
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:00:00Z'));
-        expect(runs.getRunState()).toMatchObject({ status: 'running', startedAt: '2026-11-05T10:00:00Z' });
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:00:00Z'));
+        expect(runs.getRunState(LINE)!).toMatchObject({ status: 'running', startedAt: '2026-11-05T10:00:00Z' });
 
-        runs.onCrossing('finish_crossed', 'Finish gate', at('2026-11-05T10:00:12.345Z'));
-        expect(runs.getRunState()).toEqual({ status: 'idle' });
+        runs.onCrossing(LINE, 'finish', 'Finish gate', at('2026-11-05T10:00:12.345Z'));
+        expect(runs.getRunState(LINE)!).toEqual({ status: 'idle' });
         // Rounded up to the hundredth by default
-        expect(runs.getLastResult()?.result).toMatchObject({ bib: '7', timeMs: 12350, status: 'ok' });
+        expect(lastResult()?.result).toMatchObject({ bib: '7', timeMs: 12350, status: 'ok' });
 
         await vi.waitFor(async () =>
             expect(await runs.loadResults('CFM26', '100m')).toEqual([
@@ -65,39 +70,39 @@ describe('a timed run', () => {
     });
 
     it('ignores a finish before the start, and a start when nobody is ready', async () => {
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:00:00Z'));
-        expect(runs.getRunState()).toEqual({ status: 'idle' });
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:00:00Z'));
+        expect(runs.getRunState(LINE)!).toEqual({ status: 'idle' });
 
-        await runs.prepareRun('CFM26', '100m', HUGO);
-        runs.onCrossing('finish_crossed', 'Finish gate', at('2026-11-05T10:00:01Z'));
-        expect(runs.getRunState().status).toBe('ready');
+        await runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
+        runs.onCrossing(LINE, 'finish', 'Finish gate', at('2026-11-05T10:00:01Z'));
+        expect(runs.getRunState(LINE)!.status).toBe('ready');
     });
 
     it('keeps the first start: a second start crossing does not restart the clock', async () => {
-        await runs.prepareRun('CFM26', '100m', HUGO);
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:00:00Z'));
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:00:05Z'));
-        expect(runs.getRunState()).toMatchObject({ startedAt: '2026-11-05T10:00:00Z' });
+        await runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:00:00Z'));
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:00:05Z'));
+        expect(runs.getRunState(LINE)!).toMatchObject({ startedAt: '2026-11-05T10:00:00Z' });
     });
 
     it('can be cancelled, saving nothing', async () => {
-        await runs.prepareRun('CFM26', '100m', HUGO);
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:00:00Z'));
-        runs.cancelRun();
-        expect(runs.getRunState()).toEqual({ status: 'idle' });
+        await runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:00:00Z'));
+        runs.cancelRun(LINE);
+        expect(runs.getRunState(LINE)!).toEqual({ status: 'idle' });
         expect(readFile(RESULTS)).toBeNull();
     });
 
     it('can be ended as invalid or disqualified, without a time', async () => {
-        expect(runs.voidRun('dq')).toBe('No run in progress.');
+        expect(runs.voidRun(LINE, 'dq')).toBe('No run in progress on Line 1.');
 
-        await runs.prepareRun('CFM26', '100m', HUGO);
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:00:00Z'));
-        expect(runs.voidRun('dq')).toBeNull();
+        await runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:00:00Z'));
+        expect(runs.voidRun(LINE, 'dq')).toBeNull();
 
-        await runs.prepareRun('CFM26', '100m', LEA);
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:01:00Z'));
-        expect(runs.voidRun('invalid')).toBeNull();
+        await runs.prepareRun(LINE, 'CFM26', '100m', LEA);
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:01:00Z'));
+        expect(runs.voidRun(LINE, 'invalid')).toBeNull();
 
         await vi.waitFor(async () =>
             expect((await runs.loadResults('CFM26', '100m'))!.map((r) => [r.bib, r.status, r.timeMs, r.finish])).toEqual([
@@ -108,13 +113,51 @@ describe('a timed run', () => {
     });
 
     it('cannot get another participant ready while a run is in progress', async () => {
-        await runs.prepareRun('CFM26', '100m', HUGO);
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:00:00Z'));
-        expect(await runs.prepareRun('CFM26', '100m', LEA)).toBe('A run is in progress. Cancel it first.');
+        await runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:00:00Z'));
+        expect(await runs.prepareRun(LINE, 'CFM26', '100m', LEA)).toBe('A run is in progress on Line 1. Cancel it first.');
     });
 
     it('cannot start in an unknown discipline', async () => {
-        expect(await runs.prepareRun('CFM26', 'nope', HUGO)).toBe('Unknown event or discipline.');
+        expect(await runs.prepareRun(LINE, 'CFM26', 'nope', HUGO)).toBe('Unknown event or discipline.');
+    });
+});
+
+describe('several lines', () => {
+    it('time their runs independently: each line only follows its own gates', async () => {
+        await runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
+        await runs.prepareRun(OTHER_LINE, 'CFM26', '100m', LEA);
+        runs.onCrossing(LINE, 'start', 'Start 1', at('2026-11-05T10:00:00Z'));
+        expect(runs.getRunState(LINE)!.status).toBe('running');
+        expect(runs.getRunState(OTHER_LINE)!.status).toBe('ready');
+
+        runs.onCrossing(OTHER_LINE, 'start', 'Start 2', at('2026-11-05T10:00:01Z'));
+        runs.onCrossing(OTHER_LINE, 'finish', 'Finish 2', at('2026-11-05T10:00:11Z'));
+        expect(runs.getRunState(LINE)!.status).toBe('running');
+        expect(lastResult(OTHER_LINE)?.result).toMatchObject({ bib: '12', timeMs: 10000 });
+        expect(lastResult(LINE)).toBeNull();
+
+        runs.onCrossing(LINE, 'finish', 'Finish 1', at('2026-11-05T10:00:12Z'));
+        expect(lastResult(LINE)?.result).toMatchObject({ bib: '7', timeMs: 12000 });
+        await vi.waitFor(async () => expect((await runs.loadResults('CFM26', '100m'))!.map((r) => r.bib).sort()).toEqual(['12', '7']));
+    });
+
+    it('do not let a participant be ready on two lines at once', async () => {
+        expect(await runs.prepareRun(LINE, 'CFM26', '100m', HUGO)).toBeNull();
+        expect(await runs.prepareRun(OTHER_LINE, 'CFM26', '100m', HUGO)).toBe('7 Hugo Guérin is already ready on Line 1.');
+    });
+
+    it('refuse an unknown line', async () => {
+        expect(await runs.prepareRun('Line 9', 'CFM26', '100m', HUGO)).toBe('Unknown line "Line 9".');
+        expect(runs.getRunState('Line 9')).toBeNull();
+        expect(runs.cancelRun('Line 9')).toBe('Unknown line "Line 9".');
+    });
+
+    it('drop the run of a line removed from the configuration', async () => {
+        await runs.prepareRun(OTHER_LINE, 'CFM26', '100m', LEA);
+        (await import('../src/services/lines.js')).setConfiguredLines([LINE]);
+        expect(runs.getLineRuns()).toEqual([{ line: LINE, run: { status: 'idle' }, lastResult: null }]);
+        expect(runs.isAnyRunActive()).toBe(false);
     });
 });
 
@@ -124,26 +167,26 @@ describe('attempts and access', () => {
         await timeRun(HUGO, '2026-11-05T10:00:00Z');
 
         // An invalid run is not the participant's fault: it does not use an attempt
-        await runs.prepareRun('CFM26', '100m', HUGO);
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:01:00Z'));
-        runs.voidRun('invalid');
+        await runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:01:00Z'));
+        runs.voidRun(LINE, 'invalid');
         await vi.waitFor(async () => expect((await runs.loadResults('CFM26', '100m'))!).toHaveLength(2));
 
         await timeRun(HUGO, '2026-11-05T10:02:00Z', '2026-11-05T10:02:10Z');
-        expect(await runs.prepareRun('CFM26', '100m', HUGO)).toBe('7 Hugo Guérin has used all 2 attempt(s).');
+        expect(await runs.prepareRun(LINE, 'CFM26', '100m', HUGO)).toBe('7 Hugo Guérin has used all 2 attempt(s).');
         // Other participants still have theirs
-        expect(await runs.prepareRun('CFM26', '100m', LEA)).toBeNull();
+        expect(await runs.prepareRun(LINE, 'CFM26', '100m', LEA)).toBeNull();
     });
 
     it('refuses runs when the discipline is locked or outside its period', async () => {
         writeFiles({ 'CFM26/100m/config.yaml': 'access: locked\n' });
-        expect(await runs.prepareRun('CFM26', '100m', HUGO)).toBe('CFM26 / 100m is closed: its results are locked.');
+        expect(await runs.prepareRun(LINE, 'CFM26', '100m', HUGO)).toBe('CFM26 / 100m is closed: its results are locked.');
 
         writeFiles({ 'CFM26/100m/config.yaml': `end: ${minutesFromNow(-5)}\n` });
-        expect(await runs.prepareRun('CFM26', '100m', HUGO)).toMatch(/^CFM26 \/ 100m is closed: it closed on /);
+        expect(await runs.prepareRun(LINE, 'CFM26', '100m', HUGO)).toMatch(/^CFM26 \/ 100m is closed: it closed on /);
 
         writeFiles({ 'CFM26/100m/config.yaml': `end: ${minutesFromNow(-5)}\naccess: open\n` });
-        expect(await runs.prepareRun('CFM26', '100m', HUGO)).toBeNull();
+        expect(await runs.prepareRun(LINE, 'CFM26', '100m', HUGO)).toBeNull();
     });
 });
 
@@ -178,7 +221,7 @@ describe('runTimeMs', () => {
     it('gives the time of a run with the settings of its discipline', async () => {
         writeFiles({ 'CFM26/100m/config.yaml': 'precision: tenth\nrounding: truncate\n' });
         await timeRun(HUGO, '2026-11-05T10:00:00Z', '2026-11-05T10:00:12.399Z');
-        expect(runs.getLastResult()?.result.timeMs).toBe(12300);
+        expect(lastResult()?.result.timeMs).toBe(12300);
         expect((await runs.loadResults('CFM26', '100m'))![0].timeMs).toBe(12300);
         // The saved run keeps its exact finish: another precision gives another time
         writeFiles({ 'CFM26/100m/config.yaml': 'precision: thousandth\n' });
@@ -196,7 +239,7 @@ describe('setResultStatus', () => {
         expect(outcome).toEqual({ result: expect.objectContaining({ bib: '7', status: 'dq', timeMs: 12350 }) });
         expect((await runs.loadResults('CFM26', '100m'))!.map((r) => `${r.bib} ${r.status}`)).toEqual(['7 dq', '12 ok']);
         // The live pages show the last run with its new status
-        expect(runs.getLastResult()?.result.bib).toBe('12');
+        expect(lastResult()?.result.bib).toBe('12');
 
         await runs.setResultStatus('CFM26', '100m', '7', '2026-11-05T10:00:00Z', 'ok');
         expect((await runs.loadResults('CFM26', '100m'))![0].status).toBe('ok');
@@ -204,7 +247,7 @@ describe('setResultStatus', () => {
 
     it('updates the last result shown on the live page', async () => {
         await runs.setResultStatus('CFM26', '100m', '7', '2026-11-05T10:00:00Z', 'invalid');
-        expect(runs.getLastResult()?.result.status).toBe('invalid');
+        expect(lastResult()?.result.status).toBe('invalid');
     });
 
     it('answers 404 for an unknown run, and 409 for a run without time set to OK', async () => {
@@ -213,9 +256,9 @@ describe('setResultStatus', () => {
             problem: 'This result is not in the results file any more.',
         });
 
-        await runs.prepareRun('CFM26', '100m', LEA);
-        runs.onCrossing('start_crossed', 'Start gate', at('2026-11-05T10:05:00Z'));
-        runs.voidRun('dq');
+        await runs.prepareRun(LINE, 'CFM26', '100m', LEA);
+        runs.onCrossing(LINE, 'start', 'Start gate', at('2026-11-05T10:05:00Z'));
+        runs.voidRun(LINE, 'dq');
         await vi.waitFor(async () => expect((await runs.loadResults('CFM26', '100m'))!).toHaveLength(2));
         expect(await runs.setResultStatus('CFM26', '100m', '12', '2026-11-05T10:05:00Z', 'ok')).toMatchObject({ status: 409 });
     });
@@ -356,13 +399,14 @@ describe('USB scans', () => {
         }));
         try {
             runs = await import('../src/services/runService.js');
-            const ready = runs.prepareRun('CFM26', '100m', HUGO);
+            (await import('../src/services/lines.js')).setConfiguredLines([LINE]);
+            const ready = runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
             await new Promise((resolve) => setTimeout(resolve, 50));
-            expect(runs.getRunState().status).toBe('idle');
+            expect(runs.getRunState(LINE)!.status).toBe('idle');
 
             endScan();
             expect(await ready).toBeNull();
-            expect(runs.getRunState().status).toBe('ready');
+            expect(runs.getRunState(LINE)!.status).toBe('ready');
         } finally {
             vi.doUnmock('../src/services/hardware/usbHid.js');
         }

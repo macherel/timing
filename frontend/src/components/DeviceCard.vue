@@ -32,10 +32,10 @@ const usbInterfaces = computed(() => {
 });
 const sortedInterfaces = computed(() => usbInterfaces.value.flatMap((group) => group.items));
 
-// listening: a rule listens to it; disabled: only disabled (or ignored) rules name it; none: not in config.yaml
+// listening: a line uses it; unused: in config.yaml, but no enabled line uses it (or its rule is ignored); none: not in config.yaml
 const configState = computed(() => {
   if (props.devices.length > 0) return props.devices.every((d) => d.state === 'listening') ? 'listening' : 'failing';
-  return props.interfaces.some((i) => i.rules.length > 0) ? 'disabled' : 'none';
+  return props.interfaces.some((i) => i.rules.length > 0) ? 'unused' : 'none';
 });
 // Opens the configuration page with a new device pre-filled with these IDs
 const addLink = computed(() => ({
@@ -53,7 +53,7 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
       <span v-if="configState === 'listening' || configState === 'failing'" class="badge" :class="configState === 'listening' ? 'ok' : 'error'">
         {{ $t(`hid.states.${configState}`) }}
       </span>
-      <span v-else class="badge">{{ configState === 'disabled' ? $t('interfaces.disabled') : $t('hid.notConfigured') }}</span>
+      <span v-else class="badge">{{ configState === 'unused' ? $t('interfaces.unused') : $t('hid.notConfigured') }}</span>
       <RouterLink v-if="configState === 'none'" :to="addLink" class="add-link">{{ $t('unconfigured.add') }}</RouterLink>
       <RouterLink v-else to="/config" class="add-link">{{ $t('diagnostics.editConfig') }}</RouterLink>
     </header>
@@ -70,7 +70,7 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
       <dt>{{ $t('hid.usbPort') }}</dt>
       <dd class="mono">{{ first.usbPort ?? '—' }}</dd>
     </dl>
-    <p v-if="configState === 'none' || configState === 'disabled'" class="muted">{{ $t('unconfigured.explain') }}</p>
+    <p v-if="configState === 'none' || configState === 'unused'" class="muted">{{ $t('unconfigured.explain') }}</p>
 
     <h4>{{ $t('unconfigured.interfaces') }}</h4>
     <div class="scroll">
@@ -102,7 +102,7 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
             <td>
               <div v-for="rule in item.rules" :key="rule.name">
                 {{ rule.name }}
-                <span v-if="!rule.enabled" class="badge">{{ $t('interfaces.disabled') }}</span>
+                <span v-if="!rule.used" class="badge" :title="$t('interfaces.unusedHint')">{{ $t('interfaces.unused') }}</span>
                 <span v-if="rule.conflict" class="badge error" :title="$t('interfaces.conflict')">{{ $t('interfaces.ignored') }}</span>
               </div>
               <span v-if="item.rules.length === 0" class="muted">—</span>

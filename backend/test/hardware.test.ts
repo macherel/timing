@@ -1,68 +1,104 @@
 import { describe, expect, it } from 'vitest';
 import type HID from 'node-hid';
-import { evaluateReport, mergeTriggers, type ActiveTrigger } from '../src/services/hardware/triggers.js';
+import { evaluateReport, gateTriggers, mergeTriggers, type GateTrigger } from '../src/services/hardware/triggers.js';
 import { assignDevices, explainUnmatchedRules, getUsbPort, isActive } from '../src/services/hardware/deviceMatching.js';
 import { openFailureHint } from '../src/services/hardware/hidDiagnostics.js';
 import { parseReportDescriptor } from '../src/services/hardware/usbHid.js';
-import type { DevicesConfig, TriggerRule } from '../src/services/hardware/deviceConfig.js';
+import type { DevicesConfig, LineRule } from '../src/services/hardware/deviceConfig.js';
 
-const LEFT_BUTTON: TriggerRule = { byteIndex: 0, mask: 0x01, value: 0x01, action: 'start_crossed', releaseAction: 'start_released' };
+const LEFT_BUTTON: GateTrigger = { line: 'Line 1', gate: 'start', edge: 'press', byteIndex: 0, mask: 0x01, value: 0x01 };
+const RIGHT_BUTTON: GateTrigger = { line: 'Line 1', gate: 'finish', edge: 'press', byteIndex: 0, mask: 0x02, value: 0x02 };
 const report = (...bytes: number[]) => Buffer.from(bytes);
+const fired = (triggers: ReturnType<typeof mergeTriggers>, bytes: Buffer) =>
+    evaluateReport(triggers, bytes).map((t) => `${t.line} ${t.gate}`);
 
 describe('evaluateReport', () => {
-    it('fires the action on press and the release action on release, once each', () => {
+    it('fires a press trigger when its pattern starts matching, once', () => {
         const triggers = mergeTriggers([], [LEFT_BUTTON]);
-        expect(evaluateReport(triggers, report(0x01, 0))).toEqual([{ kind: 'press', action: 'start_crossed' }]);
+        expect(fired(triggers, report(0x01, 0))).toEqual(['Line 1 start']);
         // Still pressed: no new edge
-        expect(evaluateReport(triggers, report(0x01, 5))).toEqual([]);
-        expect(evaluateReport(triggers, report(0x00, 0))).toEqual([{ kind: 'release', action: 'start_released' }]);
-        expect(evaluateReport(triggers, report(0x00, 0))).toEqual([]);
+        expect(fired(triggers, report(0x01, 5))).toEqual([]);
+        expect(fired(triggers, report(0x00, 0))).toEqual([]);
+        expect(fired(triggers, report(0x01, 0))).toEqual(['Line 1 start']);
+    });
+
+    it('fires a release trigger when its pattern stops matching', () => {
+        const triggers = mergeTriggers([], [{ ...LEFT_BUTTON, edge: 'release' }]);
+        expect(fired(triggers, report(0x01))).toEqual([]);
+        expect(fired(triggers, report(0x00))).toEqual(['Line 1 start']);
     });
 
     it('only looks at the bits of its mask, so other buttons do not interfere', () => {
-        const triggers = mergeTriggers([], [LEFT_BUTTON, { byteIndex: 0, mask: 0x02, value: 0x02, action: 'finish_crossed' }]);
-        expect(evaluateReport(triggers, report(0x03))).toEqual([
-            { kind: 'press', action: 'start_crossed' },
-            { kind: 'press', action: 'finish_crossed' },
-        ]);
+        const triggers = mergeTriggers([], [LEFT_BUTTON, RIGHT_BUTTON]);
+        expect(fired(triggers, report(0x03))).toEqual(['Line 1 start', 'Line 1 finish']);
         // Left released while right stays pressed
-        expect(evaluateReport(triggers, report(0x02))).toEqual([{ kind: 'release', action: 'start_released' }]);
+        expect(fired(triggers, report(0x02))).toEqual([]);
+        expect(fired(triggers, report(0x03))).toEqual(['Line 1 start']);
+    });
+
+    it('fires every line a button is the gate of (e.g. one start for two lines)', () => {
+        const triggers = mergeTriggers([], [LEFT_BUTTON, { ...LEFT_BUTTON, line: 'Line 2' }]);
+        expect(fired(triggers, report(0x01))).toEqual(['Line 1 start', 'Line 2 start']);
     });
 
     it('ignores reports of another report ID, and reports too short for its byte', () => {
-        const triggers = mergeTriggers([], [{ reportId: 2, byteIndex: 1, mask: 0x01, value: 0x01, action: 'start_crossed' }]);
-        expect(evaluateReport(triggers, report(1, 0x01))).toEqual([]);
-        expect(evaluateReport(triggers, report(2))).toEqual([]);
-        expect(evaluateReport(triggers, report(2, 0x01))).toEqual([{ kind: 'press', action: 'start_crossed' }]);
-    });
-
-    it('fires nothing on an edge without an action', () => {
-        const triggers = mergeTriggers([], [{ byteIndex: 0, mask: 0x01, value: 0x01, releaseAction: 'finish_crossed' }]);
-        expect(evaluateReport(triggers, report(0x01))).toEqual([]);
-        expect(evaluateReport(triggers, report(0x00))).toEqual([{ kind: 'release', action: 'finish_crossed' }]);
+        const triggers = mergeTriggers([], [{ ...LEFT_BUTTON, reportId: 2, byteIndex: 1 }]);
+        expect(fired(triggers, report(1, 0x01))).toEqual([]);
+        expect(fired(triggers, report(2))).toEqual([]);
+        expect(fired(triggers, report(2, 0x01))).toEqual(['Line 1 start']);
     });
 });
 
 describe('mergeTriggers', () => {
-    it('keeps the pressed state of unchanged triggers on a config reload, so a held button does not fire twice', () => {
-        const before: ActiveTrigger[] = mergeTriggers([], [LEFT_BUTTON]);
-        evaluateReport(before, report(0x01));
-        const after = mergeTriggers(before, [LEFT_BUTTON, { byteIndex: 0, mask: 0x04, value: 0x04, action: 'finish_crossed' }]);
-        expect(after.map((t) => t.isMatched)).toEqual([true, false]);
-        expect(evaluateReport(after, report(0x01))).toEqual([]);
-    });
-
-    it('starts changed triggers released', () => {
+    it('keeps the pressed state of a pattern on a config reload, even for another line, so a held button does not fire twice', () => {
         const before = mergeTriggers([], [LEFT_BUTTON]);
         evaluateReport(before, report(0x01));
-        expect(mergeTriggers(before, [{ ...LEFT_BUTTON, action: 'other' }])[0].isMatched).toBe(false);
+        const after = mergeTriggers(before, [{ ...LEFT_BUTTON, line: 'Renamed' }, RIGHT_BUTTON]);
+        expect(after.map((t) => t.isMatched)).toEqual([true, false]);
+        expect(fired(after, report(0x01))).toEqual([]);
+    });
+
+    it('starts changed patterns released', () => {
+        const before = mergeTriggers([], [LEFT_BUTTON]);
+        evaluateReport(before, report(0x01));
+        expect(mergeTriggers(before, [{ ...LEFT_BUTTON, mask: 0x03, value: 0x01 }])[0].isMatched).toBe(false);
+    });
+});
+
+describe('gateTriggers', () => {
+    it('lists the gates of the enabled lines that use a device', () => {
+        const line = (name: string, enabled: boolean, start: string, finish: string): LineRule => ({
+            name,
+            enabled,
+            start: { device: start, reportId: 2, byteIndex: 1, mask: 0x01, value: 0x01 },
+            finish: { device: finish, byteIndex: 1, mask: 0x02, value: 0x02, edge: 'release' },
+        });
+        const config: DevicesConfig = {
+            lines: [line('Line 1', true, 'A', 'B'), line('Line 2', true, 'A', 'A'), line('Off', false, 'A', 'A')],
+            devices: [],
+        };
+        expect(gateTriggers(config, 'A')).toEqual([
+            { line: 'Line 1', gate: 'start', edge: 'press', reportId: 2, byteIndex: 1, mask: 0x01, value: 0x01 },
+            { line: 'Line 2', gate: 'start', edge: 'press', reportId: 2, byteIndex: 1, mask: 0x01, value: 0x01 },
+            { line: 'Line 2', gate: 'finish', edge: 'release', byteIndex: 1, mask: 0x02, value: 0x02 },
+        ]);
+        expect(gateTriggers(config, 'B').map((t) => `${t.line} ${t.gate}`)).toEqual(['Line 1 finish']);
     });
 });
 
 describe('assignDevices', () => {
     const device = (path: string, extra: Partial<HID.Device> = {}): HID.Device =>
         ({ path, vendorId: 0x046d, productId: 0xc548, usagePage: 1, usage: 2, interface: 0, release: 0, ...extra }) as HID.Device;
-    const config = (devices: DevicesConfig['devices'], discoveryFilter?: DevicesConfig['discoveryFilter']): DevicesConfig => ({
+    // Every device is used by a line, unless `unused` names it
+    const config = (devices: DevicesConfig['devices'], discoveryFilter?: DevicesConfig['discoveryFilter'], unused: string[] = []): DevicesConfig => ({
+        lines: devices
+            .filter((d) => !unused.includes(d.name))
+            .map((d) => ({
+                name: `Line ${d.name}`,
+                enabled: true,
+                start: { device: d.name, byteIndex: 0, mask: 1, value: 1 },
+                finish: { device: d.name, byteIndex: 0, mask: 2, value: 2 },
+            })),
         devices,
         discoveryFilter,
     });
@@ -70,7 +106,6 @@ describe('assignDevices', () => {
         name,
         vendorId: 0x046d,
         productId: 0xc548,
-        enabled: true,
         ...extra,
     });
 
@@ -80,6 +115,11 @@ describe('assignDevices', () => {
             ['/a', 'Start', true],
             ['/b', undefined, false],
         ]);
+    });
+
+    it('does not listen to a device that no enabled line uses', () => {
+        const [assignment] = assignDevices(config([rule('Spare')], undefined, ['Spare']), [device('/a')]);
+        expect([assignment.rule?.name, assignment.used, isActive(assignment)]).toEqual(['Spare', false, false]);
     });
 
     it('leaves out devices outside the discovery filter that no rule names', () => {
@@ -111,7 +151,7 @@ describe('assignDevices', () => {
         );
     });
 
-    it('explains why an enabled rule matches nothing', () => {
+    it('explains why a device used by a line matches nothing', () => {
         const cfg = config([rule('Start', { vendorId: 0x1111 }), rule('Finish', { serialNumber: 'X' })]);
         const devices = [device('/a', { serialNumber: 'Y' })];
         const [missing, mismatch] = explainUnmatchedRules(cfg, devices, assignDevices(cfg, devices));

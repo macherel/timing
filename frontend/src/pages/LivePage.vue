@@ -1,15 +1,24 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { DisciplineSettings, LiveInstance, Participant, ParticipantsResponse, ResultsResponse, RunResult, ServerMessage } from '../types';
+import type {
+  DisciplineSettings,
+  LineRun,
+  LiveInstance,
+  Participant,
+  ParticipantsResponse,
+  ResultsResponse,
+  RunResult,
+  ServerMessage,
+} from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import { DECIMALS, formatDuration, parseInstant } from '../format';
 import { countsAsAttempt, isBetterTime, sameRun } from '../race/results';
 import { discipline, disciplineExists, eventName, eventsLoaded, loadEvents, switcherOpen } from '../selection';
 
 /**
- * Public display of the selected event and discipline: what every synced computer showing it on its race page is
- * doing (participant selected or ready, running clock, last time), and the ranking by best time.
+ * Public display of the selected event and discipline: what every line of the synced computers showing it on a race
+ * page is doing (participant selected or ready, running clock, last time), and the ranking by best time.
  */
 
 // Refresh rate of the running clocks, and otherwise of the "just finished" highlight
@@ -35,11 +44,26 @@ const error = ref<string | null>(null);
 const isHere = (item: { event: string; discipline: string } | null | undefined) =>
   !!item && item.event === eventName.value && item.discipline === discipline.value;
 
-// Computers whose race page shows this discipline, or that are timing a run in it
+// A line of a computer, shown as a card
+interface Lane {
+  key: string;
+  instance: LiveInstance;
+  line: LineRun;
+}
+
+// The lines that a race page shows with this discipline, or that are timing a run in it: this computer first
 const onTrack = computed(() =>
-  instances.value
-    .filter((instance) => instance.viewing.some(isHere) || (instance.run.status !== 'idle' && isHere(instance.run)))
-    .sort((a, b) => Number(b.self) - Number(a.self) || a.name.localeCompare(b.name)),
+  [...instances.value]
+    .sort((a, b) => Number(b.self) - Number(a.self) || a.name.localeCompare(b.name))
+    .flatMap((instance) =>
+      instance.lines
+        .filter(
+          (line) =>
+            (line.run.status !== 'idle' && isHere(line.run)) ||
+            instance.viewing.some((view) => isHere(view) && view.line === line.line),
+        )
+        .map((line): Lane => ({ key: `${instance.id}\n${line.line}`, instance, line })),
+    ),
 );
 
 type CardState =
@@ -49,8 +73,8 @@ type CardState =
   | { kind: 'finished'; result: RunResult }
   | { kind: 'waiting' };
 
-function cardState(instance: LiveInstance): CardState {
-  const { run, lastResult } = instance;
+function cardState({ instance, line }: Lane): CardState {
+  const { run, lastResult } = line;
   if (run.status === 'running' && isHere(run)) {
     return { kind: 'running', bib: run.participant.bib, name: run.participant.name, startedAt: run.startedAt };
   }
@@ -58,7 +82,7 @@ function cardState(instance: LiveInstance): CardState {
   // A participant selected on its race page, before they are ready, unless they have no attempt left (they
   // cannot run again). The last result stays while the same participant is selected (e.g. just after their run)
   const selected = instance.viewing.find(
-    (view) => isHere(view) && view.participant && !noAttemptLeft(view.participant.bib),
+    (view) => isHere(view) && view.line === line.line && view.participant && !noAttemptLeft(view.participant.bib),
   )?.participant;
   const last = lastResult && isHere(lastResult) ? lastResult : null;
   if (selected && selected.bib !== last?.result.bib) return { kind: 'selected', bib: selected.bib, name: selected.name };
@@ -78,7 +102,7 @@ function noAttemptLeft(bib: string): boolean {
 // Running clocks: this computer's time corrected by each computer's clock offset
 const now = ref(Date.now());
 let clockTimer: ReturnType<typeof setInterval> | undefined;
-const anyRunning = computed(() => onTrack.value.some((instance) => cardState(instance).kind === 'running'));
+const anyRunning = computed(() => onTrack.value.some((lane) => cardState(lane).kind === 'running'));
 watch(
   anyRunning,
   (running) => {
@@ -94,8 +118,8 @@ const elapsed = (instance: LiveInstance, startedAt: string) => now.value + insta
 const categoryOf = computed(() => new Map(participants.value.map((p) => [p.bib, p.file])));
 const recentRuns = computed(() => {
   const keys = new Set<string>();
-  for (const instance of instances.value) {
-    const last = instance.lastResult;
+  for (const line of instances.value.flatMap((instance) => instance.lines)) {
+    const last = line.lastResult;
     if (last && isHere(last) && now.value - Date.parse(last.endedAt) < RECENT_MS) keys.add(last.result.bib);
   }
   return keys;
@@ -219,12 +243,12 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
     <template v-else-if="disciplineExists">
       <section class="track" :aria-label="$t('live.onTrack')">
         <p v-if="onTrack.length === 0" class="muted empty">{{ $t('live.nobody', { event: eventName, discipline }) }}</p>
-        <article v-for="instance in onTrack" :key="instance.id" class="lane" :class="cardState(instance).kind">
-          <div class="lane-name">{{ instance.name }}</div>
-          <template v-for="state in [cardState(instance)]" :key="state.kind">
+        <article v-for="lane in onTrack" :key="lane.key" class="lane" :class="cardState(lane).kind">
+          <div class="lane-name">{{ lane.instance.name }} · {{ lane.line.line }}</div>
+          <template v-for="state in [cardState(lane)]" :key="state.kind">
             <template v-if="state.kind === 'running'">
               <div class="who"><span class="bib">{{ state.bib }}</span> {{ state.name }}</div>
-              <div class="clock mono" role="timer">{{ formatDuration(elapsed(instance, state.startedAt), 1) }}</div>
+              <div class="clock mono" role="timer">{{ formatDuration(elapsed(lane.instance, state.startedAt), 1) }}</div>
               <div class="best">{{ bestText(state.bib) }}</div>
             </template>
             <template v-else-if="state.kind === 'ready'">

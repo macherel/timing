@@ -158,6 +158,15 @@ export default {
     // {format} is the line format, bib;name
     noParticipant: 'No participant in {event} / {discipline}: add CSV files with {format} lines to its folder.',
     problems: '{n} problem in the files of {discipline} | {n} problems in the files of {discipline}',
+    lines: 'Lines of this computer',
+    line: 'Line: {line}',
+    // {config} is a link to the configuration page
+    noLine: 'No line is configured on this computer: add one on the {config} page to time runs.',
+    lineState: {
+      idle: 'Free',
+      ready: 'A participant is waiting for the start',
+      running: 'A run is in progress',
+    },
   },
 
   run: {
@@ -191,6 +200,7 @@ export default {
     noTime: 'Ended before the finish: no time',
     best: 'best',
     statusOf: 'Status of run {n}',
+    noLine: 'No line on this computer',
   },
 
   picker: {
@@ -266,16 +276,49 @@ export default {
     devices: 'Devices',
     noDevice: 'No device yet.',
     devicesHint:
-      'When several entries match the same HID interface, the first one in this list is used. The device name identifies it in race events, so it must be unique.',
+      'When several entries match the same HID interface, the first one in this list is used. The lines refer to a device by its name, so it must be unique. Only the devices used by an enabled line are opened.',
     addDevice: '+ Add device',
-    // Prefix of a problem of a trigger, e.g. "Trigger 2: mask must be…"
-    triggerProblem: 'Trigger {n}: {problem}',
+    defaultLineName: 'Line {n}',
+    confirmRemoveLine: 'Remove line "{name}"?',
+    confirmRemoveUsed: 'Remove device "{name}"? It is used by: {lines}. Their start or finish will have no device.',
+    lines: 'Lines',
+    noLine: 'No line yet: add one to time runs on this computer.',
+    linesHint:
+      'One participant at a time is timed on each line, from a press of its start button to a press of its finish button. Several lines can share a device (one button each).',
+    addLine: '+ Add line',
+    // Prefix of a problem of the start or finish of a line, e.g. "Start: mask must…"
+    gateProblem: '{gate}: {problem}',
+  },
+
+  line: {
+    name: 'Line name',
+    namePlaceholder: 'Line 1',
+    enabled: 'Enabled',
+    moveUp: 'Move up',
+    moveDown: 'Move down',
+    remove: 'Remove line',
+    start: 'Start',
+    finish: 'Finish',
+    device: 'Device',
+    chooseDevice: 'Choose a device…',
+    noDevice: 'Add a device below first',
+    detect: 'Detect the button',
+    detectTitle: 'Press the button on the device: its pattern is filled in',
+    detectPress: 'Press the button on the device now (without moving the mouse)…',
+    detectTimeout: 'No button press seen. Press it again, or check the device on the Diagnostics page.',
+    detectNotConnected: 'This device is not connected (or its IDs are not right).',
+    detectCannotRead: 'Cannot read the device: {error}',
+    edge: 'Crossing on',
+    press: 'press',
+    release: 'release',
+    // {condition} is the formula, (report[byte] & mask) == value; {button} is line.detect
+    patternHint:
+      'The button is pressed while {condition}. Mask and value are hex. {button} fills them in when you press the button.',
   },
 
   device: {
     name: 'Device name',
     namePlaceholder: 'Start gate',
-    enabled: 'Enabled',
     moveUp: 'Move up',
     moveDown: 'Move down',
     remove: 'Remove device',
@@ -292,12 +335,8 @@ export default {
     logReports: 'Log raw reports',
     advancedHint:
       'Usage page and usage pick one interface of the device (otherwise the default interface applies). Serial number or USB port tell identical devices apart. The Diagnostics page lists these values for every device.',
-    // {condition} is the formula, (report[byte] & mask) == value
-    triggersHint:
-      'A trigger fires its press action when {condition} starts being true, and its release action when it stops. Mask and value are hex.',
-    noAction: 'none',
-    removeTrigger: 'Remove trigger',
-    addTrigger: '+ Add trigger',
+    usedBy: 'Used by: {lines}',
+    unused: 'Used by no line',
   },
 
   // Words shared by the HID tables of the configuration and diagnostics pages
@@ -310,8 +349,6 @@ export default {
     byte: 'Byte',
     mask: 'Mask',
     value: 'Value',
-    pressAction: 'Press action',
-    releaseAction: 'Release action',
     interface: 'Interface',
     serial: 'Serial',
     usbPort: 'USB port',
@@ -395,9 +432,10 @@ export default {
     none: 'No HID interface found.',
     vidPid: 'VID:PID',
     rule: 'Rule',
-    disabled: 'disabled',
     ignored: 'ignored',
     conflict: 'Another interface already uses this rule',
+    unused: 'not used',
+    unusedHint: 'No enabled line uses this device: it is not opened',
   },
 
   report: {
@@ -409,8 +447,8 @@ export default {
 
   eventLog: {
     none: 'No crossing received since this page was opened.',
-    action: 'Action',
-    crossings: 'Crossings for device',
     timestamp: 'Exact timestamp',
+    line: 'Line',
+    gate: 'Gate',
   },
 };

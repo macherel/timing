@@ -150,6 +150,14 @@ const fr: Messages = {
       '{event} / {discipline} est fermée : {reason}. Les passages et les modifications de résultats sont désactivés (voir les réglages de la discipline dans le menu du titre).',
     noParticipant: 'Aucun participant dans {event} / {discipline} : ajoutez dans son dossier des fichiers CSV avec des lignes {format}.',
     problems: '{n} problème dans les fichiers de {discipline} | {n} problèmes dans les fichiers de {discipline}',
+    lines: 'Lignes de cet ordinateur',
+    line: 'Ligne : {line}',
+    noLine: 'Aucune ligne n’est configurée sur cet ordinateur : ajoutez-en une sur la page {config} pour chronométrer.',
+    lineState: {
+      idle: 'Libre',
+      ready: 'Un participant attend le départ',
+      running: 'Un passage est en cours',
+    },
   },
 
   run: {
@@ -183,6 +191,7 @@ const fr: Messages = {
     noTime: 'Terminé avant l’arrivée : pas de temps',
     best: 'meilleur',
     statusOf: 'Statut du passage {n}',
+    noLine: 'Aucune ligne sur cet ordinateur',
   },
 
   picker: {
@@ -259,15 +268,47 @@ const fr: Messages = {
     devices: 'Appareils',
     noDevice: 'Aucun appareil pour l’instant.',
     devicesHint:
-      'Quand plusieurs entrées correspondent à la même interface HID, la première de la liste est utilisée. Le nom de l’appareil l’identifie dans les événements de course : il doit être unique.',
+      'Quand plusieurs entrées correspondent à la même interface HID, la première de la liste est utilisée. Les lignes désignent un appareil par son nom : il doit être unique. Seuls les appareils utilisés par une ligne activée sont ouverts.',
     addDevice: '+ Ajouter un appareil',
-    triggerProblem: 'Déclencheur {n} : {problem}',
+    defaultLineName: 'Ligne {n}',
+    confirmRemoveLine: 'Supprimer la ligne « {name} » ?',
+    confirmRemoveUsed: 'Supprimer l’appareil « {name} » ? Il est utilisé par : {lines}. Leur départ ou leur arrivée n’aura plus d’appareil.',
+    lines: 'Lignes',
+    noLine: 'Aucune ligne pour l’instant : ajoutez-en une pour chronométrer sur cet ordinateur.',
+    linesHint:
+      'Sur chaque ligne, un participant à la fois est chronométré, d’un appui sur son bouton de départ à un appui sur son bouton d’arrivée. Plusieurs lignes peuvent partager un appareil (un bouton chacune).',
+    addLine: '+ Ajouter une ligne',
+    gateProblem: '{gate} : {problem}',
+  },
+
+  line: {
+    name: 'Nom de la ligne',
+    namePlaceholder: 'Ligne 1',
+    enabled: 'Activée',
+    moveUp: 'Monter',
+    moveDown: 'Descendre',
+    remove: 'Supprimer la ligne',
+    start: 'Départ',
+    finish: 'Arrivée',
+    device: 'Appareil',
+    chooseDevice: 'Choisir un appareil…',
+    noDevice: 'Ajoutez d’abord un appareil plus bas',
+    detect: 'Détecter le bouton',
+    detectTitle: 'Appuyez sur le bouton de l’appareil : son motif est rempli',
+    detectPress: 'Appuyez maintenant sur le bouton de l’appareil (sans bouger la souris)…',
+    detectTimeout: 'Aucun appui reçu. Appuyez de nouveau, ou vérifiez l’appareil sur la page Diagnostic.',
+    detectNotConnected: 'Cet appareil n’est pas branché (ou ses identifiants ne sont pas les bons).',
+    detectCannotRead: 'Impossible de lire l’appareil : {error}',
+    edge: 'Passage enregistré',
+    press: 'à l’appui',
+    release: 'au relâchement',
+    patternHint:
+      'Le bouton est appuyé tant que {condition}. Le masque et la valeur sont en hexadécimal. {button} les remplit quand vous appuyez sur le bouton.',
   },
 
   device: {
     name: 'Nom de l’appareil',
     namePlaceholder: 'Cellule de départ',
-    enabled: 'Activé',
     moveUp: 'Monter',
     moveDown: 'Descendre',
     remove: 'Supprimer l’appareil',
@@ -284,11 +325,8 @@ const fr: Messages = {
     logReports: 'Journaliser les rapports bruts',
     advancedHint:
       'Usage page et usage choisissent une interface de l’appareil (sinon l’interface par défaut s’applique). Le numéro de série ou le port USB distinguent des appareils identiques. La page Diagnostic indique ces valeurs pour chaque appareil.',
-    triggersHint:
-      'Un déclencheur lance son action d’appui quand {condition} devient vrai, et son action de relâchement quand cela cesse. Le masque et la valeur sont en hexadécimal.',
-    noAction: 'aucune',
-    removeTrigger: 'Supprimer le déclencheur',
-    addTrigger: '+ Ajouter un déclencheur',
+    usedBy: 'Utilisé par : {lines}',
+    unused: 'Utilisé par aucune ligne',
   },
 
   hid: {
@@ -300,8 +338,6 @@ const fr: Messages = {
     byte: 'Octet',
     mask: 'Masque',
     value: 'Valeur',
-    pressAction: 'Action d’appui',
-    releaseAction: 'Action de relâchement',
     interface: 'Interface',
     serial: 'N° de série',
     usbPort: 'Port USB',
@@ -384,9 +420,10 @@ const fr: Messages = {
     none: 'Aucune interface HID trouvée.',
     vidPid: 'VID:PID',
     rule: 'Règle',
-    disabled: 'désactivée',
     ignored: 'ignorée',
     conflict: 'Une autre interface utilise déjà cette règle',
+    unused: 'non utilisé',
+    unusedHint: 'Aucune ligne activée n’utilise cet appareil : il n’est pas ouvert',
   },
 
   report: {
@@ -398,9 +435,9 @@ const fr: Messages = {
 
   eventLog: {
     none: 'Aucun passage de cellule reçu depuis l’ouverture de cette page.',
-    action: 'Action',
-    crossings: 'Passages de l’appareil',
     timestamp: 'Horodatage exact',
+    line: 'Ligne',
+    gate: 'Cellule',
   },
 };
 

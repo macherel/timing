@@ -31,19 +31,20 @@ src/
 test/                            # Vitest tests (`npm test`), each file with its own temporary working directory
 openapi.yaml                     # OpenAPI 3.1 reference of the REST API
 └── services/
-    ├── raceService.ts           # Records crossings per lane and broadcasts them
+    ├── lines.ts                 # The timing lines of this computer (enabled lines of config.yaml, or simulated ones)
+    ├── raceService.ts           # Routes the crossings of a line's gates to its run and broadcasts them
     ├── eventService.ts          # Events, disciplines and participant CSV files of the working directory
-    ├── runService.ts            # Timed run of one participant (ready → running → result in <event>-<discipline>-results.csv)
+    ├── runService.ts            # Timed run of each line (ready → running → result in <event>-<discipline>-results.csv)
     ├── syncService.ts           # Finds the other instances on the network and syncs the event folders with them
-    ├── hardwareService.ts       # Polls devices, opens them, routes reports to triggers, tracks status
+    ├── hardwareService.ts       # Polls devices, opens those the lines use, routes reports to the line gates, tracks status
     └── hardware/
         ├── deviceConfig.ts      # config.yaml types, loading, validation and watching
         ├── deviceMatching.ts    # Matches system HID interfaces to config rules, explains mismatches
-        ├── triggers.ts          # Edge detection on HID report bytes
+        ├── triggers.ts          # The gates of the lines on a device, edge detection on HID report bytes
         └── hidDiagnostics.ts    # Human-readable usages, hex dumps, bit diffs, failure hints
 ```
 
-**Flow:** every second (and on a `config.yaml` change) `hardwareService` syncs devices → each HID report goes through `triggers` → fired actions go to `raceService` → `wsServer` broadcasts a `RACE_UPDATE`, and `runService` times the run of the participant who is ready.
+**Flow:** every second (and on a `config.yaml` change) `hardwareService` syncs devices → each HID report goes through the `triggers` of the device (the start and finish gates of the lines that use it) → a fired gate goes to `raceService` → `runService` times the run of the participant who is ready on that line, and `wsServer` broadcasts a `RACE_UPDATE`.
 
 ---
 
@@ -67,9 +68,9 @@ When you don't know yet how a device shows up, use the diagnose tool. It doesn't
    npm run diagnose -- --listen 046d:c548 --duration 30
    ```
 
-   Keep the device still and press each button/gate 3 times, one at a time. Each changed report is printed with the bits that changed. On exit you get a summary that ignores movement bytes, and ready-to-paste `triggers` for `config.yaml`.
+   Keep the device still and press each button/gate 3 times, one at a time. Each changed report is printed with the bits that changed. On exit you get a summary that ignores movement bytes, with the `reportId`, `byteIndex`, `mask` and `value` of each button, to use as the `start` or `finish` of a line in `config.yaml`. The configuration page can also find them: _Detect the button_ on the start or finish of a line waits for a press on its device and fills them in.
 
-3. **Check it live in the server**: open the diagnostics page of the frontend (`/diagnostics`, on `http://localhost:5173` with `npm run dev`, or `http://localhost:3001` after a build). It lists every HID interface on the computer, then has one tab per device, configured or not, with its interfaces grouped by USB interface number. Unfold an interface to see its state, its triggers (pressed/idle) when a rule uses it, the last report bit by bit and the last 50 changed reports. The interfaces that no rule uses are opened only while their tab is shown, and never fire race events. Set `logReports: true` on a rule to also log every changed raw report in the backend console.
+3. **Check it live in the server**: open the diagnostics page of the frontend (`/diagnostics`, on `http://localhost:5173` with `npm run dev`, or `http://localhost:3001` after a build). It lists every HID interface on the computer, then has one tab per device, configured or not, with its interfaces grouped by USB interface number. Unfold an interface to see its state, the gates of the lines on it (pressed/idle) when a line uses it, the last report bit by bit and the last 50 changed reports. The interfaces that no line uses are opened only while their tab is shown (or while the configuration page detects a button on them), and never fire race events. Set `logReports: true` on a rule to also log every changed raw report in the backend console.
 
 ### Windows: mice and keyboards cannot be read
 
@@ -111,8 +112,8 @@ The other collections of the same USB interface (e.g. media keys) go with it. Th
 **3. Check it in the app**
 
 1. Back on the diagnostics page, within about 3 seconds the interface shows up again under its USB interface, with a path like `usb:1-4:0` (bus-ports:interface) and the badge **read over USB (WinUSB)**. The app restarts nothing: it finds the interface while the page is open.
-2. Unfold it and press the buttons: the reports and the changed bits are shown as on Linux. When the interface declares report IDs (or holds several collections), byte 0 of every report is the report ID: use `reportId` in the triggers.
-3. Click **+ Add to configuration** and write the triggers as usual. Rules work the same as with HID: `usagePage`/`usage` (read from the HID report descriptor), `serialNumber`, and `usbPort`, which also works on Windows for these interfaces.
+2. Unfold it and press the buttons: the reports and the changed bits are shown as on Linux. When the interface declares report IDs (or holds several collections), byte 0 of every report is the report ID: use `reportId` in the gates of the lines.
+3. Click **+ Add to configuration** and use the device in the start or finish of a line as usual. Rules work the same as with HID: `usagePage`/`usage` (read from the HID report descriptor), `serialNumber`, and `usbPort`, which also works on Windows for these interfaces.
 
 `npm run diagnose` does not list these interfaces yet: use the diagnostics page.
 
@@ -142,13 +143,15 @@ Do it for every USB interface you gave to WinUSB. The interface then shows up ag
 
 **Timing**
 
-Listing USB devices blocks the app for a moment on Windows. So the app only looks for these interfaces every 3 seconds, only while a rule lacks its device, while one of them fails, or while the diagnostics page is open, and never while a participant is ready or running: nothing then delays the timestamps of the crossings. Marking a participant ready waits for the end of a search already running (usually a fraction of a second). The interfaces already found keep working during a run, but a WinUSB device plugged in (or replugged) during a run is only found once the run ends.
+Listing USB devices blocks the app for a moment on Windows. So the app only looks for these interfaces every 3 seconds, only while a device used by a line is missing, while one of them fails, or while the diagnostics page is open, and never while a participant is ready or running: nothing then delays the timestamps of the crossings. Marking a participant ready waits for the end of a search already running (usually a fraction of a second). The interfaces already found keep working during a run, but a WinUSB device plugged in (or replugged) during a run is only found once the run ends.
 
 ---
 
 ## 🔧 Configuration (`config.yaml`)
 
-Hardware targets, bitmask rules, and trigger actions are declared in `config.yaml`, in the working directory. It can be edited in any text editor or with the form of the frontend's configuration page (`/config`), which checks it as you type and refuses to save an invalid config. Saving from the page rewrites the file in a standard layout, so comments are not kept. Changes made while the server is running are applied immediately. An invalid file is reported in the logs and ignored, and the current connections are kept.
+The timing lines and the devices they use are declared in `config.yaml`, in the working directory. It can be edited in any text editor or with the form of the frontend's configuration page (`/config`), which checks it as you type and refuses to save an invalid config. Saving from the page rewrites the file in a standard layout, so comments are not kept. Changes made while the server is running are applied immediately. An invalid file is reported in the logs and ignored, and the current connections are kept.
+
+A **line** is a track where one participant at a time is timed, from a crossing of its start gate to a crossing of its finish gate. A computer can time several lines at once (e.g. two lanes side by side, each with its operator). Each gate is a button of a **device** (a pattern of bits in its HID reports). Several lines can share a device, one button each, and one button can be the gate of several lines (e.g. one start for two lanes).
 
 ### Working directory
 
@@ -166,52 +169,81 @@ A relative path is resolved against the directory the command is started from. T
 port: 3001           # Optional port of the app, read at startup (default 3001)
 sync:                # Optional: sync with other computers, see "Syncing Several Computers"
   key: amber-otter-glide
-discoveryFilter:     # Optional default interface for all rules (1/2 = mouse)
+discoveryFilter:     # Optional default interface for all devices (1/2 = mouse)
   usagePage: 1
   usage: 2
 
+lines:
+  - name: "Line 1"          # Shown on the race and live pages, must be unique
+    enabled: true
+    start:
+      device: "Receiver"    # Name of a device below
+      reportId: 2           # Only reports starting with this byte (when several collections share a path)
+      byteIndex: 1          # Byte of the HID report to inspect
+      mask: 0x01            # Bits of that byte to compare
+      value: 0x01           # Pressed while (byte & mask) === value
+    finish:
+      device: "Receiver"
+      reportId: 2
+      byteIndex: 1
+      mask: 0x02
+      value: 0x02
+
+  - name: "Line 2"
+    enabled: true
+    start:
+      device: "Receiver"
+      reportId: 2
+      byteIndex: 1
+      mask: 0x04
+      value: 0x04
+    finish:
+      device: "Finish gate 2"
+      byteIndex: 0
+      mask: 0x01
+      value: 0x01
+      edge: release         # Optional: record the crossing when the button is released
+
 devices:
-  - name: "Lane 1"   # Device name: identifies it in race events, must be unique
+  - name: "Receiver"        # Device name: the lines refer to it, must be unique
     vendorId: 0x046d
     productId: 0xc548
-    usbPort: "3-5"   # Optional: physical USB port (Linux, or Windows over WinUSB), shown on the diagnostics page
-    enabled: true
-    triggers:
-      - reportId: 2         # Only reports starting with this byte (when several collections share a path)
-        byteIndex: 1        # Byte of the HID report to inspect
-        mask: 0x01          # Bits of that byte to compare
-        value: 0x01         # Fires when (byte & mask) === value
-        action: "start_crossed"
+    usbPort: "3-5"          # Optional: physical USB port (Linux, or Windows over WinUSB), shown on the diagnostics page
 
-      - reportId: 2
-        byteIndex: 1
-        mask: 0x02
-        value: 0x02
-        action: "finish_crossed"
+  - name: "Finish gate 2"
+    vendorId: 0x1234
+    productId: 0x0001
 ```
+
+**Line fields**
+
+| Field              | Required | Meaning                                                                                       |
+| ------------------ | -------- | --------------------------------------------------------------------------------------------- |
+| `name`             | yes      | Line name, shown on the race and live pages. Must be unique.                                  |
+| `enabled`          | yes      | Whether the line is used. A disabled line is kept in the file but not shown or timed.         |
+| `start`, `finish`  | yes      | The gate that starts the run, and the one that ends it (see _Gate fields_).                    |
+
+**Gate fields** (`start` and `finish` of a line)
+
+| Field                        | Required | Meaning                                                                                                                                                                                                                     |
+| ---------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `device`                     | yes      | Name of a device of `devices`.                                                                                                                                                                                              |
+| `reportId`                   | no       | Only check reports whose byte 0 has this value. Use it when several collections share one interface, otherwise reports of another collection can fire false presses/releases. The diagnose tool tells you when it's needed. |
+| `byteIndex`, `mask`, `value` | yes      | The button is pressed while `(report[byteIndex] & mask) === value`.                                                                                                                                                         |
+| `edge`                       | no       | `press` (default): the crossing is recorded when the button gets pressed; `release`: when it gets released.                                                                                                               |
 
 **Device fields**
 
 | Field                   | Required | Meaning                                                                                                                                              |
 | ----------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                  | yes      | Device name, shown in race events. Must be unique.                                                                                                   |
+| `name`                  | yes      | Device name, used by the gates of the lines. Must be unique.                                                                                         |
 | `vendorId`, `productId` | yes      | USB IDs of the device.                                                                                                                               |
-| `enabled`               | yes      | Whether to listen to the device.                                                                                                                     |
 | `usagePage`, `usage`    | no       | Which HID interface of the device to use. Overrides `discoveryFilter` for this rule. Without both, the rule matches any interface of the device.     |
 | `serialNumber`          | no       | Binds the rule to one unit. Many devices report an empty serial number, so use `usbPort` for those.                                                  |
 | `usbPort`               | no       | Binds the rule to a physical USB port (Linux, and Windows for the interfaces given to WinUSB). Needed when several identical devices are plugged in. |
 | `logReports`            | no       | `true` logs every changed raw report with the changed bits. For debugging only.                                                                      |
 
-**Trigger fields**
-
-| Field                        | Required       | Meaning                                                                                                                                                                                                                     |
-| ---------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reportId`                   | no             | Only check reports whose byte 0 has this value. Use it when several collections share one interface, otherwise reports of another collection can fire false presses/releases. The diagnose tool tells you when it's needed. |
-| `byteIndex`, `mask`, `value` | yes            | The trigger matches when `(report[byteIndex] & mask) === value`.                                                                                                                                                            |
-| `action`                     | one of the two | Fired when the pattern starts matching (press).                                                                                                                                                                             |
-| `releaseAction`              | one of the two | Fired when the pattern stops matching (release).                                                                                                                                                                            |
-
-Only actions containing `start`, `finish` or `click` are recorded as crossings.
+Only the devices used by an enabled line are opened. A file without `lines` is valid but times nothing. Files of earlier versions (devices with `enabled` and `triggers`, no `lines`) still load, their devices included, but their triggers are ignored: add the lines on the configuration page.
 
 ### Linux permissions
 
@@ -327,10 +359,10 @@ rounding: up
 
 ### Timed runs and `<event>-<discipline>-results.csv`
 
-On the race page, select a participant and click _Ready to start_. The next crossing whose action contains `start` (from any device) starts the run, the next one containing `finish` ends it. The time is the difference between the two hardware timestamps. Then the participant can run again: every run is kept, and the page lists the participant's runs with the best one highlighted.
+On the race page, choose the line (one tab per line when the computer has several; each browser remembers its own), select a participant and click _Ready to start_. The next crossing of the line's start gate starts the run, the next crossing of its finish gate ends it. The time is the difference between the two hardware timestamps. Then the participant can run again: every run is kept, and the page lists the participant's runs with the best one highlighted.
 
-- One run at a time. The run is kept by the backend, so every open page shows it, and reloading the page does not lose it. It is lost if the server restarts before the finish.
-- While a participant is ready or running, the event, discipline and participant cannot change. _Cancel_ abandons the run without saving anything.
+- One run at a time on each line; the lines are independent, and can time different disciplines. A participant cannot be ready or running on two lines at once. The runs are kept by the backend, so every open page shows them, and reloading the page does not lose them. They are lost if the server restarts before the finish, and the run of a line removed from `config.yaml` is dropped.
+- While a participant is ready or running on the line, the event, discipline and participant cannot change on the page (another line can be chosen). _Cancel_ abandons the run without saving anything.
 - While running, _Invalidate_ or _Disqualify_ ends the run at once (no need to wait for the finish) and saves it as `INVALID` or `DQ`, without finish or time. Such a run is listed but never counts as the best.
 - A saved run has a status, changed from the participant's results on the race page: `OK` (counts), `INVALID` (does not count, without the participant being at fault, e.g. a timing problem) or `DQ` (disqualified). A run keeps its time whatever its status (shown struck through when it does not count). A run ended before the finish has no time, so it cannot be set back to `OK`.
 - Each finished run is appended to `<event>-<discipline>-results.csv` in the discipline folder, e.g. `CFM26/100m/CFM26-100m-results.csv` (this file is not read as a participant list):
@@ -384,10 +416,10 @@ The navigation bar shows the sync state ("Synced with 1 computer"); its tooltip 
 
 _Live_ (in the Race part of the title menu, `/live`) is a public display of the selected event and discipline, for a screen facing the audience:
 
-- **On track**: one card per computer whose race page shows this discipline (this one and the synced ones): _Waiting_, the participant _Ready_, a running clock, or the time (or DQ / Invalid) of the run that just ended. The card also shows the participant's best time and its rank (or _No time yet_), whether ready, running or just finished.
+- **On track**: one card per line (of this computer and the synced ones) that a race page shows with this discipline, or that times a run in it: _Waiting_, the participant _Ready_, a running clock, or the time (or DQ / Invalid) of the run that just ended. The card also shows the participant's best time and its rank (or _No time yet_), whether ready, running or just finished.
 - **Ranking**: every participant with a run, by best valid time, with their category and number of runs; a run that just ended is highlighted. Invalid runs are left out (not counted, no time): a participant whose runs are all invalid is not listed. DQ runs are counted, without a time.
 
-Each computer shares its activity (the event and discipline open on its race pages, its run and its last result) with the synced ones at once when it changes, and in every announcement. A running clock on another computer is corrected by the difference between the clocks; the saved time is always measured by the computer that times the run.
+Each computer shares its activity (the event, discipline and line open on its race pages, and the run and last result of each of its lines) with the synced ones at once when it changes, and in every announcement. A running clock on another computer is corrected by the difference between the clocks; the saved time is always measured by the computer that times the run.
 
 ## 🩺 Troubleshooting in the Logs
 
@@ -409,26 +441,23 @@ HTTP and WebSocket share the same port, chosen at startup in this order: the `--
   ```json
   {
     "type": "RACE_UPDATE",
-    "deviceId": "Lane 1",
-    "deviceName": "Lane 1",
-    "action": "start_crossed",
-    "timestamp": "2026-11-04T12:15:30.123456789Z",
-    "allCrossings": [
-      {
-        "action": "start_crossed",
-        "timestamp": "2026-11-04T12:15:30.123456789Z"
-      }
-    ]
+    "line": "Line 1",
+    "gate": "start",
+    "deviceName": "Receiver",
+    "timestamp": "2026-11-04T12:15:30.123456789Z"
   }
   ```
 
-- `RUN_UPDATE` `{ run }`: the run changed. `run.status` is `idle`, `ready` (with `event`, `discipline`, `participant`) or `running` (also with `startedAt`).
-- `RUN_RESULT` `{ event, discipline, result }`: a run finished or the participant was disqualified. `result` has `bib`, `name`, `start`, `finish`, `timeMs` and `status` (`ok`, `invalid` or `dq`) (`finish` and `timeMs` are `null` when the run was ended before the finish).
+  Sent for every crossing of a gate of a line, whether or not a run uses it (`deviceName` is `Simulator` for the simulated gates).
+
+- `RUN_UPDATE` `{ line, run }`: the run of a line changed. `run.status` is `idle`, `ready` (with `event`, `discipline`, `participant`) or `running` (also with `startedAt`).
+- `LINES_UPDATE` `{ lines }`: the lines of this computer changed (`config.yaml`), see `GET /api/lines`.
+- `RUN_RESULT` `{ line, event, discipline, result }`: a run finished or the participant was disqualified. `result` has `bib`, `name`, `start`, `finish`, `timeMs` and `status` (`ok`, `invalid` or `dq`) (`finish` and `timeMs` are `null` when the run was ended before the finish).
 - `RESULT_UPDATE` `{ event, discipline, result }`: the status of a saved run changed.
 - `SETTINGS_UPDATE` `{ event, discipline, settings }`: the settings of a discipline were saved from the race page.
 - `SYNC_UPDATE` `{ event, discipline }`: files of a discipline were changed by the sync with another computer.
 - `LIVE_UPDATE` `{ instances }`: the activity of this computer or of a synced one changed (see `GET /api/live`).
-- From the page: `VIEWING` `{ event, discipline }` tells which event and discipline a race page shows (`null` for none).
+- From the page: `VIEWING` `{ event, discipline, line, participant }` tells which event and discipline a race page shows, the line it times on and the participant selected (`null` for none).
 
 ### REST Endpoints
 
@@ -444,15 +473,15 @@ The full reference, with every request and response schema, is [`openapi.yaml`](
 - `PUT /api/events/:event/:discipline/settings` `{ settings: { attempts, start, end, access, best } }`: saves the discipline's `config.yaml` (`attempts`: a whole number from 1, or `null` for unlimited; `start`, `end`: ISO 8601 date-times, saved in UTC, or `null`; `access`: `auto`, `open` or `locked`; `best`: `shortest` or `longest`) and returns the `settings` read back with their `problems`. `422` for an invalid value.
 - `GET /api/events/:event/:discipline/results`: every run of the discipline from `<event>-<discipline>-results.csv`, oldest first.
 - `PATCH /api/events/:event/:discipline/results` `{ bib, start, status }`: sets the status (`ok`, `invalid` or `dq`) of the saved run of `bib` that started at `start` (bib and start together identify a run, as several participants can share a start). `404` when there is no such run, `409` to set `ok` on a run without a time, or when the discipline is closed (outside its period with `access: auto`, or `access: locked`).
-- `GET /api/run`: the current run (see `RUN_UPDATE`).
-- `POST /api/run/ready` `{ event, discipline, bib }`: the participant is ready, the next start crossing starts their run. `404` for an unknown participant, `409` while a run is in progress, when the participant has no attempt left, or when the discipline is closed.
-- `POST /api/run/invalidate`, `POST /api/run/disqualify`: ends the running run now and saves it as `INVALID` or `DQ`. `409` when no run is in progress.
-- `POST /api/run/cancel`: abandons the current run, nothing is saved.
-- `POST /api/simulate/crossing` `{ action: "start_crossed" | "finish_crossed" }`, `POST /api/simulate/reset`: simulated gates, only when the server is started with `TIMING_SIMULATE_GATES=1` (the end-to-end tests do, and it can be used for training without hardware). A crossing acts as if a gate fired it now; reset forgets the run in progress and the last result. The server logs a warning when they are on.
-- `GET /api/live`: the `instances` shown on the live page: this computer and the synced ones, each with its `name`, `viewing` (event and discipline open on its race pages), `run`, `lastResult` and `clockOffsetMs`.
+- `GET /api/lines`: the `lines` of this computer (the enabled lines of `config.yaml`, in its order), each with its `run` (see `RUN_UPDATE`) and `lastResult`.
+- `POST /api/lines/:line/ready` `{ event, discipline, bib }`: the participant is ready on the line, its next start crossing starts their run. `404` for an unknown line or participant, `409` while a run is in progress on the line, when the participant is ready or running on another line, has no attempt left, or when the discipline is closed.
+- `POST /api/lines/:line/invalidate`, `POST /api/lines/:line/disqualify`: ends the running run of the line now and saves it as `INVALID` or `DQ`. `409` when no run is in progress on it.
+- `POST /api/lines/:line/cancel`: abandons the run of the line, nothing is saved.
+- `POST /api/simulate/crossing` `{ gate: "start" | "finish", line? }`, `POST /api/simulate/reset`: simulated gates, only when the server is started with `TIMING_SIMULATE_GATES=1` (the end-to-end tests do, and it can be used for training without hardware). A crossing acts as if the gate of the line (the first one by default) was crossed now; reset reads `config.yaml` again and forgets the runs in progress and the last results. Without lines in `config.yaml`, the server then has two simulated lines, `Line 1` and `Line 2`. The server logs a warning when they are on.
+- `GET /api/live`: the `instances` shown on the live page: this computer and the synced ones, each with its `name`, `viewing` (event, discipline and line open on its race pages), `lines` (each with its `run` and `lastResult`) and `clockOffsetMs`.
 - `GET /api/sync`: whether sync is on, this computer's `name`, and the `peers` found (name, address, port, last sync, error, clock offset).
 - `GET /api/sync/manifest`, `GET /api/sync/file?path=`, `GET /api/sync/results?event=&discipline=`, `POST /api/sync/notify`, `POST /api/sync/activity`: used between instances, only with the hash of the same key in the `x-timing-sync` header (`403` otherwise).
-- `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each configured device (`deviceName`) as `listening` (report count, last report, last 50 changed reports, trigger states) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it (and `transport: usb` for the ones read with libusb), and explanations for rules that match no device. `?monitor=0x046d:0xc548,…` also opens the interfaces of these models that no rule uses, and returns their reports in `monitor`: they stay open while requests keep asking, and close 5 seconds after the last one.
+- `GET /api/hardware/status`: Device diagnostics, used by the frontend diagnostics page. Lists each device used by a line (`deviceName`) as `listening` (report count, last report, last 50 changed reports, the state of the line gates on it) or `failing` (error, hint, attempts), every HID interface found by the last scan with the rule using it (and `transport: usb` for the ones read with libusb), and explanations for the used devices that match nothing connected. `?monitor=0x046d:0xc548,…` also opens the interfaces of these models that no line uses, and returns their reports in `monitor`: they stay open while requests keep asking, and close 5 seconds after the last one.
 
 ---
 

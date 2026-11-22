@@ -4,7 +4,7 @@ import { readFile, resetWorkDir, writeFiles } from './helpers';
 test.beforeEach(() => resetWorkDir());
 
 test.describe('configuration page', () => {
-  test('creates config.yaml with a device, after the problems are fixed', async ({ page }) => {
+  test('creates config.yaml with a line on a device, after the problems are fixed', async ({ page }) => {
     await page.goto('/config');
     await expect(page.getByText('does not exist yet: saving creates it')).toBeVisible();
 
@@ -13,27 +13,59 @@ test.describe('configuration page', () => {
     await expect(page.getByText('vendorId and productId must be integers')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
 
-    await page.getByLabel('Device name').fill('Start gate');
+    await page.getByLabel('Device name').fill('Receiver');
     await page.getByLabel('Vendor ID (hex)').fill('0x046d');
     await page.getByLabel('Product ID (hex)').fill('c548');
-    await page.getByPlaceholder('1', { exact: true }).fill('1');
-    await page.getByPlaceholder('0x01').first().fill('0x01');
-    await page.getByPlaceholder('0x01').last().fill('0x01');
-    await page.getByPlaceholder('start_crossed').fill('start_crossed');
     await expect(page.getByText('✔ valid')).toBeVisible();
+
+    // A new line uses the only device for its start and finish; its buttons are still to set
+    await page.getByRole('button', { name: '+ Add line' }).click();
+    await expect(page.getByText('Start: byteIndex, mask and value must be integers')).toBeVisible();
+    for (const [gate, mask] of [['Start', '0x01'], ['Finish', '0x02']]) {
+      const fieldset = page.getByRole('group', { name: gate });
+      await expect(fieldset.getByLabel('Device')).toHaveValue(/\d+/);
+      await fieldset.getByLabel('Byte').fill('1');
+      await fieldset.getByLabel('Mask').fill(mask);
+      await fieldset.getByLabel('Value').fill(mask);
+    }
+    await page.getByRole('group', { name: 'Finish' }).getByLabel('Crossing on').selectOption('release');
+    await expect(page.getByText('✔ valid')).toBeVisible();
+    await expect(page.getByText('Used by: Line 1')).toBeVisible();
 
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Saved. The app applies the new configuration within a second.')).toBeVisible();
     const saved = readFile('config.yaml')!;
-    expect(saved).toContain('name: "Start gate"');
     expect(saved).toContain('vendorId: 0x046d');
     expect(saved).toContain('productId: 0xc548');
-    expect(saved).toContain('action: "start_crossed"');
+    expect(saved).toMatch(/lines:\n {2}- name: "Line 1"\n {4}enabled: true\n {4}start:\n {6}device: "Receiver"\n {6}byteIndex: 1\n {6}mask: 0x01/);
+    expect(saved).toMatch(/finish:\n {6}device: "Receiver"\n {6}byteIndex: 1\n {6}mask: 0x02\n {6}value: 0x02\n {6}edge: release/);
+  });
+
+  test('keeps the lines on their device when it is renamed, and asks before removing a used device', async ({ page }) => {
+    writeFiles({
+      'config.yaml': [
+        'lines:',
+        '  - { name: "North", enabled: true, start: { device: "G", byteIndex: 0, mask: 1, value: 1 }, finish: { device: "G", byteIndex: 0, mask: 2, value: 2 } }',
+        'devices: [{ name: "G", vendorId: 1, productId: 1 }]',
+      ].join('\n'),
+    });
+    await page.goto('/config');
+    await page.getByLabel('Device name').fill('Gate');
+    await expect(page.getByRole('group', { name: 'Start' }).getByLabel('Device')).toContainText('Gate');
+    await expect(page.getByText('✔ valid')).toBeVisible();
+
+    page.once('dialog', (dialog) => {
+      expect(dialog.message()).toBe('Remove device "Gate"? It is used by: North. Their start or finish will have no device.');
+      return dialog.dismiss();
+    });
+    await page.getByTitle('Remove device').click();
+    await expect(page.getByLabel('Device name')).toHaveValue('Gate');
   });
 
   test('saves the port and the sync settings', async ({ page }) => {
     writeFiles({ 'config.yaml': 'devices: []\n' });
     await page.goto('/config');
+    await expect(page.getByText('No line yet')).toBeVisible();
     await page.getByLabel('Port of the app').fill('70000');
     await expect(page.getByText('port must be a whole number from 1 to 65535')).toBeVisible();
     await page.getByLabel('Port of the app').fill('8080');

@@ -1,21 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { emptyDevice, emptyForm, groupProblems, parseHex, toConfig, toForm } from '../src/config/configForm';
+import {
+  emptyDevice,
+  emptyForm,
+  emptyLine,
+  findPressedButton,
+  groupProblems,
+  parseHex,
+  reportKey,
+  toConfig,
+  toForm,
+} from '../src/config/configForm';
 import { setLocale } from '../src/i18n';
-import type { DevicesConfig } from '../src/types';
+import type { DevicesConfig, RecentReport } from '../src/types';
 
 const CONFIG: DevicesConfig = {
   port: 8080,
   sync: { key: 'amber-otter-glide', name: 'Finish line' },
   discoveryFilter: { usagePage: 1, usage: 2 },
-  devices: [
+  lines: [
     {
-      name: 'Start gate',
-      vendorId: 0x046d,
-      productId: 0xc548,
-      serialNumber: 'ABC',
+      name: 'Line 1',
       enabled: true,
-      triggers: [{ reportId: 2, byteIndex: 1, mask: 0x01, value: 0x01, action: 'start_crossed' }],
+      start: { device: 'Receiver', reportId: 2, byteIndex: 1, mask: 0x01, value: 0x01 },
+      finish: { device: 'Finish gate', byteIndex: 0, mask: 0x02, value: 0x02, edge: 'release' },
     },
+  ],
+  devices: [
+    { name: 'Receiver', vendorId: 0x046d, productId: 0xc548, serialNumber: 'ABC' },
+    { name: 'Finish gate', vendorId: 0x1234, productId: 0x0001 },
   ],
 };
 
@@ -23,9 +35,16 @@ describe('configuration form', () => {
   it('shows IDs and masks in hex, and gives back the same config', () => {
     const form = toForm(CONFIG);
     expect(form.devices[0]).toMatchObject({ vendorId: '0x046d', productId: '0xc548', usagePage: '' });
-    expect(form.devices[0].triggers[0]).toMatchObject({ mask: '0x01', reportId: '2', releaseAction: '' });
+    expect(form.lines[0].start).toMatchObject({ deviceKey: form.devices[0].key, mask: '0x01', reportId: '2', edge: 'press' });
+    expect(form.lines[0].finish).toMatchObject({ deviceKey: form.devices[1].key, reportId: '', edge: 'release' });
     expect(form).toMatchObject({ port: '8080', useSync: true, syncKey: 'amber-otter-glide', useDiscoveryFilter: true });
     expect(toConfig(form)).toEqual(CONFIG);
+  });
+
+  it('keeps a line on its device when the device is renamed', () => {
+    const form = toForm(CONFIG);
+    form.devices[0].name = 'Gate A';
+    expect(toConfig(form).lines![0].start.device).toBe('Gate A');
   });
 
   it('leaves out empty optional fields and switched-off sections', () => {
@@ -33,19 +52,27 @@ describe('configuration form', () => {
     form.syncKey = 'kept only when sync is on';
     form.devices.push(emptyDevice('Device 1'));
     const config = toConfig(form);
-    expect(config).toEqual({ devices: [expect.objectContaining({ name: 'Device 1', enabled: true })] });
+    expect(config).toEqual({ lines: [], devices: [{ name: 'Device 1', vendorId: undefined, productId: undefined }] });
     expect(config.sync).toBeUndefined();
     expect(config.discoveryFilter).toBeUndefined();
     expect(config.devices[0].serialNumber).toBeUndefined();
+  });
+
+  it('gives a line without a device an empty device name, for the backend to report', () => {
+    const form = emptyForm();
+    form.lines.push(emptyLine('Line 1'));
+    expect(toConfig(form).lines![0].start.device).toBe('');
   });
 
   it('turns text that is not a number into NaN, for the backend to report on that field', () => {
     const form = toForm(CONFIG);
     form.port = '80a';
     form.devices[0].vendorId = 'xyz';
+    form.lines[0].start.mask = 'zz';
     const config = toConfig(form);
     expect(config.port).toBeNaN();
     expect(config.devices[0].vendorId).toBeNaN();
+    expect(config.lines![0].start.mask).toBeNaN();
   });
 
   it('accepts hex with or without 0x, in any case', () => {
@@ -60,18 +87,45 @@ describe('groupProblems', () => {
   const problems = [
     'port must be a whole number from 1 to 65535',
     'devices[0].name must be a non-empty string',
-    'devices[1].triggers[2].mask must be…',
+    'lines[1].start.mask must be…',
+    'lines[1].name must be a non-empty string',
   ];
 
-  it('gives each device its problems, trigger problems with the trigger number', () => {
-    const { general, byDevice } = groupProblems(problems);
+  it('gives each line and device its problems, with the gate of a line', () => {
+    const { general, byLine, byDevice } = groupProblems(problems);
     expect(general).toEqual(['port must be a whole number from 1 to 65535']);
     expect(byDevice.get(0)).toEqual(['name must be a non-empty string']);
-    expect(byDevice.get(1)).toEqual(['Trigger 3: mask must be…']);
+    expect(byLine.get(1)).toEqual(['Start: mask must be…', 'name must be a non-empty string']);
   });
 
-  it('names the trigger in the current language', () => {
+  it('names the gate in the current language', () => {
     setLocale('fr');
-    expect(groupProblems(problems).byDevice.get(1)).toEqual(['Déclencheur 3 : mask must be…']);
+    expect(groupProblems(problems).byLine.get(1)?.[0]).toBe('Départ : mask must be…');
+    setLocale('en');
+  });
+});
+
+describe('findPressedButton', () => {
+  const report = (at: string, bits: RecentReport['bits'], reportId: number | null = null): RecentReport => ({
+    at,
+    reportId,
+    hex: '',
+    changes: [],
+    bits,
+  });
+
+  it('finds the first bit set in a new report, in its lowest byte', () => {
+    const old = { path: '/a', report: report('1', [{ byteIndex: 1, bit: 0, isSet: true }]) };
+    const known = new Set([reportKey(old.path, old.report)]);
+    const reports = [
+      old,
+      { path: '/a', report: report('2', [{ byteIndex: 1, bit: 0, isSet: false }]) },
+      { path: '/a', report: report('3', [{ byteIndex: 3, bit: 2, isSet: true }, { byteIndex: 1, bit: 1, isSet: true }], 2) },
+    ];
+    expect(findPressedButton(reports, known)).toEqual({ reportId: 2, byteIndex: 1, mask: 0x02 });
+  });
+
+  it('finds nothing without a new press', () => {
+    expect(findPressedButton([{ path: '/a', report: report('1', [{ byteIndex: 0, bit: 0, isSet: false }]) }], new Set())).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type HID from 'node-hid';
-import type { DeviceRule, DevicesConfig } from './deviceConfig.js';
+import { usedDeviceNames, type DeviceRule, type DevicesConfig } from './deviceConfig.js';
 import { describeUsage, hexId } from './hidDiagnostics.js';
 import { isUsbPath, usbPortOfPath } from './usbHid.js';
 
@@ -14,6 +14,8 @@ export interface DeviceAssignment {
     device: HidDevice;
     usbPort: string | null;
     rule: DeviceRule | undefined;
+    // An enabled line uses the rule
+    used: boolean;
     // Another interface already claimed the same rule
     conflict: boolean;
 }
@@ -21,18 +23,19 @@ export interface DeviceAssignment {
 export type ActiveAssignment = DeviceAssignment & { rule: DeviceRule };
 
 /**
- * True when the interface should be listened to: its rule is enabled and not claimed by another interface.
+ * True when the interface should be listened to: an enabled line uses its rule, and no other interface claimed it.
  */
 export function isActive(assignment: DeviceAssignment): assignment is ActiveAssignment {
-    return !!assignment.rule?.enabled && !assignment.conflict;
+    return !!assignment.rule && assignment.used && !assignment.conflict;
 }
 
 /**
  * Finds the rule for each HID interface on the system.
  * Returns the interfaces that match a rule or the discovery filter; the rest of the system is ignored.
- * When several interfaces match the same enabled rule, only the first one (by path) gets it.
+ * When several interfaces match the same used rule, only the first one (by path) gets it.
  */
 export function assignDevices(config: DevicesConfig, systemDevices: HID.Device[]): DeviceAssignment[] {
+    const used = usedDeviceNames(config);
     // Sorted by path so that, on a rule conflict, the same interface wins every time
     const candidates = systemDevices
         .filter((d): d is HidDevice => !!d.path)
@@ -47,12 +50,13 @@ export function assignDevices(config: DevicesConfig, systemDevices: HID.Device[]
         const rule = config.devices.find((r) => ruleMatches(config, r, device, usbPort));
         if (!rule && !matchesUsage(device, config.discoveryFilter)) continue;
 
-        const claimedBy = rule?.enabled ? claimedRules.get(rule) : undefined;
+        const isUsed = !!rule && used.has(rule.name);
+        const claimedBy = isUsed ? claimedRules.get(rule) : undefined;
         // On Linux, one hidraw path carries several collections (one entry each): it is still one device
         if (claimedBy === device.path) continue;
 
-        if (rule?.enabled && claimedBy === undefined) claimedRules.set(rule, device.path);
-        assignments.push({ device, usbPort, rule, conflict: claimedBy !== undefined });
+        if (isUsed && claimedBy === undefined) claimedRules.set(rule, device.path);
+        assignments.push({ device, usbPort, rule, used: isUsed, conflict: claimedBy !== undefined });
     }
     return assignments;
 }
@@ -71,17 +75,18 @@ export function groupByPath(systemDevices: HID.Device[]): Map<string, HID.Device
 }
 
 /**
- * Explains, for each enabled rule that no interface uses, why nothing matched.
+ * Explains, for each rule that an enabled line uses but no interface matches, why nothing matched.
  */
 export function explainUnmatchedRules(
     config: DevicesConfig,
     systemDevices: HID.Device[],
     assignments: DeviceAssignment[]
 ): string[] {
-    const usedRules = new Set(assignments.filter(isActive).map((a) => a.rule));
+    const matchedRules = new Set(assignments.filter(isActive).map((a) => a.rule));
+    const used = usedDeviceNames(config);
 
     return config.devices
-        .filter((rule) => rule.enabled && !usedRules.has(rule))
+        .filter((rule) => used.has(rule.name) && !matchedRules.has(rule))
         .map((rule) => {
             const sameIds = systemDevices.filter(
                 (d) => d.vendorId === rule.vendorId && d.productId === rule.productId
@@ -115,13 +120,13 @@ export function explainUnmatchedRules(
 /**
  * One log line describing an assignment, plus a hint when it is ignored because of a conflict.
  */
-export function describeAssignment({ device, usbPort, rule, conflict }: DeviceAssignment, index: number): string {
+export function describeAssignment({ device, usbPort, rule, used, conflict }: DeviceAssignment, index: number): string {
     const line =
         `  [${index + 1}] Product: ${device.product || 'N/A'}` +
         ` | VID: ${hexId(device.vendorId)} | PID: ${hexId(device.productId)}` +
         ` | Usage: ${describeUsage(device.usagePage, device.usage)}` +
         ` | Serial: ${device.serialNumber || 'N/A'} | USB port: ${usbPort ?? 'N/A'} | Path: ${device.path}` +
-        ` | Rule: ${rule?.name ?? 'none'} | Enabled: ${rule?.enabled ?? false}`;
+        ` | Rule: ${rule?.name ?? 'none'} | Used by a line: ${used}`;
 
     if (!conflict) return line;
     return (

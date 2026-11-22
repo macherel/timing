@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { resetServer, cross, getReady, participantInput, pickParticipant, readFile, resetWorkDir, startRun, writeFiles } from './helpers';
 
 test.beforeEach(async ({ request }) => {
-  await resetServer(request);
   resetWorkDir();
+  await resetServer(request);
 });
 
 test('explains how to add events, then picks the only event and discipline once they exist', async ({ page }) => {
@@ -38,6 +38,34 @@ test('times a run from the start to the finish gate and saves it', async ({ page
   await expect(row).toHaveCount(1);
   await expect(row.locator('td').nth(1)).toHaveText(/^\d+\.\d{2}$/);
   await expect(page.getByText('men · Attempt 2')).toBeVisible();
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;/);
+});
+
+test('times runs on two lines at once, each from its own gates', async ({ page, request }) => {
+  await page.goto('/');
+  const tab = (name: string) => page.getByRole('tab', { name: new RegExp(`^${name}`) });
+  await expect(tab('Line 1')).toHaveAttribute('aria-selected', 'true');
+  await pickParticipant(page, 'hug', '7 Hugo Guérin');
+  await startRun(page, request);
+  await expect(tab('Line 1')).toContainText('7');
+
+  // The other line is free: another participant can get ready and run on it meanwhile
+  await tab('Line 2').click();
+  await expect(participantInput(page)).toBeEnabled();
+  await pickParticipant(page, 'lea', '12 Léa Martin');
+  await getReady(page);
+  await cross(request, 'start', undefined, 'Line 2');
+  await expect(page.getByRole('timer')).toBeVisible();
+  await cross(request, 'finish', undefined, 'Line 2');
+  await expect(page.locator('.results tbody tr')).toHaveCount(1);
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n12;Léa Martin;.+;OK;/);
+
+  // Hugo is still running on line 1, until its finish gate
+  await tab('Line 1').click();
+  await expect(participantInput(page)).toHaveValue('7 · Hugo Guérin');
+  await expect(page.getByRole('timer')).toBeVisible();
+  await cross(request, 'finish', undefined, 'Line 1');
+  await expect(page.locator('.results tbody tr')).toHaveCount(1);
   await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;/);
 });
 
