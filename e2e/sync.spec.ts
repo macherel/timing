@@ -56,9 +56,9 @@ test('shares the participants, the results and the live activity', async ({ page
 
   // The finish line computer shows the live page, the start line computer times a run
   const live = page;
-  await live.goto(url(b, '/live?event=CFM26&discipline=100m'));
+  await live.goto(url(b, '/CFM26/100m/live'));
   const race = await page.context().newPage();
-  await race.goto(url(a, '/?event=CFM26&discipline=100m'));
+  await race.goto(url(a, '/CFM26/100m/race'));
   await chooseLine(race);
   await race.getByPlaceholder('Bib number or name').fill('lea');
   await race.getByRole('option', { name: '12 Léa Martin' }).click();

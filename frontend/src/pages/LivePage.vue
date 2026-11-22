@@ -14,7 +14,7 @@ import type {
 import { useRaceSocket } from '../composables/useRaceSocket';
 import { DECIMALS, formatDuration, parseInstant } from '../format';
 import { countsAsAttempt, isBetterTime, sameRun } from '../race/results';
-import { discipline, disciplineExists, eventName, eventsLoaded, loadEvents, switcherOpen } from '../selection';
+import { discipline, disciplineExists, eventName, eventsLoaded, loadEvents } from '../selection';
 
 /**
  * Public display of the selected event and discipline: what every line of the synced computers showing it on a race
@@ -237,7 +237,7 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
 
     <div v-if="eventsLoaded && !disciplineExists" class="alert hint choose">
       <span>{{ $t('live.choose') }}</span>
-      <button type="button" @click.stop="switcherOpen = true">{{ $t('common.choose') }}</button>
+      <RouterLink to="/?open=live" class="button">{{ $t('common.choose') }}</RouterLink>
     </div>
 
     <template v-else-if="disciplineExists">
@@ -313,9 +313,6 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-.choose button {
-  margin: 0;
 }
 .track {
   display: grid;

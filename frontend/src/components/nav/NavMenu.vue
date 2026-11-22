@@ -6,6 +6,7 @@ import SyncIndicator from '../SyncIndicator.vue';
 import LanguageFlag from './LanguageFlag.vue';
 import { LOCALES, locale, setLocale } from '../../i18n';
 import { adminLocked } from '../../adminLock';
+import { listTarget } from '../../selection';
 
 const SECTIONS = ['race', 'admin'] as const;
 
@@ -18,13 +19,18 @@ const { open, toggle, close } = usePopover(root, button);
 // Sync state, shown at the bottom of the menu; a problem also shows a dot on the button
 const syncKind = ref<'off' | 'alone' | 'ok' | 'warn'>('off');
 
-// Pages of each section, in the order of the routes. The administration is hidden while it is locked
-const groups = computed(() =>
-  SECTIONS.filter((key) => key !== 'admin' || !adminLocked.value).map((key) => ({
-    key,
-    pages: router.options.routes.filter((r) => r.meta?.section === key && r.meta.page),
-  })).filter((group) => group.pages.length > 0),
-);
+// Items of each section. The race section has a single item, the list of the events (the home page), opening the live
+// page from the live page. The administration lists its pages, in the order of the routes, and is hidden while locked
+const groups = computed(() => {
+  const live = route.name === 'live' || (route.path === '/' && listTarget(route) === 'live');
+  const race = [{ to: live ? '/?open=live' : '/', page: 'choice', current: route.path === '/' }];
+  const admin = router.options.routes
+    .filter((r) => r.meta?.section === 'admin' && r.meta.page)
+    .map((r) => ({ to: r.path, page: r.meta!.page!, current: route.path === r.path }));
+  return SECTIONS.filter((key) => key !== 'admin' || !adminLocked.value)
+    .map((key) => ({ key, items: key === 'race' ? race : admin }))
+    .filter((group) => group.items.length > 0);
+});
 
 watch(() => route.path, close);
 
@@ -52,13 +58,13 @@ async function openWithKeyboard(): Promise<void> {
       type="button"
       class="menu-button"
       aria-haspopup="menu"
+      :aria-label="$t('nav.menu')"
+      :title="$t('nav.menu')"
       :aria-expanded="open"
       @click="toggle"
       @keydown.down.prevent="openWithKeyboard"
     >
-      <span class="brand">Timing</span>
-      <span v-if="route.meta.section === 'admin'" class="section">{{ $t('nav.sections.admin') }} ·</span>
-      <span v-if="route.meta.page" class="page-name">{{ $t(`pages.${route.meta.page}`) }}</span>
+      <img src="/favicon.svg" class="logo" alt="" />
       <span v-if="syncKind === 'warn'" class="warn-dot" :title="$t('nav.syncProblem')" :aria-label="$t('nav.syncProblemLabel')"></span>
       <span class="caret" aria-hidden="true">▾</span>
     </button>
@@ -67,15 +73,15 @@ async function openWithKeyboard(): Promise<void> {
       <template v-for="group in groups" :key="group.key">
         <div class="group-label" role="presentation">{{ $t(`nav.sections.${group.key}`) }}</div>
         <RouterLink
-          v-for="page in group.pages"
-          :key="page.path"
-          :to="page.path"
+          v-for="item in group.items"
+          :key="item.page"
+          :to="item.to"
           role="menuitem"
           class="item"
-          :class="{ current: route.path === page.path }"
-          :aria-current="route.path === page.path ? 'page' : undefined"
+          :class="{ current: item.current }"
+          :aria-current="item.current ? 'page' : undefined"
         >
-          {{ $t(`pages.${page.meta?.page}`) }}
+          {{ $t(`pages.${item.page}`) }}
         </RouterLink>
       </template>
       <div class="group-label" role="presentation">{{ $t('nav.language') }}</div>
@@ -108,10 +114,10 @@ async function openWithKeyboard(): Promise<void> {
 }
 .menu-button {
   display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   margin: 0;
-  padding: 6px 10px;
+  padding: 6px 8px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text);
@@ -120,20 +126,11 @@ async function openWithKeyboard(): Promise<void> {
 .menu-button[aria-expanded='true'] {
   background: var(--accent-bg);
 }
-/* The menu button is the page title: "Timing  Race ▾" */
-.brand {
-  font-size: 0.85em;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.section {
-  font-size: 0.85em;
-  color: var(--text-muted);
-}
-.page-name {
-  font-size: 1.35em;
-  font-weight: 700;
-  color: var(--text-h);
+/* The menu button: the icon of the app */
+.logo {
+  display: block;
+  width: 22px;
+  height: 22px;
 }
 .warn-dot {
   width: 8px;

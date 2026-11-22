@@ -24,7 +24,6 @@ import {
   discipline,
   disciplineExists,
   eventName,
-  events,
   eventsError,
   eventsLoaded,
   loadEvents,
@@ -33,8 +32,6 @@ import {
   selectedLine,
   selectLine,
   selectionLock,
-  switcherOpen,
-  workDir,
 } from '../selection';
 
 const { t, locale } = useI18n();
@@ -397,22 +394,9 @@ onMounted(reload);
 
     <template v-if="line">
     <p v-if="startBlocked && run.status === 'idle'" class="alert warn" data-testid="start-blocked">{{ startBlocked }}</p>
-    <div v-if="eventsLoaded && events.length === 0 && !eventsError" class="alert hint">
-      <i18n-t keypath="race.noEvent" tag="p">
-        <template #dir><code>{{ workDir }}</code></template>
-      </i18n-t>
-      <pre class="tree">CFM26/
-  100m/
-    femmes.csv     bib;name
-    hommes.csv     1;Hugo Guérin</pre>
-      <i18n-t keypath="race.noEventThen" tag="p">
-        <template #button><em>{{ $t('switcher.reload') }}</em></template>
-      </i18n-t>
-    </div>
-
-    <div v-else-if="eventsLoaded && !disciplineExists" class="alert hint choose">
+    <div v-if="eventsLoaded && !disciplineExists" class="alert hint choose">
       <span>{{ currentEvent ? $t('race.chooseDisciplineOf', { event: eventName }) : $t('race.chooseEventAndDiscipline') }}</span>
-      <button type="button" @click.stop="switcherOpen = true">{{ $t('common.choose') }}</button>
+      <RouterLink to="/" class="button">{{ $t('common.choose') }}</RouterLink>
     </div>
 
     <section v-if="disciplineExists" class="card">
@@ -498,9 +482,7 @@ onMounted(reload);
   gap: 12px;
   flex-wrap: wrap;
 }
-.choose button {
-  margin: 0;
-}
+
 .line-bar {
   display: flex;
   align-items: center;
@@ -569,11 +551,6 @@ onMounted(reload);
 }
 .small {
   font-size: 0.85em;
-}
-.tree {
-  font-family: var(--mono);
-  font-size: 0.9em;
-  margin: 8px 0;
 }
 details ul {
   margin: 8px 0 0;

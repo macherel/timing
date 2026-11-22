@@ -1,29 +1,19 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { SAMPLE, resetServer, cross, getReady, participantInput, pickParticipant, readFile, chooseLine, resetWorkDir, startRun, writeFiles } from './helpers';
+
+/** Opens the settings page of the discipline with the gear beside the title. */
+async function openSettings(page: Page): Promise<void> {
+  await page.getByRole('link', { name: 'Discipline settings' }).click();
+  await expect(page).toHaveURL(/\/CFM26\/100m\/config$/);
+}
 
 test.beforeEach(async ({ request }) => {
   resetWorkDir();
   await resetServer(request);
 });
 
-test('explains how to add events, then picks the only event and discipline once they exist', async ({ page }) => {
-  resetWorkDir({});
-  await page.goto('/');
-  await chooseLine(page);
-  await expect(page.getByText('No event yet.')).toBeVisible();
-
-  writeFiles({ 'CFM26/100m/men.csv': '7;Hugo Guérin\n' });
-  await page.getByRole('button', { name: 'Choose an event' }).click();
-  await page.getByRole('button', { name: '↻ Reload lists' }).click();
-
-  // A single event and discipline need no click
-  await expect(page.getByRole('button', { name: 'CFM26 · 100m' })).toBeVisible();
-  await expect(page.getByText('Participant (1)')).toBeVisible();
-  await expect(page).toHaveURL(/event=CFM26&discipline=100m/);
-});
-
 test('times a run from the start to the finish gate and saves it', async ({ page, request }) => {
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   await pickParticipant(page, 'hug', '7 Hugo Guérin');
   await expect(page.getByText('men · Attempt 1')).toBeVisible();
@@ -44,7 +34,7 @@ test('times a run from the start to the finish gate and saves it', async ({ page
 });
 
 test('times runs on two lines at once, each from its own gates', async ({ page, request }) => {
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   const back = () => page.getByRole('button', { name: 'Back to the choice of a line' }).click();
   await expect(page.getByTestId('current-line')).toHaveText('Line 1');
@@ -82,7 +72,7 @@ test('times runs on two lines at once, each from its own gates', async ({ page, 
 });
 
 test('cancels a run without saving it, after a confirmation', async ({ page, request }) => {
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   await pickParticipant(page, '7', '7 Hugo Guérin');
   await startRun(page, request);
@@ -96,7 +86,7 @@ test('cancels a run without saving it, after a confirmation', async ({ page, req
 
 test('disqualifies a running participant, then turns the run into an invalid one that gives the attempt back', async ({ page, request }) => {
   writeFiles({ 'CFM26/100m/config.yaml': 'attempts: 1\n' });
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   await expect(page.getByText('Participant (3 remaining / 3)')).toBeVisible();
   await pickParticipant(page, 'lea', '12 Léa Martin');
@@ -125,7 +115,7 @@ test('shows participants without attempts left as done in the list', async ({ pa
     'CFM26/100m/CFM26-100m-results.csv':
       'bib;name;start;finish;status;updated\n21;Jean-Luc Martin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:00:10Z\n',
   });
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   await participantInput(page).fill('martin');
   await expect(page.getByRole('option', { name: '21 Jean-Luc Martin' })).toContainText('done');
@@ -137,15 +127,17 @@ test('locks the discipline from its settings, which disables runs and result cha
     'CFM26/100m/CFM26-100m-results.csv':
       'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:00:10Z\n',
   });
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   await pickParticipant(page, '7', '7 Hugo Guérin');
 
-  await page.getByRole('button', { name: 'CFM26 · 100m' }).click();
-  await page.getByRole('button', { name: '⚙ Discipline settings' }).click();
+  await openSettings(page);
   await page.getByText('Locked', { exact: true }).click();
   await page.getByRole('button', { name: 'Save' }).click();
 
+  // Back on the race page, on the same line
+  await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
+  await pickParticipant(page, '7', '7 Hugo Guérin');
   await expect(page.getByText('CFM26 / 100m is closed: its results are locked.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Ready to start' })).toBeDisabled();
   await expect(page.getByRole('combobox', { name: 'Status of run 1' })).toBeDisabled();
@@ -157,27 +149,27 @@ test('shows the times with the precision and rounding of the discipline settings
     'CFM26/100m/CFM26-100m-results.csv':
       'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:10.3441Z;OK;2026-11-05T10:00:11Z\n',
   });
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   await pickParticipant(page, '7', '7 Hugo Guérin');
   // By default: rounded up to the hundredth
   const time = page.locator('.results tbody tr td').nth(1);
   await expect(time).toHaveText('10.35');
 
-  await page.getByRole('button', { name: 'CFM26 · 100m' }).click();
-  await page.getByRole('button', { name: '⚙ Discipline settings' }).click();
+  await openSettings(page);
   await page.getByText('Thousandth', { exact: true }).click();
   await page.getByText('Truncate', { exact: true }).click();
   await expect(page.getByText('A measured time of 12.3456 s gives 12.345.')).toBeVisible();
   await page.getByRole('button', { name: 'Save' }).click();
 
+  await pickParticipant(page, '7', '7 Hugo Guérin');
   await expect(time).toHaveText('10.344');
   expect(readFile('CFM26/100m/config.yaml')).toMatch(/precision: thousandth\n.*\nrounding: truncate\n/);
   await expect.poll(() => readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toContain('7,,0,10,34\r\n');
 });
 
 test('asks for the line each time it is opened, and goes back to this choice', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   const choice = page.getByTestId('line-choice');
   await expect(choice.getByRole('heading', { name: 'Which line do you time on?' })).toBeVisible();
   await expect(participantInput(page)).toHaveCount(0);
@@ -212,7 +204,7 @@ test('opens a disabled line to see its results, but starts no run on it', async 
   });
   await resetServer(request);
   const page = await (await browser.newContext()).newPage();
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   const choice = page.getByTestId('line-choice');
   const disabled = 'No new start on this line: it is disabled on the Hardware configuration page. Its results can still be changed.';
   await expect(choice.getByRole('button', { name: /^Off/ })).toHaveAttribute('title', disabled);
@@ -229,11 +221,37 @@ test('opens a disabled line to see its results, but starts no run on it', async 
   await page.context().close();
 });
 
-test('refuses invalid discipline settings', async ({ page }) => {
-  await page.goto('/');
+test('closes the discipline settings with the gear, asking first when changes are not saved', async ({ page }) => {
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
-  await page.getByRole('button', { name: 'CFM26 · 100m' }).click();
-  await page.getByRole('button', { name: '⚙ Discipline settings' }).click();
+  const gear = page.getByRole('link', { name: 'Discipline settings' });
+
+  // Nothing changed: closed at once
+  await openSettings(page);
+  await gear.click();
+  await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
+
+  // A change not saved: asks, and stays when the answer is no
+  await openSettings(page);
+  await page.getByText('Thousandth', { exact: true }).click();
+  const answers: string[] = [];
+  page.on('dialog', (dialog) => {
+    answers.push(dialog.message());
+    return answers.length === 1 ? dialog.dismiss() : dialog.accept();
+  });
+  await gear.click();
+  await expect.poll(() => answers.length).toBe(1);
+  await expect(page).toHaveURL(/\/CFM26\/100m\/config$/);
+  await gear.click();
+  await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
+  expect(answers).toEqual(Array(2).fill('You have unsaved changes. Leave this page anyway?'));
+  expect(readFile('CFM26/100m/config.yaml')).toBeNull();
+});
+
+test('refuses invalid discipline settings', async ({ page }) => {
+  await page.goto('/CFM26/100m/race');
+  await chooseLine(page);
+  await openSettings(page);
 
   await page.getByLabel('Attempts per participant').fill('0');
   await page.getByRole('button', { name: 'Save' }).click();
@@ -251,7 +269,7 @@ test('refuses invalid discipline settings', async ({ page }) => {
 
 test('lists the problems of the participant files', async ({ page }) => {
   writeFiles({ 'CFM26/100m/men.csv': 'bib;name\n7;Hugo Guérin\nx;No bib\n' });
-  await page.goto('/');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   // The participant list opens when the page focuses the search field: close it
   await participantInput(page).press('Escape');

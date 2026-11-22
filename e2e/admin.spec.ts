@@ -97,7 +97,7 @@ test.describe('configuration page', () => {
       expect(dialog.message()).toBe('You have unsaved changes. Leave this page anyway?');
       return dialog.dismiss();
     });
-    await page.getByRole('button', { name: /Hardware configuration/ }).click();
+    await page.getByRole('button', { name: /Timing/ }).click();
     await page.getByRole('menuitem', { name: 'Diagnostics' }).click();
     await expect(page).toHaveURL(/\/config$/);
   });
@@ -112,18 +112,18 @@ test('the administration password hides the administration until it is typed', a
 
   // The browser that set the password stays unlocked; the padlock locks it
   await page.getByRole('button', { name: 'Lock the administration' }).click();
-  await expect(page).toHaveURL(/\/(\?.*)?$/);
-  await page.getByRole('button', { name: /Race/ }).click();
+  await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
+  await page.getByRole('button', { name: /Timing/ }).click();
   await expect(page.getByRole('menuitem', { name: 'Diagnostics' })).toHaveCount(0);
-  await expect(page.getByRole('menuitem', { name: 'Live' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Events' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'CFM26 · 100m' }).click();
-  await expect(page.getByRole('button', { name: '⚙ Discipline settings' })).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('link', { name: 'Discipline settings' })).toHaveCount(0);
 
-  // The administration URLs lead to the race page
+  // The administration URLs lead to the home page, the settings of a discipline to its race page
   await page.goto('/diagnostics');
-  await expect(page).toHaveURL(/\/(\?.*)?$/);
+  await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
+  await page.goto('/CFM26/100m/config');
+  await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
 
   await page.getByRole('button', { name: 'Unlock the administration' }).click();
   await page.getByLabel('Password').fill('wrong');
@@ -131,7 +131,7 @@ test('the administration password hides the administration until it is typed', a
   await expect(page.getByText('Wrong password.')).toBeVisible();
   await page.getByLabel('Password').fill('s3cret');
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
-  await page.getByRole('button', { name: /Race/ }).click();
+  await page.getByRole('button', { name: /Timing/ }).click();
   await expect(page.getByRole('menuitem', { name: 'Diagnostics' })).toBeVisible();
 });
 
@@ -145,9 +145,9 @@ test('diagnostics page shows the backend and the configuration state', async ({ 
 
 test.describe('language', () => {
   test('switches to French with the flag, and keeps it after a reload', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/CFM26/100m/race');
     await chooseLine(page);
-    await page.getByRole('button', { name: /^Timing/ }).click();
+    await page.getByRole('button', { name: /Timing/ }).click();
     await page.getByRole('menuitemradio', { name: 'Français' }).click();
 
     await expect(page.getByPlaceholder('Numéro de dossard ou nom')).toBeVisible();
@@ -157,7 +157,7 @@ test.describe('language', () => {
     await page.reload();
     await chooseLine(page);
     await expect(page.getByPlaceholder('Numéro de dossard ou nom')).toBeVisible();
-    await page.getByRole('button', { name: /^Timing/ }).click();
+    await page.getByRole('button', { name: /Timing/ }).click();
     await expect(page.getByRole('menuitemradio', { name: 'Français' })).toHaveAttribute('aria-checked', 'true');
   });
 

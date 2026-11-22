@@ -3,7 +3,8 @@ import { useRoute } from 'vue-router';
 import NavMenu from './components/nav/NavMenu.vue';
 import EventSwitcher from './components/nav/EventSwitcher.vue';
 import LockButton from './components/nav/LockButton.vue';
-import { usesSelection } from './selection';
+import PageSwitch from './components/nav/PageSwitch.vue';
+import { switchesPage, usesSelection } from './selection';
 
 const route = useRoute();
 </script>
@@ -12,7 +13,10 @@ const route = useRoute();
   <nav class="nav">
     <NavMenu />
     <EventSwitcher v-if="usesSelection(route)" class="event-title" />
-    <LockButton class="lock" />
+    <div class="tools">
+      <PageSwitch v-if="switchesPage(route)" />
+      <LockButton />
+    </div>
   </nav>
   <RouterView />
 </template>
@@ -31,11 +35,14 @@ const route = useRoute();
 .event-title {
   grid-column: 2;
 }
-/* Discreet padlock of the administration lock, at the right */
-.lock {
+/* At the right: the discreet race / live switch, and the padlock of the administration lock */
+.tools {
   grid-column: 3;
   grid-row: 1;
   justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 /* Narrow screens: the title on its own line, under the menu */
 @media (max-width: 720px) {
@@ -47,7 +54,7 @@ const route = useRoute();
     grid-column: 1;
     justify-self: center;
   }
-  .lock {
+  .tools {
     grid-column: 1;
   }
 }

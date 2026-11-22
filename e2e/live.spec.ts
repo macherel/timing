@@ -11,9 +11,9 @@ test.beforeEach(async ({ request }) => {
 /** The race page and the live page of the same computer, side by side. */
 async function openPages(page: Page) {
   const live = await page.context().newPage();
-  await page.goto('/?event=CFM26&discipline=100m');
+  await page.goto('/CFM26/100m/race');
   await chooseLine(page);
-  await live.goto('/live?event=CFM26&discipline=100m');
+  await live.goto('/CFM26/100m/live');
   return { race: page, live, card: live.locator('.lane') };
 }
 
@@ -81,16 +81,6 @@ test('ranks by best valid time, invalid runs left out and disqualified runs with
   expect(await cells(0)).toEqual(['1', '12', 'Léa Martin', 'women', '10.25', '1']);
   expect(await cells(1)).toEqual(['2', '7', 'Hugo Guérin', 'men', '11.50', '2']);
   expect(await cells(2)).toEqual(['–', '21', 'Jean-Luc Martin', 'men', '—', '1']);
-});
-
-test('asks to choose the discipline when none is selected', async ({ page }) => {
-  writeFiles({ 'UNICON22/Slalom/all.csv': '1;Ann\n' });
-  await page.goto('/live');
-  await expect(page.getByText('Choose the event and discipline to show.')).toBeVisible();
-  await page.getByRole('button', { name: 'Choose', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Event and discipline' })).toBeVisible();
-  // The race page search field is not on this page
-  await expect(participantInput(page)).toHaveCount(0);
 });
 
 test('updates the ranking at each finish, also for a participant who runs again', async ({ page, request }) => {

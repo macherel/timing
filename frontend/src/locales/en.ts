@@ -23,7 +23,9 @@ export default {
   },
 
   pages: {
+    choice: 'Events',
     race: 'Race',
+    disciplineConfig: 'Discipline settings',
     live: 'Live',
     diagnostics: 'Diagnostics',
     config: 'Hardware configuration',
@@ -37,6 +39,8 @@ export default {
     syncProblem: 'Sync problem: open the menu for details',
     syncProblemLabel: 'Sync problem',
     sync: 'Sync',
+    menu: 'Timing menu',
+    pageSwitch: 'Race or live page',
     language: 'Language',
   },
 
@@ -74,7 +78,7 @@ export default {
     discipline: 'Discipline',
     chooseDiscipline: 'Choose a discipline',
     noDiscipline: 'No discipline in this event',
-    settings: '⚙ Discipline settings',
+    closeSettings: 'Close the discipline settings',
     settingsTitle: 'Attempts, times, period and access of this discipline',
     reload: '↻ Reload lists',
     reloadTitle: 'Read the folders and CSV files again',
@@ -132,6 +136,17 @@ export default {
     saveError: 'Cannot save the settings: {error}',
   },
 
+  choice: {
+    disciplines: 'no discipline | 1 discipline | {n} disciplines',
+    title: 'Choose the event and discipline to time',
+    titleLive: 'Choose the event and discipline to show live',
+    // {dir} is the working directory
+    noEvent:
+      'No event yet. Create one folder per event in {dir}, one subfolder per discipline, and put the participant CSV files in it:',
+    // {button} is switcher.reload
+    noEventThen: 'Then click {button}.',
+  },
+
   race: {
     // Why a discipline is closed (or would be): completes "is closed: …" and "is open although …"
     reason: {
@@ -154,11 +169,6 @@ export default {
     confirmDisqualify: 'Disqualify {bib} {name}? The run ends now and is saved as disqualified (DQ).',
     confirmInvalidate:
       'Invalidate this run of {bib} {name}? The run ends now and is saved as invalid (not a disqualification).',
-    // {dir} is the working directory
-    noEvent:
-      'No event yet. Create one folder per event in {dir}, one subfolder per discipline, and put the participant CSV files in it:',
-    // {button} is switcher.reload
-    noEventThen: 'Then click {button} in the menu of the title.',
     chooseDisciplineOf: 'Choose a discipline of {event} to time runs.',
     chooseEventAndDiscipline: 'Choose an event and a discipline to time runs.',
     participant: 'Participant',

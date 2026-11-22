@@ -279,7 +279,7 @@ Then run `sudo udevadm control --reload && sudo udevadm trigger` and replug the 
 
 ## 🏁 Events and Participants
 
-The race page lists the events found in the working directory. Each event is a folder, each discipline a subfolder, and a discipline holds one or more participant CSV files (e.g. one per category), merged in the app:
+The home page of the app lists the events found in the working directory. Each event is a folder, each discipline a subfolder, and a discipline holds one or more participant CSV files (e.g. one per category), merged in the app:
 
 ```
 <working directory>/
@@ -324,7 +324,7 @@ ID,LastName,FirstName,Country,Gender,Age Group
 
 ### Discipline settings (`config.yaml`)
 
-A discipline folder can hold a `config.yaml` with its settings (not to be confused with the device `config.yaml` at the root of the working directory). Every setting is optional:
+A discipline folder can hold a `config.yaml` with its settings (not to be confused with the device `config.yaml` at the root of the working directory). They are edited on the settings page of the discipline, `/<event>/<discipline>/config` (the gear beside the title of its pages), or by hand. Every setting is optional:
 
 ```yaml
 # Runs allowed per participant. Remove for unlimited attempts.
@@ -356,14 +356,14 @@ recentRuns: 3
   - `open`: always, ignoring the period, e.g. to correct a result after the event (the race page reminds that the discipline is forced open while the period would close it);
   - `locked`: never, the results are final (the race page says they are locked).
 
-  It is the _Runs and result changes_ choice in _⚙ Discipline settings_. The older `locked: true` setting is read as `access: locked`.
+  It is the _Runs and result changes_ choice on the settings page of the discipline. The older `locked: true` setting is read as `access: locked`.
 
-- `best`: which time is a participant's best result, and ranks first: `shortest` (default, a race) or `longest` (a slow race, where the slowest participant wins). It decides the run highlighted as best on the race page, the ranking of the live page and the time written to `<event>-<discipline>-uda-results.csv`, which is rewritten when the setting changes. It is the _Best time_ choice in _⚙ Discipline settings_.
-- `precision`, `rounding`: the unit of the times (`second`, `tenth`, `hundredth` or `thousandth`, default `hundredth`) and how the measured time is brought to it: `truncate` (the digits beyond are dropped), `nearest` (a half goes up) or `up` (any fraction counts as a whole unit, the default). In hundredths, 12.3401 s gives 12.34 truncated or to the nearest, and 12.35 up. The rounding is done on the exact time between the two hardware timestamps (to the nanosecond). This time is the one shown on the race and live pages, compared to find the best run and the ranking (two times equal at this precision are tied), and written to `<event>-<discipline>-uda-results.csv`. `<event>-<discipline>-results.csv` keeps the exact start and finish, so a change applies to the runs already timed too, and `<event>-<discipline>-uda-results.csv` is rewritten. They are the _Time precision_ and _Rounding_ choices in _⚙ Discipline settings_.
-- `recentRuns`: how many of the last runs of the line the race page shows, below the participant (default `3`, `0` hides them). They are the runs of the discipline whose `computer` and `line` columns in `<event>-<discipline>-results.csv` are this computer and the chosen line, the latest start first, with their bib, name, time, start and status. The list is read only: a status is changed in the results of the participant. It is the _Last runs shown_ field in _⚙ Discipline settings_.
+- `best`: which time is a participant's best result, and ranks first: `shortest` (default, a race) or `longest` (a slow race, where the slowest participant wins). It decides the run highlighted as best on the race page, the ranking of the live page and the time written to `<event>-<discipline>-uda-results.csv`, which is rewritten when the setting changes. It is the _Best time_ choice on the settings page of the discipline.
+- `precision`, `rounding`: the unit of the times (`second`, `tenth`, `hundredth` or `thousandth`, default `hundredth`) and how the measured time is brought to it: `truncate` (the digits beyond are dropped), `nearest` (a half goes up) or `up` (any fraction counts as a whole unit, the default). In hundredths, 12.3401 s gives 12.34 truncated or to the nearest, and 12.35 up. The rounding is done on the exact time between the two hardware timestamps (to the nanosecond). This time is the one shown on the race and live pages, compared to find the best run and the ranking (two times equal at this precision are tied), and written to `<event>-<discipline>-uda-results.csv`. `<event>-<discipline>-results.csv` keeps the exact start and finish, so a change applies to the runs already timed too, and `<event>-<discipline>-uda-results.csv` is rewritten. They are the _Time precision_ and _Rounding_ choices on the settings page of the discipline.
+- `recentRuns`: how many of the last runs of the line the race page shows, below the participant (default `3`, `0` hides them). They are the runs of the discipline whose `computer` and `line` columns in `<event>-<discipline>-results.csv` are this computer and the chosen line, the latest start first, with their bib, name, time, start and status. The list is read only: a status is changed in the results of the participant. It is the _Last runs shown_ field on the settings page of the discipline.
 
 - The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
-- _⚙ Discipline settings_, in the event menu of the title on the race pages ("CFM26 · 100m ▾"), edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
+- The settings page of the discipline (`/<event>/<discipline>/config`, the gear beside the title "CFM26 · 100m ▾" of its pages) edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
 
 ### Timed runs and `<event>-<discipline>-results.csv`
 

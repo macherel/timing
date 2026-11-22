@@ -19,7 +19,9 @@ const fr: Messages = {
   },
 
   pages: {
+    choice: 'Compétitions',
     race: 'Course',
+    disciplineConfig: 'Réglages de la discipline',
     live: 'Direct',
     diagnostics: 'Diagnostic',
     config: 'Configuration matérielle',
@@ -33,6 +35,8 @@ const fr: Messages = {
     syncProblem: 'Problème de synchronisation : ouvrir le menu pour les détails',
     syncProblemLabel: 'Problème de synchronisation',
     sync: 'Synchronisation',
+    menu: 'Menu de Timing',
+    pageSwitch: 'Page course ou direct',
     language: 'Langue',
   },
 
@@ -70,7 +74,7 @@ const fr: Messages = {
     discipline: 'Discipline',
     chooseDiscipline: 'Choisir une discipline',
     noDiscipline: 'Aucune discipline dans cette compétition',
-    settings: '⚙ Réglages de la discipline',
+    closeSettings: 'Fermer les réglages de la discipline',
     settingsTitle: 'Essais, temps, période et accès de cette discipline',
     reload: '↻ Recharger les listes',
     reloadTitle: 'Relire les dossiers et les fichiers CSV',
@@ -128,6 +132,15 @@ const fr: Messages = {
     saveError: 'Impossible d’enregistrer les réglages : {error}',
   },
 
+  choice: {
+    disciplines: 'aucune discipline | 1 discipline | {n} disciplines',
+    title: 'Choisissez la compétition et la discipline à chronométrer',
+    titleLive: 'Choisissez la compétition et la discipline à afficher en direct',
+    noEvent:
+      'Aucune compétition pour l’instant. Créez un dossier par compétition dans {dir}, un sous-dossier par discipline, et placez-y les fichiers CSV des participants :',
+    noEventThen: 'Cliquez ensuite sur {button}.',
+  },
+
   race: {
     reason: {
       notStarted: 'sa période commence le {date}',
@@ -149,9 +162,6 @@ const fr: Messages = {
     confirmDisqualify: 'Disqualifier {bib} {name} ? Le passage se termine maintenant et est enregistré comme disqualifié (DQ).',
     confirmInvalidate:
       'Invalider ce passage de {bib} {name} ? Le passage se termine maintenant et est enregistré comme invalide (ce n’est pas une disqualification).',
-    noEvent:
-      'Aucune compétition pour l’instant. Créez un dossier par compétition dans {dir}, un sous-dossier par discipline, et placez-y les fichiers CSV des participants :',
-    noEventThen: 'Cliquez ensuite sur {button} dans le menu du titre.',
     chooseDisciplineOf: 'Choisissez une discipline de {event} pour chronométrer.',
     chooseEventAndDiscipline: 'Choisissez une compétition et une discipline pour chronométrer.',
     participant: 'Participant',

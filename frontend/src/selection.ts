@@ -1,14 +1,14 @@
-import { computed, ref, watch } from 'vue';
-import type { RouteLocationNormalized, Router } from 'vue-router';
+import { computed, ref } from 'vue';
+import type { RouteLocationNamedRaw, RouteLocationNormalized, Router } from 'vue-router';
 import type { EventSummary, EventsResponse } from './types';
 import { t } from './i18n';
 
 /**
  * The event and discipline the race pages work on, shared by the event switcher of the navigation bar and the pages.
  *
- * They live in the URL of the race pages (?event=…&discipline=…), so a reload or a bookmark keeps them. The last
- * choice is also remembered (in this module and in the browser), so going to an administration page and back, or
- * opening the app again, keeps it.
+ * They are the start of the URL of the pages of a discipline (/<event>/<discipline>/race, …/live, …/config), so a
+ * reload or a bookmark keeps them. The home page (/) lists the events to choose from (ChoicePage). The last choice is
+ * remembered in the browser, to open its event in that list.
  */
 
 const STORAGE_KEY = 'timing.selection';
@@ -43,8 +43,23 @@ export function selectLine(line: string): void {
   selectedLine.value = line;
 }
 
-/** Whether a page works on the selected event and discipline (the race pages, not the administration). */
-export const usesSelection = (route: RouteLocationNormalized) => route.meta.section === 'race';
+/** The pages of a discipline, by route name. */
+export type DisciplinePage = 'race' | 'live' | 'disciplineConfig';
+
+/** The URL of a page of a discipline. */
+export const disciplineRoute = (page: DisciplinePage, event: string, disciplineName: string): RouteLocationNamedRaw => ({
+  name: page,
+  params: { event, discipline: disciplineName },
+});
+
+/** Whether a page works on the selected event and discipline (the pages of a discipline, not the administration). */
+export const usesSelection = (route: RouteLocationNormalized) => route.meta.selection === true;
+
+/** Whether the page is the list of the events (the home page), or a race page: the race / live switch is shown. */
+export const switchesPage = (route: RouteLocationNormalized) => route.path === '/' || usesSelection(route);
+
+/** The page that a click in the list of the events opens: the live page with ?open=live, else the race page. */
+export const listTarget = (route: RouteLocationNormalized): 'race' | 'live' => (route.query.open === 'live' ? 'live' : 'race');
 
 function remembered(): { event: string; discipline: string } | null {
   try {
@@ -55,6 +70,11 @@ function remembered(): { event: string; discipline: string } | null {
   }
 }
 
+/** The last event and discipline chosen, in this page or before the app was opened again, or null. */
+export function lastSelection(): { event: string; discipline: string } | null {
+  return remembered();
+}
+
 function remember(selection: { event: string; discipline: string }): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(selection));
@@ -63,12 +83,26 @@ function remember(selection: { event: string; discipline: string }): void {
   }
 }
 
-/** Selects an event and discipline (an empty discipline lets the user choose it). */
-export function select(event: string, disciplineName = ''): void {
-  router.replace({ query: { ...router.currentRoute.value.query, event: event || undefined, discipline: disciplineName || undefined } });
+/** Shows the current page of a discipline (race, live or settings) on another event and discipline. */
+export function select(event: string, disciplineName: string): void {
+  const current = router.currentRoute.value;
+  const page: DisciplinePage = usesSelection(current) ? (current.name as DisciplinePage) : 'race';
+  router.replace(disciplineRoute(page, event, disciplineName));
 }
 
-/** Reads the events of the working directory, and selects the only choice when there is one. */
+/**
+ * Leaves the settings page of the discipline: back to the page of the discipline it was opened from, or else its race
+ * page. The settings page asks first when it has unsaved changes.
+ */
+export function leaveSettings(): void {
+  const race = router.resolve(disciplineRoute('race', eventName.value, discipline.value)).href;
+  const prefix = race.slice(0, race.lastIndexOf('/') + 1);
+  const previous = router.options.history.state.back;
+  if (typeof previous === 'string' && previous.startsWith(prefix)) router.back();
+  else router.push(race);
+}
+
+/** Reads the events of the working directory. */
 export async function loadEvents(): Promise<void> {
   try {
     const response = await fetch('/api/events');
@@ -81,39 +115,16 @@ export async function loadEvents(): Promise<void> {
     eventsError.value = t('switcher.loadError', { error: e instanceof Error ? e.message : String(e) });
   }
   eventsLoaded.value = true;
-  autoSelect();
 }
 
-/** A single event or discipline needs no click. */
-function autoSelect(): void {
-  if (!usesSelection(router.currentRoute.value) || selectionLock.value) return;
-  if (!eventName.value && events.value.length === 1) {
-    select(events.value[0].name);
-  } else if (currentEvent.value && !discipline.value && currentEvent.value.disciplines.length === 1) {
-    select(eventName.value, currentEvent.value.disciplines[0]);
-  }
-}
-
-/**
- * Connects the selection to the router: follows the URL of the race pages, gives a race page opened without a
- * selection the last one, and remembers each choice.
- */
+/** Connects the selection to the router: follows the URL of the pages of a discipline, and remembers each choice. */
 export function installSelection(appRouter: Router): void {
   router = appRouter;
-
-  router.beforeEach((to) => {
-    if (!usesSelection(to) || to.query.event !== undefined) return true;
-    const last = query.value.event ? query.value : remembered();
-    if (!last?.event) return true;
-    return { ...to, query: { ...to.query, event: last.event, discipline: last.discipline || undefined } };
-  });
 
   router.afterEach((to) => {
     if (!usesSelection(to)) return;
     const text = (value: unknown) => (typeof value === 'string' ? value : '');
-    query.value = { event: text(to.query.event), discipline: text(to.query.discipline) };
+    query.value = { event: text(to.params.event), discipline: text(to.params.discipline) };
     remember(query.value);
   });
-
-  watch(currentEvent, autoSelect);
 }

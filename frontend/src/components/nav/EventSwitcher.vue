@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useRoute } from 'vue-router';
 import { usePopover } from '../../composables/usePopover';
-import DisciplineSettingsForm from './DisciplineSettingsForm.vue';
 import { adminLocked } from '../../adminLock';
 import {
-  currentEvent,
   discipline,
+  disciplineRoute,
+  leaveSettings,
   disciplineExists,
   eventName,
   events,
@@ -19,15 +20,25 @@ import {
 } from '../../selection';
 
 /**
- * Second half of the page title on race pages ("CFM26 · 100m ▾"): opens a panel to change the event and discipline,
- * edit the discipline settings and read the folders again.
+ * Title of the pages of a discipline ("CFM26 · 100m ▾"): opens a panel to change the event and discipline and read the
+ * folders again. Beside it, a gear opens the settings page of the discipline (unless the administration is locked).
  */
 const root = ref<HTMLElement | null>(null);
 const button = ref<HTMLButtonElement | null>(null);
 const eventSelect = ref<HTMLSelectElement | null>(null);
 const { toggle, close } = usePopover(root, button, switcherOpen);
-const editingSettings = ref(false);
 const { t } = useI18n();
+const route = useRoute();
+// On the settings page, the gear closes it (asking first when changes are not saved)
+const onSettings = computed(() => route.name === 'disciplineConfig');
+function onGear(event: MouseEvent): void {
+  if (!onSettings.value) return;
+  event.preventDefault();
+  leaveSettings();
+}
+// The event chosen in the panel: the page changes once its discipline is chosen too
+const pendingEvent = ref('');
+const pending = computed(() => events.value.find((event) => event.name === pendingEvent.value));
 
 const label = computed(() => {
   if (!eventName.value) return t('switcher.chooseEvent');
@@ -37,22 +48,20 @@ const incomplete = computed(() => !eventName.value || !discipline.value);
 
 // Fresh lists each time it opens (folders may have been added), and the focus on the first choice to make
 watch(switcherOpen, async (isOpen) => {
-  editingSettings.value = false;
   if (!isOpen) return;
+  pendingEvent.value = eventName.value;
   loadEvents();
   await nextTick();
   if (!selectionLock.value) eventSelect.value?.focus();
 });
-watch([eventName, discipline, adminLocked], () => (editingSettings.value = false));
-
 function onEvent(name: string): void {
+  pendingEvent.value = name;
   const event = events.value.find((e) => e.name === name);
-  select(name, event?.disciplines.length === 1 ? event.disciplines[0] : '');
-  if (event?.disciplines.length === 1) close();
+  if (event?.disciplines.length === 1) onDiscipline(event.disciplines[0]);
 }
 
 function onDiscipline(name: string): void {
-  select(eventName.value, name);
+  select(pendingEvent.value, name);
   close();
 }
 
@@ -77,8 +86,29 @@ function reload(): void {
       {{ label }}
       <span class="caret" aria-hidden="true">▾</span>
     </button>
+    <RouterLink
+      v-if="disciplineExists && !adminLocked"
+      :to="disciplineRoute('disciplineConfig', eventName, discipline)"
+      class="settings-link"
+      :class="{ current: onSettings }"
+      :aria-current="onSettings ? 'page' : undefined"
+      :title="onSettings ? $t('switcher.closeSettings') : $t('switcher.settingsTitle')"
+      :aria-label="$t('pages.disciplineConfig')"
+      @click="onGear"
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
+        <path
+          d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </RouterLink>
 
-    <div v-if="switcherOpen" class="panel" :class="{ wide: editingSettings }" role="dialog" :aria-label="$t('switcher.panelLabel')">
+    <div v-if="switcherOpen" class="panel" role="dialog" :aria-label="$t('switcher.panelLabel')">
       <p v-if="eventsLoaded && events.length === 0" class="muted">{{ $t('switcher.noEvent') }}</p>
       <template v-else>
         <p v-if="selectionLock" class="lock muted">{{ selectionLock }}</p>
@@ -87,7 +117,7 @@ function reload(): void {
             {{ $t('switcher.event') }}
             <select
               ref="eventSelect"
-              :value="eventName"
+              :value="pendingEvent"
               :disabled="selectionLock !== null"
               @change="onEvent(($event.target as HTMLSelectElement).value)"
             >
@@ -98,37 +128,23 @@ function reload(): void {
           <label class="field">
             {{ $t('switcher.discipline') }}
             <select
-              :value="discipline"
-              :disabled="selectionLock !== null || !currentEvent || currentEvent.disciplines.length === 0"
+              :value="pendingEvent === eventName ? discipline : ''"
+              :disabled="selectionLock !== null || !pending || pending.disciplines.length === 0"
               @change="onDiscipline(($event.target as HTMLSelectElement).value)"
             >
               <option value="" disabled>
-                {{ currentEvent && currentEvent.disciplines.length === 0 ? $t('switcher.noDiscipline') : $t('switcher.chooseDiscipline') }}
+                {{ pending && pending.disciplines.length === 0 ? $t('switcher.noDiscipline') : $t('switcher.chooseDiscipline') }}
               </option>
-              <option v-for="name in currentEvent?.disciplines ?? []" :key="name" :value="name">{{ name }}</option>
+              <option v-for="name in pending?.disciplines ?? []" :key="name" :value="name">{{ name }}</option>
             </select>
           </label>
         </div>
       </template>
 
       <div class="tools">
-        <button
-          v-if="disciplineExists && !adminLocked"
-          type="button"
-          class="link"
-          :aria-expanded="editingSettings"
-          :title="$t('switcher.settingsTitle')"
-          @click="editingSettings = !editingSettings"
-        >
-          {{ $t('switcher.settings') }}
-        </button>
         <button type="button" class="link" :title="$t('switcher.reloadTitle')" @click="reload">{{ $t('switcher.reload') }}</button>
       </div>
 
-      <section v-if="editingSettings && disciplineExists && !adminLocked" class="settings-section">
-        <h3>{{ $t('switcher.settingsOf', { event: eventName, discipline }) }}</h3>
-        <DisciplineSettingsForm :event="eventName" :discipline="discipline" @done="editingSettings = false" />
-      </section>
     </div>
   </div>
 </template>
@@ -136,6 +152,23 @@ function reload(): void {
 <style scoped>
 .switcher {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* The gear of the discipline settings, discreet beside the title */
+.settings-link {
+  display: inline-flex;
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+.settings-link:hover,
+.settings-link:focus-visible,
+.settings-link.current {
+  color: var(--accent);
+  background: var(--accent-bg);
+  outline: none;
 }
 /* The title of the race pages, centred in the navigation bar: "CFM26 · 100m ▾" */
 .switch-button {
@@ -180,9 +213,6 @@ function reload(): void {
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
 }
-.panel.wide {
-  width: 460px;
-}
 .choices {
   display: flex;
   flex-direction: column;
@@ -199,24 +229,17 @@ function reload(): void {
 }
 .tools {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   flex-wrap: wrap;
 }
-button.link {
+.link {
   margin: 0;
   padding: 0;
   border: none;
   background: none;
   color: var(--accent);
   font-size: 0.9em;
-}
-.settings-section {
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-.settings-section h3 {
-  margin: 0 0 10px;
-  font-size: 1em;
+  text-decoration: none;
 }
 </style>

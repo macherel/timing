@@ -8,7 +8,7 @@ import { DECIMALS, formatDuration } from '../../format';
 /**
  * Edits a discipline's config.yaml: attempts, best time, precision and rounding of the times, period, access and the number
  * of last runs of the line shown. Loads the settings itself; the race pages get the
- * saved ones through the SETTINGS_UPDATE message.
+ * saved ones through the SETTINGS_UPDATE message. Tells whether it has unsaved changes (dirty).
  */
 const props = defineProps<{ event: string; discipline: string }>();
 const emit = defineEmits<{ done: [] }>();
@@ -67,6 +67,23 @@ const loaded = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
 
+// The fields as loaded or last saved, to tell whether they were changed since
+const fields = () =>
+  JSON.stringify([
+    String(attemptsInput.value ?? '').trim(),
+    startInput.value,
+    endInput.value,
+    accessInput.value,
+    bestInput.value,
+    precisionInput.value,
+    roundingInput.value,
+    String(recentRunsInput.value ?? '').trim(),
+  ]);
+const savedFields = ref('');
+/** Whether the form has changes not saved yet. */
+const dirty = computed(() => loaded.value && fields() !== savedFields.value);
+defineExpose({ dirty });
+
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function request(init?: RequestInit): Promise<{ settings: DisciplineSettings }> {
@@ -88,6 +105,7 @@ onMounted(async () => {
     precisionInput.value = settings.precision;
     roundingInput.value = settings.rounding;
     recentRunsInput.value = settings.recentRuns;
+    savedFields.value = fields();
     loaded.value = true;
   } catch (e) {
     error.value = t('settings.loadError', { error: errorText(e) });
@@ -128,6 +146,7 @@ async function save(): Promise<void> {
         },
       }),
     });
+    savedFields.value = fields();
     emit('done');
   } catch (e) {
     error.value = t('settings.saveError', { error: errorText(e) });

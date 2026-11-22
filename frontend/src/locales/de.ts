@@ -19,7 +19,9 @@ const de: Messages = {
   },
 
   pages: {
+    choice: 'Wettkämpfe',
     race: 'Rennen',
+    disciplineConfig: 'Disziplin-Einstellungen',
     live: 'Live',
     diagnostics: 'Diagnose',
     config: 'Hardware-Konfiguration',
@@ -33,6 +35,8 @@ const de: Messages = {
     syncProblem: 'Synchronisierungsproblem: Details im Menü',
     syncProblemLabel: 'Synchronisierungsproblem',
     sync: 'Synchronisierung',
+    menu: 'Timing-Menü',
+    pageSwitch: 'Rennen- oder Live-Seite',
     language: 'Sprache',
   },
 
@@ -71,7 +75,7 @@ const de: Messages = {
     discipline: 'Disziplin',
     chooseDiscipline: 'Disziplin auswählen',
     noDiscipline: 'Keine Disziplin in diesem Wettkampf',
-    settings: '⚙ Einstellungen der Disziplin',
+    closeSettings: 'Disziplin-Einstellungen schließen',
     settingsTitle: 'Versuche, Zeiten, Zeitraum und Zugang dieser Disziplin',
     reload: '↻ Listen neu laden',
     reloadTitle: 'Ordner und CSV-Dateien erneut lesen',
@@ -129,6 +133,15 @@ const de: Messages = {
     saveError: 'Die Einstellungen können nicht gespeichert werden: {error}',
   },
 
+  choice: {
+    disciplines: 'keine Disziplin | 1 Disziplin | {n} Disziplinen',
+    title: 'Wähle den Wettkampf und die Disziplin zum Zeiten',
+    titleLive: 'Wähle den Wettkampf und die Disziplin für die Live-Anzeige',
+    noEvent:
+      'Noch kein Wettkampf. Lege in {dir} einen Ordner pro Wettkampf an, darin einen Unterordner pro Disziplin, und lege die CSV-Dateien der Teilnehmer hinein:',
+    noEventThen: 'Klicke dann auf {button}.',
+  },
+
   race: {
     // Nebensätze (Verb am Ende): ergänzen „geschlossen, weil …“ und „geöffnet, obwohl …“
     reason: {
@@ -152,9 +165,6 @@ const de: Messages = {
       '{bib} {name} disqualifizieren? Der Lauf endet sofort und wird als disqualifiziert (DQ) gespeichert.',
     confirmInvalidate:
       'Diesen Lauf von {bib} {name} für ungültig erklären? Der Lauf endet sofort und wird als ungültig gespeichert (keine Disqualifikation).',
-    noEvent:
-      'Noch kein Wettkampf. Lege in {dir} einen Ordner pro Wettkampf an, darin einen Unterordner pro Disziplin, und lege die CSV-Dateien der Teilnehmer hinein:',
-    noEventThen: 'Klicke dann im Menü des Titels auf {button}.',
     chooseDisciplineOf: 'Wähle eine Disziplin von {event}, um Läufe zu zeiten.',
     chooseEventAndDiscipline: 'Wähle einen Wettkampf und eine Disziplin, um Läufe zu zeiten.',
     participant: 'Teilnehmer',
