@@ -11,11 +11,17 @@
  * Runs on Linux and Windows. node-hid ships prebuilt binaries for every platform, so the same
  * node_modules works everywhere; only the Node runtime differs. Build the Linux package on Linux:
  * archives made on Windows lose the executable permission of the runtime and launchers.
+ *
+ * On Windows, the runtime is timing.exe: the Windows node.exe with the app icon and name, and with
+ * scripts/windowsLauncher.cjs as its main script (a single executable application), so the app starts from a
+ * file with its own icon. A .cmd file can only have the icon of all .cmd files.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Resvg } from '@resvg/resvg-js';
+import { Data, NtExecutable, NtExecutableResource, Resource } from 'resedit';
 import { readmeFiles } from './packageReadme.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -26,6 +32,10 @@ const NODE_DIST_URL = 'https://nodejs.org/dist';
 const DATA_DIR = 'data';
 // Copied into DATA_DIR: an example config.yaml and example events, so the app has something to show on its first start
 const SAMPLE_DATA_DIR = 'sample-data';
+// Windows launcher: its main script, and its icon made from the app icon at each build, in the sizes Windows shows
+const WINDOWS_LAUNCHER_SCRIPT = 'scripts/windowsLauncher.cjs';
+const APP_ICON = 'frontend/public/favicon.svg';
+const WINDOWS_ICON_SIZES = [16, 24, 32, 48, 64, 128, 256];
 
 // The packaged runtime is the Node running this script, so it must satisfy .nvmrc
 const NODE_VERSION = process.version;
@@ -111,9 +121,13 @@ async function buildPackage(platform, checksums) {
     }
 
     console.log(`  Adding Node ${NODE_VERSION} runtime`);
-    const runtimePath = path.join(packageDir, 'runtime', platform.nodeBinary);
-    fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
-    fs.copyFileSync(await nodeBinary(platform, checksums), runtimePath);
+    if (platform.name.startsWith('win')) {
+        await buildWindowsLauncher(await nodeBinary(platform, checksums), path.join(packageDir, 'timing.exe'));
+    } else {
+        const runtimePath = path.join(packageDir, 'runtime', platform.nodeBinary);
+        fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
+        fs.copyFileSync(await nodeBinary(platform, checksums), runtimePath);
+    }
 
     writeLaunchers(packageDir, platform);
     // The launchers use data/ as the working directory: config.yaml and the event folders go there. It starts with
@@ -184,6 +198,74 @@ async function download(url, destination, expectedHash) {
     fs.writeFileSync(destination, content);
 }
 
+/**
+ * Makes timing.exe from the Windows node.exe: the app icon (frontend/public/favicon.svg) and name in its resources, then scripts/windowsLauncher.cjs
+ * as its main script. The Microsoft signature of node.exe is removed: it would no longer match the changed file.
+ * The main script is built for the target node.exe, which must be the same Node version as the one running this
+ * script: without a snapshot or code cache, the build does not depend on the platform it runs on.
+ */
+async function buildWindowsLauncher(nodeExePath, launcherPath) {
+    const executable = NtExecutable.from(fs.readFileSync(nodeExePath), { ignoreCert: true });
+    const resources = NtExecutableResource.from(executable);
+
+    const iconGroups = Resource.IconGroupEntry.fromEntries(resources.entries);
+    if (iconGroups.length === 0) throw new Error(`${nodeExePath} has no icon to replace.`);
+    const svg = fs.readFileSync(path.join(ROOT, APP_ICON));
+    // Windows reads PNG images in icons, in 32-bit colours
+    const icons = WINDOWS_ICON_SIZES.map((size) => {
+        const png = new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng();
+        return Data.RawIconItem.from(png, size, size, 32);
+    });
+    for (const group of iconGroups) {
+        Resource.IconGroupEntry.replaceIconsForResource(resources.entries, group.id, group.lang, icons);
+    }
+
+    // Name shown by Windows (Task Manager, file properties) instead of "Node.js JavaScript Runtime"
+    const [versionInfo] = Resource.VersionInfo.fromEntries(resources.entries);
+    if (!versionInfo) throw new Error(`${nodeExePath} has no version information.`);
+    // 20261116-1432-2beba2a -> 2026.1116.1432.0, the numeric form Windows shows for the file version
+    const [date, time] = version.split('-');
+    versionInfo.setFileVersion(Number(date.slice(0, 4)), Number(date.slice(4)), Number(time), 0);
+    versionInfo.setProductVersion(Number(date.slice(0, 4)), Number(date.slice(4)), Number(time), 0);
+    for (const language of versionInfo.getAllLanguagesForStringValues()) {
+        versionInfo.setStringValues(language, {
+            FileDescription: 'Timing',
+            ProductName: 'Timing',
+            InternalName: 'timing',
+            OriginalFilename: 'timing.exe',
+            FileVersion: version,
+            ProductVersion: version,
+            Comments: `Node.js ${NODE_VERSION}`,
+        });
+    }
+    versionInfo.outputToResourceEntries(resources.entries);
+
+    resources.outputResource(executable);
+    const runtimePath = path.join(CACHE_DIR, `timing-${version}.exe`);
+    fs.writeFileSync(runtimePath, Buffer.from(executable.generate()));
+
+    const configPath = path.join(CACHE_DIR, 'windows-launcher-sea.json');
+    fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+            main: path.join(ROOT, WINDOWS_LAUNCHER_SCRIPT),
+            executable: runtimePath,
+            output: launcherPath,
+            disableExperimentalSEAWarning: true,
+            useSnapshot: false,
+            useCodeCache: false,
+        })
+    );
+    try {
+        execFileSync(process.execPath, ['--build-sea', configPath], { stdio: ['ignore', 'ignore', 'inherit'] });
+    } catch {
+        throw new Error('Building timing.exe failed.');
+    } finally {
+        fs.rmSync(runtimePath, { force: true });
+        fs.rmSync(configPath, { force: true });
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Package content
 // ---------------------------------------------------------------------------
@@ -198,16 +280,15 @@ function writeLaunchers(packageDir, platform) {
         const [script, ...options] = command.split(' ');
         const extraArgs = options.map((option) => ` ${option}`).join('');
         if (platform.name.startsWith('win')) {
-            // Double-clicked, the window would close before the output can be read
-            const pause = name === 'diagnose' ? 'if "%~1"=="" pause\r\n' : 'if errorlevel 1 pause\r\n';
+            // The server starts from timing.exe itself, see scripts/windowsLauncher.cjs
+            if (name === 'timing') continue;
             fs.writeFileSync(
                 path.join(packageDir, `${name}.cmd`),
                 `@echo off\r\nrem ${description}.\r\n` +
                     `rem Working directory: ${DATA_DIR} beside this file, unless TIMING_WORK_DIR or --work-dir says otherwise.\r\n` +
-                    'setlocal\r\n' +
-                    `if not defined TIMING_WORK_DIR set "TIMING_WORK_DIR=%~dp0${DATA_DIR}"\r\n` +
-                    `"%~dp0runtime\\node.exe" "%~dp0app\\backend\\dist\\${script.replace('/', '\\')}"${extraArgs} %*\r\n` +
-                    pause
+                    `"%~dp0timing.exe" ${name} %*\r\n` +
+                    // Double-clicked, the window would close before the output can be read
+                    'if "%~1"=="" pause\r\n'
             );
         } else {
             const launcherPath = path.join(packageDir, `${name}.sh`);
