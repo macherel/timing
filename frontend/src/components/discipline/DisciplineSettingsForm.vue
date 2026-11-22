@@ -4,16 +4,17 @@ export type SettingsSection = 'basic' | 'advanced' | 'lock';
 </script>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DisciplineSettings } from '../../types';
 import { fromLocalInput, toLocalInput } from '../../race/dateTime';
 import { DECIMALS, formatDuration } from '../../format';
+import { canTrigger, keyLabel } from '../../race/keys';
 
 /**
  * Edits a discipline's config.yaml, in three sections shown one at a time (the tabs of the settings page) and saved
  * together:
- * - basic: what triggers the runs (gates or the space bar), attempts and best time;
+ * - basic: attempts, best time and what triggers the runs (gates, or a key for a discipline timed by hand);
  * - advanced: precision and rounding of the times, and the number of last runs of the line shown;
  * - lock: period and access.
  * Loads the settings itself; the race pages get the saved ones through the SETTINGS_UPDATE message. Tells whether it
@@ -81,6 +82,79 @@ const precisionInput = ref<DisciplineSettings['precision']>('hundredth');
 const roundingInput = ref<DisciplineSettings['rounding']>('up');
 const recentRunsInput = ref<string | number>(3);
 const triggerInput = ref<DisciplineSettings['trigger']>('gates');
+// The trigger key as its KeyboardEvent.code, and what it typed when it was chosen here (its name on this keyboard)
+const triggerKeyInput = ref('Space');
+const triggerKeyTyped = ref<string | undefined>(undefined);
+const triggerKeyName = computed(() => keyLabel(triggerKeyInput.value, t, triggerKeyTyped.value));
+// Waiting for the press of the new key
+const choosingKey = ref(false);
+// Keys pressed while choosing and not released yet: their release is taken too
+const heldKeys = new Set<string>();
+const KEY_EVENTS = ['keydown', 'keypress', 'keyup'] as const;
+
+function chooseKey(): void {
+  choosingKey.value = true;
+  heldKeys.clear();
+  for (const type of KEY_EVENTS) window.addEventListener(type, onKeyWhileChoosing, true);
+  window.addEventListener('blur', onWindowBlur);
+  clearTimeout(contextMenuTimer);
+  window.addEventListener('contextmenu', preventContextMenu, true);
+}
+
+// The menu key opens the context menu with its own event, after its release on Windows: it is refused while choosing,
+// and a moment after
+let contextMenuTimer: ReturnType<typeof setTimeout> | undefined;
+const CONTEXT_MENU_DELAY_MS = 500;
+
+function preventContextMenu(event: Event): void {
+  event.preventDefault();
+}
+
+function stopChoosingKey(): void {
+  choosingKey.value = false;
+  if (heldKeys.size === 0) stopListening();
+}
+
+function stopListening(): void {
+  for (const type of KEY_EVENTS) window.removeEventListener(type, onKeyWhileChoosing, true);
+  window.removeEventListener('blur', onWindowBlur);
+  clearTimeout(contextMenuTimer);
+  contextMenuTimer = setTimeout(() => window.removeEventListener('contextmenu', preventContextMenu, true), CONTEXT_MENU_DELAY_MS);
+}
+
+// The window gets no release of the keys held when it loses the focus (e.g. Alt+Tab): they are not waited for any more,
+// so the keyboard works again once the key is chosen
+function onWindowBlur(): void {
+  heldKeys.clear();
+  if (!choosingKey.value) stopListening();
+}
+
+// Any key can be chosen, Tab, Esc, Shift, Ctrl and Alt too, but the Windows key (see canTrigger): only the Cancel button
+// stops the choice. The press and the
+// release are taken before the page and the browser see them, so the key does nothing else: Enter would save the form,
+// the space bar click the button, Tab move the focus, Esc close a menu, Alt open the menu of the browser, the menu key
+// open the context menu
+function onKeyWhileChoosing(event: KeyboardEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.type === 'keyup') {
+    heldKeys.delete(event.code);
+    if (!choosingKey.value && heldKeys.size === 0) stopListening();
+    return;
+  }
+  if (event.type !== 'keydown') return;
+  heldKeys.add(event.code);
+  if (!choosingKey.value || !canTrigger(event.code)) return;
+  triggerKeyInput.value = event.code;
+  triggerKeyTyped.value = event.key;
+  stopChoosingKey();
+}
+onUnmounted(() => {
+  choosingKey.value = false;
+  stopListening();
+  clearTimeout(contextMenuTimer);
+  window.removeEventListener('contextmenu', preventContextMenu, true);
+});
 const loaded = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
@@ -97,6 +171,7 @@ const fields = () =>
     roundingInput.value,
     String(recentRunsInput.value ?? '').trim(),
     triggerInput.value,
+    triggerKeyInput.value,
   ]);
 const savedFields = ref('');
 /** Whether the form has changes not saved yet. */
@@ -151,6 +226,7 @@ onMounted(async () => {
     recentRunsInput.value = settings.recentRuns;
     // Missing from a server of an older version: the gates, as without the setting
     triggerInput.value = settings.trigger ?? 'gates';
+    triggerKeyInput.value = settings.triggerKey ?? 'Space';
     savedFields.value = fields();
     loaded.value = true;
   } catch (e) {
@@ -190,6 +266,7 @@ async function save(): Promise<void> {
           rounding: roundingInput.value,
           recentRuns,
           trigger: triggerInput.value,
+          triggerKey: triggerKeyInput.value,
         },
       }),
     });
@@ -232,6 +309,18 @@ async function save(): Promise<void> {
           </div>
           <p class="muted small" data-testid="trigger-hint">{{ TRIGGER_OPTIONS.find((option) => option.value === triggerInput)?.hint }}</p>
         </fieldset>
+        <div v-if="triggerInput === 'keyboard'" class="trigger-key">
+          <span class="key-label">{{ $t('settings.triggerKey.label') }}</span>
+          <div class="key-row">
+            <kbd data-testid="trigger-key">{{ triggerKeyName }}</kbd>
+            <button v-if="!choosingKey" type="button" class="secondary" @click="chooseKey">{{ $t('settings.triggerKey.change') }}</button>
+            <template v-else>
+              <span class="choosing" role="status">{{ $t('settings.triggerKey.press') }}</span>
+              <button type="button" class="secondary" @click="stopChoosingKey">{{ $t('common.cancel') }}</button>
+            </template>
+          </div>
+          <p class="muted small">{{ $t('settings.triggerKey.hint') }}</p>
+        </div>
       </div>
 
       <div v-show="section === 'advanced'" data-section="advanced">
@@ -343,6 +432,35 @@ async function save(): Promise<void> {
 .segmented label.locked.checked {
   background: var(--error-bg);
   color: var(--error);
+}
+.trigger-key {
+  margin-top: 12px;
+}
+.key-label {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+.key-row kbd {
+  font-family: inherit;
+  font-weight: 600;
+  min-width: 3em;
+  text-align: center;
+  padding: 3px 12px;
+  border: 1px solid var(--border);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-h);
+}
+.choosing {
+  color: var(--accent);
+  font-weight: 600;
 }
 .period {
   display: flex;

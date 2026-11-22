@@ -100,6 +100,9 @@ export interface DisciplineSettings {
     // What starts and finishes the runs: the gates of the lines of config.yaml, or the space bar of the race page
     // (keyboard: timed by hand, on the manual line of each computer)
     trigger: Trigger;
+    // The key that starts and finishes the runs of a discipline timed by hand, as the KeyboardEvent.code of the
+    // browser (the key at that place on the keyboard, whatever its layout), e.g. Space, Enter or KeyA
+    triggerKey: string;
 }
 
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';
@@ -127,7 +130,11 @@ export const DEFAULT_SETTINGS: DisciplineSettings = {
     rounding: 'up',
     recentRuns: 3,
     trigger: 'gates',
+    triggerKey: 'Space',
 };
+
+/** Whether a value can be a KeyboardEvent.code (letters and digits, e.g. Space, KeyA, Digit1, NumpadEnter). */
+export const isKeyCode = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(value);
 
 /**
  * A start or end of the period as an ISO 8601 date-time in UTC (YYYY-MM-DDTHH:MMZ), or null when it is not a real
@@ -457,6 +464,9 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
         } else if (key === 'trigger') {
             if (TRIGGER_VALUES.includes(value as Trigger)) settings.trigger = value as Trigger;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: trigger must be gates or keyboard (the runs are timed by the gates)`);
+        } else if (key === 'triggerKey') {
+            if (isKeyCode(value)) settings.triggerKey = value;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: triggerKey must be the code of a key, such as Space or Enter (the space bar is used)`);
         } else if (key === 'recentRuns') {
             if (Number.isInteger(value) && (value as number) >= 0) settings.recentRuns = value as number;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: recentRuns must be a whole number from 0 (the last 3 runs are shown)`);
@@ -549,6 +559,7 @@ export function validateDisciplineSettings(settings: any): string[] {
         rounding = DEFAULT_SETTINGS.rounding,
         recentRuns = DEFAULT_SETTINGS.recentRuns,
         trigger = DEFAULT_SETTINGS.trigger,
+        triggerKey = DEFAULT_SETTINGS.triggerKey,
     } = settings;
     const problems: string[] = [];
     if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
@@ -566,6 +577,7 @@ export function validateDisciplineSettings(settings: any): string[] {
     if (!ROUNDING_VALUES.includes(rounding)) problems.push('rounding must be truncate, nearest or up');
     if (!(Number.isInteger(recentRuns) && recentRuns >= 0)) problems.push('recentRuns must be a whole number from 0');
     if (!TRIGGER_VALUES.includes(trigger)) problems.push('trigger must be gates or keyboard');
+    if (!isKeyCode(triggerKey)) problems.push('triggerKey must be the code of a key, such as Space or Enter');
     return problems;
 }
 
@@ -579,7 +591,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, trigger: _trigger, ...rest } = parsed;
+            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, trigger: _trigger, triggerKey: _triggerKey, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -615,6 +627,8 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         '# What starts and finishes the runs: gates (the start and finish gates of a line) or keyboard (timed by hand,',
         `# with the space bar of the race page, on the line "${MANUAL_LINE}" of each computer)`,
         `trigger: ${settings.trigger}`,
+        '# The key that starts and finishes the runs timed by hand: the code of a key of the browser (Space, Enter, KeyA…)',
+        `triggerKey: ${settings.triggerKey}`,
     ];
     if (Object.keys(others).length > 0) lines.push('', '# Other settings', yaml.stringify(others).trimEnd());
     await fs.promises.writeFile(file, `${lines.join('\n')}\n`, 'utf8');

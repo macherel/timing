@@ -107,7 +107,7 @@ export interface SettingsUpdateMessage {
     discipline: string;
     settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
         precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up'; recentRuns: number;
-        trigger: 'gates' | 'keyboard' };
+        trigger: 'gates' | 'keyboard'; triggerKey: string };
 }
 
 /** Sent to every frontend client when files of a discipline were changed by the sync with another computer, or uploaded. */

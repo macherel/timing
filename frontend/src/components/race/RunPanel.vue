@@ -12,8 +12,8 @@ const props = defineProps<{
   participant: Participant;
   // The line the run is timed on, null when this computer has none
   line: string | null;
-  // Whether the line is started and finished with the space bar (the manual line, for the disciplines timed by hand)
-  keyboard?: boolean;
+  // The name of the key that starts and finishes the run on the manual line (disciplines timed by hand), null otherwise
+  keyLabel?: string | null;
   // The run of the line
   run: RunState;
   // This participant's results in the discipline, oldest first
@@ -97,15 +97,15 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
     <div class="status">
       <template v-if="isThisRun && run.status === 'ready'">
         <span class="state">{{ $t('run.waitingStart') }}</span>
-        <i18n-t v-if="keyboard" keypath="run.pressToStart" tag="span" class="key-hint" data-testid="key-hint">
-          <template #key><kbd>{{ $t('run.spaceKey') }}</kbd></template>
+        <i18n-t v-if="keyLabel" keypath="run.pressToStart" tag="span" class="key-hint" data-testid="key-hint">
+          <template #key><kbd>{{ keyLabel }}</kbd></template>
         </i18n-t>
         <button type="button" class="secondary" :disabled="busy" @click="$emit('cancel')">{{ $t('common.cancel') }}</button>
       </template>
       <template v-else-if="isThisRun && run.status === 'running'">
         <span class="clock mono" role="timer">{{ formatDuration(elapsed, 1) }}</span>
-        <i18n-t v-if="keyboard" keypath="run.pressToFinish" tag="span" class="key-hint" data-testid="key-hint">
-          <template #key><kbd>{{ $t('run.spaceKey') }}</kbd></template>
+        <i18n-t v-if="keyLabel" keypath="run.pressToFinish" tag="span" class="key-hint" data-testid="key-hint">
+          <template #key><kbd>{{ keyLabel }}</kbd></template>
         </i18n-t>
         <button type="button" class="secondary" :disabled="busy" :title="$t('run.cancelRunTitle')" @click="$emit('cancel')">
           {{ $t('run.cancelRun') }}

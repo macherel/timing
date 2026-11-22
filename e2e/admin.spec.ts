@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { chooseLine, readFile, resetWorkDir, writeFiles } from './helpers';
+import { chooseLine, readFile, resetServer, resetWorkDir, writeFiles } from './helpers';
 
 test.beforeEach(() => resetWorkDir());
 
@@ -157,6 +157,9 @@ test('diagnostics page shows the backend and the configuration state', async ({ 
 });
 
 test.describe('language', () => {
+  // The lines of the server: a config.yaml written by an earlier test is still loaded after the working directory is reset
+  test.beforeEach(({ request }) => resetServer(request));
+
   test('switches to French with the flag, and keeps it after a reload', async ({ page }) => {
     await page.goto('/CFM26/100m/race');
     await chooseLine(page);

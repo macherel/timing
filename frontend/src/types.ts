@@ -345,6 +345,8 @@ export interface DisciplineSettings {
   // What starts and finishes the runs: the gates of the line chosen on the race page, or the space bar (keyboard:
   // timed by hand, on the manual line of the computer)
   trigger: 'gates' | 'keyboard';
+  // The key that starts and finishes the runs timed by hand: its KeyboardEvent.code (Space, Enter, KeyA…)
+  triggerKey: string;
 }
 
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';

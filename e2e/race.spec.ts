@@ -223,7 +223,7 @@ test('opens a disabled line to see its results, but starts no run on it', async 
   await page.context().close();
 });
 
-test('times a discipline by hand with the space bar, on the manual line', async ({ page }) => {
+test('times a discipline by hand with its trigger key, on the manual line', async ({ page }) => {
   await page.goto('/CFM26/100m/race');
   // The manual line is not one of the lines to choose
   await expect(page.getByTestId('line-choice').getByRole('button')).toHaveCount(2);
@@ -231,30 +231,44 @@ test('times a discipline by hand with the space bar, on the manual line', async 
   await openSettings(page);
   // Without the setting, the discipline is timed by the gates
   await expect(page.getByRole('radio', { name: 'Gates' })).toBeChecked();
-  await page.getByText('Manual (space bar)', { exact: true }).click();
+  await expect(page.getByTestId('trigger-key')).toHaveCount(0);
+  await page.getByText('Manual (keyboard)', { exact: true }).click();
   await expect(page.getByTestId('trigger-hint')).toContainText('on the line “Manuel” of each computer');
+  // The space bar by default, changed by pressing the new key: any key, Tab too
+  await expect(page.getByTestId('trigger-key')).toHaveText('Space');
+  await page.getByRole('button', { name: 'Change the key' }).click();
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('trigger-key')).toHaveText('Tab');
+  // Taken for the choice only: the focus did not move to the next field
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BODY');
+  await page.getByRole('button', { name: 'Change the key' }).click();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('trigger-key')).toHaveText('Enter');
   await page.getByRole('button', { name: 'Save' }).click();
-  expect(readFile('CFM26/100m/config.yaml')).toContain('trigger: keyboard');
+  expect(readFile('CFM26/100m/config.yaml')).toMatch(/trigger: keyboard\n.*\ntriggerKey: Enter\n/);
 
   // No line to choose: the discipline runs on the manual line
   await expect(page.getByTestId('current-line')).toHaveText('Manuel');
   await expect(page.getByRole('button', { name: 'Back to the choice of a line' })).toHaveCount(0);
   await pickParticipant(page, 'hug', '7 Hugo Guérin');
 
-  // Nobody is ready: the space bar does nothing (it types a space in a text field, as usual)
+  // Nobody is ready: the key does nothing
   await participantInput(page).blur();
-  await page.keyboard.press('Space');
+  await page.keyboard.press('Enter');
   await expect(page.getByText('Waiting for the start…')).toHaveCount(0);
   await getReady(page);
-  await expect(page.getByTestId('key-hint')).toHaveText('Press Space to start.');
+  await expect(page.getByTestId('key-hint')).toHaveText('Press Enter to start.');
+  // Only the trigger key starts the run
   await page.keyboard.press('Space');
+  await expect(page.getByText('Waiting for the start…')).toBeVisible();
+  await page.keyboard.press('Enter');
   await expect(page.getByRole('timer')).toBeVisible();
-  await expect(page.getByTestId('key-hint')).toHaveText('Press Space at the finish.');
+  await expect(page.getByTestId('key-hint')).toHaveText('Press Enter at the finish.');
 
-  // A focused button is not clicked by the space bar during the run: the press finishes the run
+  // A focused button is not clicked by the key during the run: the press finishes the run
   page.on('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('button', { name: 'Cancel run' }).focus();
-  await page.keyboard.press('Space');
+  await page.keyboard.press('Enter');
   const row = page.locator('.results tbody tr');
   await expect(row).toHaveCount(1);
   await expect(row.locator('td').nth(1)).toHaveText(/^\d+\.\d{2}$/);

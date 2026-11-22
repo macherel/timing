@@ -159,7 +159,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         res.status(422).json({ problems });
         return;
     }
-    const { attempts, start, end, access, best, precision, rounding, recentRuns, trigger } = req.body.settings;
+    const { attempts, start, end, access, best, precision, rounding, recentRuns, trigger, triggerKey } = req.body.settings;
     await saveDisciplineSettings(dir, {
         attempts,
         start: start ? toDateTime(start, 'start') : null,
@@ -170,6 +170,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         rounding: rounding ?? DEFAULT_SETTINGS.rounding,
         recentRuns: recentRuns ?? DEFAULT_SETTINGS.recentRuns,
         trigger: trigger ?? DEFAULT_SETTINGS.trigger,
+        triggerKey: triggerKey ?? DEFAULT_SETTINGS.triggerKey,
     });
     // The best result of each participant and its time may have changed (shortest or longest, precision, rounding)
     await writeUdaResults(event, discipline);
@@ -310,7 +311,7 @@ for (const [action, status] of [['disqualify', 'dq'], ['invalidate', 'invalid']]
     });
 }
 
-// Race page of the manual line (disciplines timed by hand): the space bar was pressed. It is the start crossing of the
+// Race page of the manual line (disciplines timed by hand): the trigger key of the discipline was pressed. It is the start crossing of the
 // participant who is ready, or the finish crossing of the run in progress. Timestamped on arrival, before anything else
 router.post('/lines/:line/key', (req: Request, res: Response) => {
     const instant = Temporal.Now.instant();

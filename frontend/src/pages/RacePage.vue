@@ -19,6 +19,7 @@ import { countsAsAttempt, recentRunsOf, sameRun } from '../race/results';
 import RunPanel from '../components/race/RunPanel.vue';
 import RecentRuns from '../components/race/RecentRuns.vue';
 import { showDateTime } from '../race/dateTime';
+import { isModifierKey, keyLabel } from '../race/keys';
 import {
   currentEvent,
   discipline,
@@ -50,6 +51,7 @@ const NO_SETTINGS: DisciplineSettings = {
   rounding: 'up',
   recentRuns: 3,
   trigger: 'gates',
+  triggerKey: 'Space',
 };
 const settings = ref<DisciplineSettings>({ ...NO_SETTINGS });
 // The event and discipline whose settings are loaded: until then, whether it is timed by hand is not known
@@ -317,15 +319,22 @@ function voidRun(action: 'invalidate' | 'disqualify'): void {
   postRun(action);
 }
 
-// The manual line is started and finished with the space bar, while a participant is ready or running on it. The
-// press is sent at once: the backend timestamps it on arrival, and makes it the start or the finish
+// The manual line is started and finished with the trigger key of the discipline (the space bar by default), while a
+// participant is ready or running on it. The press is sent at once: the backend timestamps it on arrival, and makes it
+// the start or the finish
 const keyboardLine = computed(() => (line.value?.manual ? line.value.line : null));
-// Whether the last space bar press was taken for the run: its release is then taken too
-let spaceTaken = false;
+// The key, by its place on the keyboard (KeyboardEvent.code), and its name to show
+const triggerKey = computed(() => settings.value.triggerKey ?? 'Space');
+const triggerKeyLabel = computed(() => (keyboardLine.value ? keyLabel(triggerKey.value, t) : null));
+// Whether the last press of the key was taken for the run: its release is then taken too
+let keyTaken = false;
+// When it was last taken: the menu key opens the context menu with its own event, after its release on Windows
+let keyTakenAt = 0;
+const CONTEXT_MENU_DELAY_MS = 500;
 
-const isSpace = (event: KeyboardEvent) => event.code === 'Space' || event.key === ' ';
+const isTriggerKey = (event: KeyboardEvent) => event.code === triggerKey.value;
 
-/** Whether typing a space in this element is expected (a text field), so the press is left to it. */
+/** Whether typing in this element is expected (a text field), so the press is left to it. */
 function isTextField(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
@@ -334,19 +343,29 @@ function isTextField(target: EventTarget | null): boolean {
 
 function onKeyDown(event: KeyboardEvent): void {
   const name = keyboardLine.value;
-  if (!name || !isSpace(event) || run.value.status === 'idle' || isTextField(event.target)) return;
+  if (!name || !isTriggerKey(event) || run.value.status === 'idle' || isTextField(event.target)) return;
   // Neither clicks a focused button nor scrolls the page
   event.preventDefault();
-  spaceTaken = true;
-  if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+  keyTaken = true;
+  keyTakenAt = Date.now();
+  if (event.repeat) return;
+  // A shortcut (Ctrl + the key…) is not a press, unless the key is a modifier itself
+  if (!isModifierKey(event.code) && (event.ctrlKey || event.altKey || event.metaKey)) return;
   pressKey(name);
 }
 
-// A focused button is clicked when the space bar is released: not when its press was taken for the run
+// A focused button is clicked when the space bar is released, Alt shows the menu of the browser: not when the press was
+// taken for the run
 function onKeyUp(event: KeyboardEvent): void {
-  if (!isSpace(event) || !spaceTaken) return;
-  spaceTaken = false;
+  if (!isTriggerKey(event) || !keyTaken) return;
+  keyTaken = false;
+  keyTakenAt = Date.now();
   event.preventDefault();
+}
+
+// The context menu opened by the menu key, when it is the trigger key and its press was just taken for the run
+function onContextMenu(event: MouseEvent): void {
+  if (triggerKey.value === 'ContextMenu' && (keyTaken || Date.now() - keyTakenAt < CONTEXT_MENU_DELAY_MS)) event.preventDefault();
 }
 
 async function pressKey(name: string): Promise<void> {
@@ -362,10 +381,12 @@ async function pressKey(name: string): Promise<void> {
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('keyup', onKeyUp, true);
+  window.addEventListener('contextmenu', onContextMenu, true);
 });
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown, true);
   window.removeEventListener('keyup', onKeyUp, true);
+  window.removeEventListener('contextmenu', onContextMenu, true);
 });
 
 async function loadParticipants(): Promise<void> {
@@ -513,7 +534,7 @@ onMounted(reload);
     <RunPanel
       :closed="closedReason"
       :line="line?.line ?? null"
-      :keyboard="line?.manual ?? false"
+      :key-label="triggerKeyLabel"
       :start-blocked="startBlocked"
       :attempts="settings.attempts"
       :best="settings.best"

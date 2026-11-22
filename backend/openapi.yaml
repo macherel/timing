@@ -468,7 +468,7 @@ paths:
       - $ref: '#/components/parameters/Line'
     post:
       tags: [Run]
-      summary: The space bar was pressed on the race page of the manual line
+      summary: The trigger key was pressed on the race page of the manual line
       description: |
         For the disciplines timed by hand (`trigger: keyboard` in their settings), which run on the manual line,
         "Manuel". Timestamped when the request arrives. It is the start crossing of the participant who is ready on the
@@ -1010,7 +1010,7 @@ components:
 
     DisciplineSettings:
       type: object
-      required: [attempts, start, end, access, best, precision, rounding, recentRuns, trigger]
+      required: [attempts, start, end, access, best, precision, rounding, recentRuns, trigger, triggerKey]
       properties:
         attempts:
           type: [integer, 'null']
@@ -1033,18 +1033,27 @@ components:
           minimum: 0
           description: How many of the last runs of a line the race page shows (0 for none). 3 when not set
         trigger: { $ref: '#/components/schemas/Trigger' }
+        triggerKey: { $ref: '#/components/schemas/TriggerKey' }
+
+    TriggerKey:
+      type: string
+      pattern: '^[A-Za-z][A-Za-z0-9]{0,31}$'
+      description: |
+        The key that starts and finishes the runs of a discipline timed by hand, as the KeyboardEvent.code of the
+        browser (the key at that place, whatever the layout of the keyboard). Space when not set
+      examples: [Space, Enter, KeyA]
 
     Trigger:
       type: string
       enum: [gates, keyboard]
       description: |
         What starts and finishes the runs: the start and finish gates of a line of config.yaml (gates, the default),
-        or the space bar of the race page (keyboard: timed by hand, on the manual line "Manuel" of each computer).
+        or a key on the race page (keyboard: timed by hand, on the manual line "Manuel" of each computer, see triggerKey).
 
     DisciplineSettingsInput:
       type: object
       description: |
-        Every field is optional (null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, gates for trigger). start and end accept any ISO 8601 date-time with an offset;
+        Every field is optional (null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, gates for trigger, Space for triggerKey). start and end accept any ISO 8601 date-time with an offset;
         without an offset they are read in the server's time zone, and a date alone means the start of that day (start)
         or the next midnight (end). The start must be before the end.
       properties:
@@ -1057,6 +1066,7 @@ components:
         rounding: { $ref: '#/components/schemas/Rounding' }
         recentRuns: { type: integer, minimum: 0 }
         trigger: { $ref: '#/components/schemas/Trigger' }
+        triggerKey: { $ref: '#/components/schemas/TriggerKey' }
 
     SettingsResponse:
       type: object
