@@ -311,6 +311,16 @@ export interface DisciplineFile {
   modified: string;
 }
 
+/** Results saved before the participants of a discipline changed, with the participant files of that moment. */
+export interface Backup {
+  // Folder name: the last change of the results saved, local YYYY-MM-DD_HH-MM-SS
+  name: string;
+  // That date, ISO 8601, or null when the name is not one
+  date: string | null;
+  // The results file first (kind results), then the participant files
+  files: DisciplineFile[];
+}
+
 export interface EventsResponse {
   workDir: string;
   events: EventSummary[];

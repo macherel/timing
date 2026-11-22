@@ -279,7 +279,7 @@ Then run `sudo udevadm control --reload && sudo udevadm trigger` and replug the 
 
 ## 🏁 Events and Participants
 
-The home page of the app lists the events found in the working directory. Each event is a folder, each discipline a subfolder, and a discipline holds one or more participant CSV files (e.g. one per category), merged in the app. The folders can be created by hand, or from the home page unless the administration is locked (_+ New event_, _+ New discipline_; a new discipline gets a `config.yaml` of default settings, so the sync copies it to the other computers, while an event without a discipline stays on this computer). The _Participants_ tab of the settings page of a discipline downloads and replaces its participant files (5 MB at most each); a discipline without one gets its file there, saved as `participants.csv` whatever its name, and none is added to a discipline that has some, and the _Results_ tab downloads its results and their UDA export; a file removed by hand comes back from a synced computer that still has it:
+The home page of the app lists the events found in the working directory. Each event is a folder, each discipline a subfolder, and a discipline holds one or more participant CSV files (e.g. one per category), merged in the app. The folders can be created by hand, or from the home page unless the administration is locked (_+ New event_, _+ New discipline_; a new discipline gets a `config.yaml` of default settings, so the sync copies it to the other computers, while an event without a discipline stays on this computer). The _Data_ tab of the settings page of a discipline downloads and replaces its participant files (5 MB at most each); a discipline without one gets its file there, saved as `<event>-<discipline>-competitors.csv` whatever its name, and none is added to a discipline that has some (new participants reset the results: the runs timed so far are first saved, with their UDA export and the participant files they were timed for, to a folder of the discipline's `backup` folder named by the last change of the results, each file suffixed by that date and the participant files prefixed as the results files, e.g. `backup/2026-11-05_08-03-09/CFM26-100m-men-2026-11-05_08-03-09.csv`, then dropped, and the results file and its UDA export removed until the next run; `results-reset.yaml` records when, and the sync takes both to the other computers, which drop the runs started before too, after saving any their backup lacks); the same tab downloads its results and their UDA export, and the files of each backup; a file removed by hand comes back from a synced computer that still has it:
 
 ```
 <working directory>/
@@ -290,9 +290,12 @@ The home page of the app lists the events found in the working directory. Each e
 │   │   ├── femmes.csv
 │   │   ├── hommes.csv
 │   │   ├── CFM26-100m-results.csv      # written by the app
-│   │   └── CFM26-100m-uda-results.csv  # written by the app, for the UDA
+│   │   ├── CFM26-100m-uda-results.csv  # written by the app, for the UDA
+│   │   ├── results-reset.yaml          # written by the app: when the participants last changed
+│   │   └── backup/                     # written by the app: results, UDA export and participants saved
+│   │       └── 2026-11-05_08-03-09/    # before the participants changed
 │   └── Lenteur/
-│       └── participants.csv
+│       └── CFM26-Lenteur-competitors.csv
 └── UNICON22/
     └── ...
 ```
@@ -417,11 +420,11 @@ sync:
 - Without a `sync` section, or without a key, sync is off. The file is read again every few seconds, so sync can be turned on or off without restarting.
 - **Discovery**: every instance announces itself every 3 s by UDP broadcast on port 41234 (its name, HTTP port and a hash of its key, never the key itself). The firewall must let UDP 41234 and the HTTP port (3001 by default) through; Windows asks the first time.
 - **What is synced**: everything in the event folders.
-  - Participant CSV files and discipline `config.yaml`: the most recently modified copy wins, and keeps its modification time on the other computers.
-  - `<event>-<discipline>-results.csv`: merged line by line. A run is identified by its bib and start; when a line was changed on both computers, the most recently changed (`updated` column) wins. The page of every computer updates live.
+  - Participant CSV files, discipline `config.yaml` and `results-reset.yaml`, and the backups of a discipline (`backup/<date>/`): the most recently modified copy wins, and keeps its modification time on the other computers.
+  - `<event>-<discipline>-results.csv`: merged line by line. A run is identified by its bib and start; when a line was changed on both computers, the most recently changed (`updated` column) wins. The page of every computer updates live. Runs started before the last results reset (`results-reset.yaml`, written when the participants change) are dropped on every computer, after a backup of those not saved yet, and never taken from another computer.
   - Not synced: `<event>-<discipline>-uda-results.csv` (each computer writes it from its `<event>-<discipline>-results.csv`), the root `config.yaml` (devices, port and name differ per computer), and the run in progress (each computer times its own runs).
 - Changes are sent at once to the other computers, which also check every 3 s, so a computer that was off catches up when it comes back.
-- Every computer must run a version of the app with the same sync protocol (`timing-sync/4` since the results file has its `computer` and `line` columns): a peer with another protocol is ignored.
+- Every computer must run a version of the app with the same sync protocol (`timing-sync/5` since the results are reset when the participants change): a peer with another protocol is ignored.
 - The latest change wins, so the computers' clocks must roughly agree: the navigation bar warns when they differ by more than 2 s.
 - A deleted file or result line comes back from a computer that still has it: delete it on every computer while they are not connected, or mark the run `INVALID` instead.
 - The key prevents mixing with another timing app on the same network; it is not a protection against someone on the network who wants to change the results.

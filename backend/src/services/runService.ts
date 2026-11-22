@@ -7,15 +7,21 @@ import { createLogger } from '../utils/logger.js';
 import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
 import { notifyActivityChange, notifyLocalChange } from '../utils/localChanges.js';
 import { computerName } from '../utils/computerName.js';
+import { listDisciplineFiles } from './disciplineFiles.js';
 import {
     closedReason,
     DEFAULT_SETTINGS,
     disciplineDir,
     loadDisciplineSettings,
     parseCsv,
+    BACKUP_DIR,
+    backupFileName,
+    withDisciplinePrefix,
     readParticipants,
     resultsFile,
+    resultsResetAt,
     udaResultsFile,
+    writeResultsReset,
     type DisciplineSettings,
     type Participant,
     type Precision,
@@ -30,6 +36,8 @@ const log = createLogger('Run');
  *   (cancelled, nothing saved).
  * Each write of the results file also rewrites <event>-<discipline>-uda-results.csv beside it, the results in the
  * import format of the UDA.
+ * When the participants of a discipline change, its results are reset (see resetResults): runs started before are
+ * dropped, after a backup of them (see backupResults); the results files are removed when no run is left.
  */
 
 interface LineState {
@@ -299,10 +307,31 @@ function parseRows(text: string): Row[] {
  * reads a half-written file.
  */
 async function writeRows(file: string, rows: Row[]): Promise<void> {
+    const reset = await resultsResetAt(path.dirname(file));
+    if (reset) {
+        // Runs from before the reset are saved before they leave the file, with those not written yet (e.g. a run in
+        // progress when the results were reset)
+        const written = await readAllRows(file);
+        const inFile = new Set(written.map(rowText));
+        const all = [...written, ...rows.filter((row) => !inFile.has(rowText(row)))];
+        if (all.some((row) => startedBefore(row, reset))) await backupResults(file, all, reset);
+        rows = rows.filter((row) => !startedBefore(row, reset));
+        if (rows.length === 0) {
+            // Nothing left once saved: the results files go, until the next run
+            await fs.promises.rm(file, { force: true });
+            await fs.promises.rm(udaResultsFile(path.dirname(file)), { force: true });
+            return;
+        }
+    }
+    await writeAtomically(file, resultsText(rows));
+    await writeUdaFile(path.dirname(file), rows);
+}
+
+/** Rows in the layout of the results file. */
+function resultsText(rows: Row[]): string {
     const csvCell = (value: string) => (/[;"\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
     const lines = rows.map((row) => COLUMNS.map((column) => csvCell(row[column])).join(';'));
-    await writeAtomically(file, `${[RESULTS_HEADER, ...lines].join('\n')}\n`);
-    await writeUdaFile(path.dirname(file), rows);
+    return `${[RESULTS_HEADER, ...lines].join('\n')}\n`;
 }
 
 async function writeUdaFile(dir: string, rows: Row[]): Promise<void> {
@@ -415,14 +444,123 @@ function toResult(row: Row, rule: TimeRule): RunResult | null {
     return { bib: row.bib, name: row.name, start: row.start, finish, timeMs, status, computer: row.computer || null, line: row.line || null };
 }
 
-/** Rows of the results file, empty when it does not exist yet. */
+/** Rows of the results file, empty when it does not exist yet. Runs started before the last reset are left out. */
 async function readRows(file: string): Promise<Row[]> {
+    const reset = await resultsResetAt(path.dirname(file));
+    const rows = await readAllRows(file);
+    return reset ? rows.filter((row) => !startedBefore(row, reset)) : rows;
+}
+
+/** Every row of the results file, as written, empty when it does not exist yet. */
+async function readAllRows(file: string): Promise<Row[]> {
     try {
         return parseRows(await fs.promises.readFile(file, 'utf8'));
     } catch (error: any) {
         if (error.code === 'ENOENT') return [];
         throw error;
     }
+}
+
+/** Whether a run started before an instant (a start that cannot be read counts as its last change). */
+function startedBefore(row: Row, instant: Temporal.Instant): boolean {
+    let start: Temporal.Instant;
+    try {
+        start = Temporal.Instant.from(row.start);
+    } catch {
+        start = updatedAt(row);
+    }
+    return Temporal.Instant.compare(start, instant) < 0;
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** A date as local YYYY-MM-DD_HH-MM-SS, valid in a file name on every system. */
+function fileDate(date: Date): string {
+    const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    return `${day}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+
+const rowText = (row: Row) => COLUMNS.map((column) => row[column]).join('\t');
+
+/**
+ * Saves the rows of the results file, their UDA export and the participant files of the moment, to a folder of the backup folder named
+ * by the date of the last change of the results (local YYYY-MM-DD_HH-MM-SS), before the runs started before the reset
+ * leave it, unless every one of these is in a backup already (e.g. the one copied from the computer that reset the
+ * results). A backup of that name is kept: the new one gets a -2, -3... suffix. Each file is suffixed by the name of
+ * the backup, and the participant files prefixed by <event>-<discipline>- as the results files, e.g.
+ * CFM26-100m-men-2026-11-05_08-03-09.csv. Returns the path of the backup, or null.
+ */
+async function backupResults(file: string, rows: Row[], reset: Temporal.Instant): Promise<string | null> {
+    const dir = path.dirname(file);
+    const dropped = rows.filter((row) => startedBefore(row, reset));
+    const backupDir = path.join(dir, BACKUP_DIR);
+    const saved = new Set<string>();
+    for (const entry of await fs.promises.readdir(backupDir, { withFileTypes: true }).catch(() => [])) {
+        if (!entry.isDirectory()) continue;
+        for (const row of await readAllRows(path.join(backupDir, entry.name, backupFileName(path.basename(file), entry.name)))) {
+            saved.add(rowText(row));
+        }
+    }
+    if (dropped.every((row) => saved.has(rowText(row)))) return null;
+
+    await fs.promises.mkdir(backupDir, { recursive: true });
+    const modified = (await fs.promises.stat(file).catch(() => null))?.mtime ?? new Date();
+    let backup = '';
+    for (let n = 1; !backup; n++) {
+        const candidate = path.join(backupDir, n === 1 ? fileDate(modified) : `${fileDate(modified)}-${n}`);
+        try {
+            await fs.promises.mkdir(candidate);
+            backup = candidate;
+        } catch (error: any) {
+            if (error.code !== 'EEXIST') throw error;
+        }
+    }
+    // Each file is suffixed by the name of the backup, its date
+    const suffixed = (fileName: string) => backupFileName(fileName, path.basename(backup));
+    for (const participants of (await listDisciplineFiles(dir)).filter((f) => f.kind === 'participants')) {
+        // Prefixed as the results files, e.g. CFM26-100m-men-2026-11-05_08-03-09.csv
+        const name = withDisciplinePrefix(path.basename(path.dirname(dir)), path.basename(dir), participants.name);
+        await fs.promises.copyFile(path.join(dir, participants.name), path.join(backup, suffixed(name)));
+    }
+    await fs.promises.writeFile(path.join(backup, suffixed(path.basename(file))), resultsText(rows));
+    // The UDA export of these results, for these participants
+    const { participants, settings } = await readParticipants(dir);
+    await fs.promises.writeFile(path.join(backup, suffixed(path.basename(udaResultsFile(dir)))), udaResults(rows, participants.map((p) => p.bib), settings));
+    log.info(`Results, their UDA export and participants saved to ${backup}`);
+    return backup;
+}
+
+/**
+ * Resets the results of a discipline, when its participants changed: runs started before now are dropped, on every
+ * synced computer (see RESULTS_RESET_FILE), after a backup of them. The results file and its UDA export are removed
+ * when no run is left (they come back with the next run).
+ */
+export function resetResults(event: string, discipline: string): Promise<void> {
+    return enqueueWrite(async () => {
+        const dir = await disciplineDir(event, discipline);
+        if (!dir) return;
+        await writeResultsReset(dir, Temporal.Now.instant());
+        const file = resultsFile(dir);
+        if (fs.existsSync(file)) await writeRows(file, await readRows(file));
+        log.info(`Results of ${event} / ${discipline} reset.`);
+    });
+}
+
+/**
+ * Drops from the results file the runs started before its last reset, after a copy in its backup folder (when the
+ * reset comes from another computer). Returns whether the file changed.
+ */
+export function applyResultsReset(event: string, discipline: string): Promise<boolean> {
+    return enqueueWrite(async () => {
+        const dir = await disciplineDir(event, discipline);
+        if (!dir) return false;
+        const file = resultsFile(dir);
+        const all = await readAllRows(file);
+        const rows = await readRows(file);
+        if (rows.length === all.length) return false;
+        await writeRows(file, rows);
+        return true;
+    });
 }
 
 function saveResult(event: string, discipline: string, result: RunResult): Promise<void> {
@@ -520,9 +658,12 @@ export async function mergeResultRows(event: string, discipline: string, remoteR
         const file = resultsFile(dir);
         const rows = await readRows(file);
         const byKey = new Map(rows.map((row, index) => [`${row.bib}\n${row.start}`, index]));
+        // Runs from before the reset, from a computer that did not get it yet, are not taken back
+        const reset = await resultsResetAt(dir);
 
         let changed = false;
         for (const remote of remoteRows) {
+            if (reset && startedBefore(remote, reset)) continue;
             const index = byKey.get(`${remote.bib}\n${remote.start}`);
             if (index === undefined) {
                 byKey.set(`${remote.bib}\n${remote.start}`, rows.length);

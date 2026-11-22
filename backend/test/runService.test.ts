@@ -1,8 +1,10 @@
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type Precision, type Rounding } from '../src/services/eventService.js';
 import type { ResultRow } from '../src/services/runService.js';
-import { minutesFromNow, readFile, resetWorkDir, writeFiles } from './helpers.js';
+import { minutesFromNow, readFile, resetWorkDir, workDir, writeFiles } from './helpers.js';
 
 type RunService = typeof import('../src/services/runService.js');
 
@@ -394,6 +396,112 @@ describe('mergeResultRows (sync)', () => {
 
     it('does nothing for an unknown discipline', async () => {
         expect(await runs.mergeResultRows('nope', 'nope', [row('7', '2026-11-05T10:00:00Z', 'OK', '')])).toBe(false);
+    });
+});
+
+describe('results reset', () => {
+    const OLD = '7;Runner 7;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;PC;Line 1;2026-11-05T10:00:10Z';
+    const BACKUP = 'CFM26/100m/backup/2026-11-05_08-03-09';
+    const backups = () => fs.readdirSync(path.join(workDir(), 'CFM26/100m/backup')).sort();
+
+    /** The results file with these lines, last changed on 2026-11-05 at 08:03:09 local time. */
+    function writeResults(...lines: string[]) {
+        writeFiles({ [RESULTS]: `${HEADER}\n${lines.map((line) => `${line}\n`).join('')}` });
+        const modified = new Date(2026, 10, 5, 8, 3, 9);
+        fs.utimesSync(path.join(workDir(), RESULTS), modified, modified);
+    }
+
+    it('saves the results, their UDA export and participants, dated by the last change of the results, then removes them', async () => {
+        writeResults(OLD);
+        await runs.resetResults('CFM26', '100m');
+        // Each file suffixed by the date of the backup, the participant files prefixed as the results files
+        expect(fs.readdirSync(path.join(workDir(), BACKUP)).sort()).toEqual([
+            'CFM26-100m-men-2026-11-05_08-03-09.csv',
+            'CFM26-100m-results-2026-11-05_08-03-09.csv',
+            'CFM26-100m-uda-results-2026-11-05_08-03-09.csv',
+            'CFM26-100m-women-2026-11-05_08-03-09.csv',
+        ]);
+        expect(readFile(`${BACKUP}/CFM26-100m-results-2026-11-05_08-03-09.csv`)).toBe(`${HEADER}\n${OLD}\n`);
+        expect(readFile(`${BACKUP}/CFM26-100m-uda-results-2026-11-05_08-03-09.csv`)).toBe('7,,0,10,0\r\n12,DNF,0,0,0\r\n');
+        expect(readFile(`${BACKUP}/CFM26-100m-men-2026-11-05_08-03-09.csv`)).toBe('bib;name\n7;Hugo Guérin\n');
+        // A participant file prefixed already is not prefixed again
+        writeFiles({ 'CFM26/100m/CFM26-100m-kids.csv': 'bib;name\n30;Zoé Petit\n' });
+        writeResults(OLD.replace('7;Runner 7', '8;Runner 8').replace(/2026-11-05T10/g, '2026-11-05T20'));
+        writeFiles({ 'CFM26/100m/results-reset.yaml': 'at: 2026-11-05T21:00:00Z\n' });
+        expect(await runs.applyResultsReset('CFM26', '100m')).toBe(true);
+        expect(fs.readdirSync(path.join(workDir(), `${BACKUP}-2`))).toContain('CFM26-100m-kids-2026-11-05_08-03-09-2.csv');
+        // The results files are removed
+        expect(readFile(RESULTS)).toBeNull();
+        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBeNull();
+        expect(await runs.loadResults('CFM26', '100m')).toEqual([]);
+        expect(readFile('CFM26/100m/results-reset.yaml')).toMatch(/^at: \d{4}-\d\d-\d\dT/m);
+
+        // Nothing more to save the next time
+        await runs.resetResults('CFM26', '100m');
+        expect(backups()).toEqual(['2026-11-05_08-03-09', '2026-11-05_08-03-09-2']);
+    });
+
+    it('saves nothing without results', async () => {
+        await runs.resetResults('CFM26', '100m');
+        expect(fs.existsSync(path.join(workDir(), 'CFM26/100m/backup'))).toBe(false);
+        expect(readFile('CFM26/100m/results-reset.yaml')).not.toBeNull();
+    });
+
+    it('takes no run started before the reset from another computer, and keeps the later ones', async () => {
+        writeFiles({ 'CFM26/100m/results-reset.yaml': 'at: 2026-11-05T11:00:00Z\n' });
+        const row = (bib: string, start: string): ResultRow => ({
+            bib,
+            name: `Runner ${bib}`,
+            start,
+            finish: start.replace(':00Z', ':10Z'),
+            status: 'OK',
+            computer: 'PC',
+            line: 'Line 1',
+            updated: '2026-11-05T12:00:00Z',
+        });
+        expect(await runs.mergeResultRows('CFM26', '100m', [row('7', '2026-11-05T10:00:00Z')])).toBe(false);
+        expect(readFile(RESULTS)).toBeNull();
+        expect(await runs.mergeResultRows('CFM26', '100m', [row('12', '2026-11-05T11:30:00Z')])).toBe(true);
+        expect((await runs.readResultRows('CFM26', '100m'))!.map((r) => r.bib)).toEqual(['12']);
+    });
+
+    it('applies a reset copied from another computer, saving the runs its backup does not have', async () => {
+        const later = '12;Runner 12;2026-11-05T11:30:00Z;2026-11-05T11:30:10Z;OK;PC;Line 1;2026-11-05T11:30:10Z';
+        writeResults(OLD, later);
+        writeFiles({ 'CFM26/100m/results-reset.yaml': 'at: 2026-11-05T11:00:00Z\n', 'CFM26/100m/backup/from-peer/CFM26-100m-results-from-peer.csv': `${HEADER}\n${OLD}\n` });
+        expect(await runs.applyResultsReset('CFM26', '100m')).toBe(true);
+        expect(readFile(RESULTS)).toBe(`${HEADER}\n${later}\n`);
+        // The peer's backup has the run dropped
+        expect(backups()).toEqual(['from-peer']);
+        expect(await runs.applyResultsReset('CFM26', '100m')).toBe(false);
+
+        // A run the peer did not have is saved here
+        const other = '8;Runner 8;2026-11-05T10:30:00Z;2026-11-05T10:30:10Z;OK;PC;Line 1;2026-11-05T10:30:10Z';
+        writeResults(other, later);
+        expect(await runs.applyResultsReset('CFM26', '100m')).toBe(true);
+        expect(backups()).toEqual(['2026-11-05_08-03-09', 'from-peer']);
+        expect(readFile(`${BACKUP}/CFM26-100m-results-2026-11-05_08-03-09.csv`)).toBe(`${HEADER}\n${other}\n${later}\n`);
+
+        // Another backup of the same date gets a suffix
+        writeResults(other.replace('8;Runner 8', '9;Runner 9'), later);
+        expect(await runs.applyResultsReset('CFM26', '100m')).toBe(true);
+        expect(backups()).toEqual(['2026-11-05_08-03-09', '2026-11-05_08-03-09-2', 'from-peer']);
+        expect(fs.readdirSync(path.join(workDir(), `${BACKUP}-2`))).toContain('CFM26-100m-results-2026-11-05_08-03-09-2.csv');
+
+        // Only runs from before: the results files are removed
+        writeResults(OLD.replace('7;Runner 7', '10;Runner 10'));
+        expect(await runs.applyResultsReset('CFM26', '100m')).toBe(true);
+        expect(readFile(RESULTS)).toBeNull();
+    });
+
+    it('saves a run in progress when the results were reset, rather than keeping it', async () => {
+        expect(await runs.prepareRun(LINE, 'CFM26', '100m', HUGO)).toBeNull();
+        runs.onCrossing(LINE, 'start', 'Start gate', Temporal.Now.instant().subtract({ seconds: 5 }));
+        writeFiles({ 'CFM26/100m/results-reset.yaml': `at: ${Temporal.Now.instant().toString()}\n` });
+        runs.onCrossing(LINE, 'finish', 'Finish gate', Temporal.Now.instant());
+        await vi.waitFor(() => expect(readFile(RESULTS)).toBeNull());
+        await vi.waitFor(() => expect(readFile(`CFM26/100m/backup/${backups()[0]}/CFM26-100m-results-${backups()[0]}.csv`)).toContain('7;Hugo Guérin;'));
+        expect(await runs.loadResults('CFM26', '100m')).toEqual([]);
     });
 });
 

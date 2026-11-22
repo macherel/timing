@@ -6,6 +6,8 @@ describe('names received from peers', () => {
     it('only allows event files: <event>/<discipline>/<file> with a synced extension', () => {
         expect(syncedFilePath('CFM26/100m/men.csv')).toBe(`${workDir()}/CFM26/100m/men.csv`);
         expect(syncedFilePath('CFM26/100m/config.yaml')).toBe(`${workDir()}/CFM26/100m/config.yaml`);
+        expect(syncedFilePath('CFM26/100m/results-reset.yaml')).toBe(`${workDir()}/CFM26/100m/results-reset.yaml`);
+        expect(syncedFilePath('CFM26/100m/backup/2026-11-05_08-03-09/men.csv')).toBe(`${workDir()}/CFM26/100m/backup/2026-11-05_08-03-09/men.csv`);
         for (const path of [
             'config.yaml',
             'CFM26/men.csv',
@@ -15,6 +17,12 @@ describe('names received from peers', () => {
             '../100m/men.csv',
             'CFM26/../men.csv',
             'CFM26/100m/sub/men.csv',
+            'CFM26/100m/backup/men.csv',
+            'CFM26/100m/backup/2026/notes.txt',
+            'CFM26/100m/backup/2026/.hidden.csv',
+            'CFM26/100m/backup/.2026/men.csv',
+            'CFM26/100m/backup/2026/sub/men.csv',
+            'CFM26/100m/other/2026/men.csv',
             'CFM26/100m\\x/men.csv',
             42,
         ]) {
@@ -36,10 +44,12 @@ describe('buildManifest', () => {
             'config.yaml': 'devices: []',
             'CFM26/100m/men.csv': '1;Hugo',
             'CFM26/100m/notes.txt': 'not synced',
+            'CFM26/100m/backup/2026-11-05_08-03-09/men.csv': 'bib;name\n',
+            'CFM26/100m/backup/2026-11-05_08-03-09/notes.txt': 'not synced',
             'CFM26/100m/CFM26-100m-results.csv': 'bib;name;start;finish;status;updated\n',
         });
         const manifest = await buildManifest();
-        expect(manifest.files.map((f) => f.path)).toEqual(['CFM26/100m/men.csv']);
+        expect(manifest.files.map((f) => f.path)).toEqual(['CFM26/100m/men.csv', 'CFM26/100m/backup/2026-11-05_08-03-09/men.csv']);
         expect(manifest.files[0].hash).toMatch(/^[0-9a-f]{64}$/);
         expect(manifest.results).toEqual([{ event: 'CFM26', discipline: '100m', digest: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
     });

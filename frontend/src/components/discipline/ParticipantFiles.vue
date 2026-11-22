@@ -5,9 +5,10 @@ import type { DisciplineFile } from '../../types';
 import FileTable from './FileTable.vue';
 
 /**
- * Participants tab of the settings page of a discipline: its participant CSV files, to download or replace, with the
+ * Participants of the data tab of the settings page of a discipline: its participant CSV files, to download or replace, with the
  * number of participants and the problems found in the files. A discipline without one gets its file here, saved as
- * participants.csv; one with files only has them replaced (the backend refuses another).
+ * <event>-<discipline>-competitors.csv; one with files only has them replaced (the backend refuses another). New participants reset the
+ * results (the backend saves them first): asked for confirmation when the discipline has results.
  */
 const props = defineProps<{
   event: string;
@@ -20,10 +21,11 @@ const emit = defineEmits<{ changed: [] }>();
 
 // Same limit and name as the backend
 const MAX_BYTES = 5 * 1024 * 1024;
-const PARTICIPANTS_FILE = 'participants.csv';
+const competitorsFile = computed(() => `${props.event}-${props.discipline}-competitors.csv`);
 
 const { t } = useI18n();
 const participantFiles = computed(() => props.files.filter((file) => file.kind === 'participants'));
+const hasResults = computed(() => props.files.some((file) => file.kind === 'results'));
 const busy = ref(false);
 const message = ref<string | null>(null);
 const error = ref<string | null>(null);
@@ -48,6 +50,7 @@ async function upload(file: File, name: string): Promise<void> {
 }
 
 async function send(file: File, name: string): Promise<void> {
+  if (hasResults.value && !confirm(t('files.confirmReset'))) return;
   message.value = null;
   error.value = null;
   busy.value = true;
@@ -66,7 +69,7 @@ function onAdd(event: Event): void {
   const input = event.target as HTMLInputElement;
   const [file] = input.files ?? [];
   input.value = '';
-  if (file) send(file, PARTICIPANTS_FILE);
+  if (file) send(file, competitorsFile.value);
 }
 
 function startReplace(name: string): void {
@@ -89,7 +92,7 @@ function onReplace(event: Event): void {
       <template v-if="count !== null"> {{ $t('files.count', { n: count }, count) }}</template>
     </p>
 
-    <FileTable :files="participantFiles" :path="filePath" :empty="$t('files.noParticipantFile')">
+    <FileTable :files="participantFiles" :path="filePath" :empty="$t('files.noParticipantFile', { name: competitorsFile })">
       <template #actions="{ file }">
         <button type="button" class="secondary small" :disabled="busy" @click="startReplace(file.name)">
           {{ $t('files.replace') }}

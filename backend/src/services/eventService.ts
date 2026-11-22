@@ -36,6 +36,17 @@ export function resultsFileName(event: string, discipline: string): string {
     return `${event}-${discipline}-results.csv`;
 }
 
+/** Name of the participant file the app gives a discipline (its first one): <event>-<discipline>-competitors.csv */
+export function competitorsFileName(event: string, discipline: string): string {
+    return `${event}-${discipline}-competitors.csv`;
+}
+
+/** A file name prefixed by <event>-<discipline>-, as the files the app writes, unless it is already (case ignored). */
+export function withDisciplinePrefix(event: string, discipline: string, name: string): string {
+    const prefix = `${event}-${discipline}-`;
+    return name.toLowerCase().startsWith(prefix.toLowerCase()) ? name : `${prefix}${name}`;
+}
+
 /** Name of the UDA export of a discipline: <event>-<discipline>-uda-results.csv */
 export function udaResultsFileName(event: string, discipline: string): string {
     return `${event}-${discipline}-uda-results.csv`;
@@ -49,6 +60,46 @@ export function resultsFile(dir: string): string {
 /** Path of the UDA export in a discipline folder (<work dir>/<event>/<discipline>). */
 export function udaResultsFile(dir: string): string {
     return path.join(dir, udaResultsFileName(path.basename(path.dirname(dir)), path.basename(dir)));
+}
+
+// When the results of a discipline were last reset (its participants changed): runs started before are dropped. Synced
+// like config.yaml, so every computer drops them, and none sends them back
+export const RESULTS_RESET_FILE = 'results-reset.yaml';
+
+// Subfolder of a discipline holding its results saved before a reset (synced, not listed)
+export const BACKUP_DIR = 'backup';
+
+/** Name of a file in a backup folder: suffixed by the name of the backup (its date), e.g. men-2026-11-05_08-03-09.csv. */
+export function backupFileName(name: string, backup: string): string {
+    const extension = path.extname(name);
+    return `${path.basename(name, extension)}-${backup}${extension}`;
+}
+
+/** When the results of a discipline folder were last reset, or null when never (or the file cannot be read). */
+export async function resultsResetAt(dir: string): Promise<Temporal.Instant | null> {
+    let parsed: any;
+    try {
+        parsed = yaml.parse(await fs.promises.readFile(path.join(dir, RESULTS_RESET_FILE), 'utf8'));
+    } catch (error: any) {
+        if (error.code !== 'ENOENT') log.error(`${path.join(dir, RESULTS_RESET_FILE)} cannot be read: ${errorMessage(error)}`);
+        return null;
+    }
+    try {
+        return Temporal.Instant.from(String(parsed?.at));
+    } catch {
+        log.error(`${path.join(dir, RESULTS_RESET_FILE)}: "at" must be an ISO 8601 instant, the reset is ignored.`);
+        return null;
+    }
+}
+
+/** Records a reset of the results of a discipline folder, unless a later one is recorded already. */
+export async function writeResultsReset(dir: string, at: Temporal.Instant): Promise<void> {
+    const current = await resultsResetAt(dir);
+    if (current && Temporal.Instant.compare(current, at) >= 0) return;
+    const file = path.join(dir, RESULTS_RESET_FILE);
+    const temporary = `${file}.${process.pid}.tmp`;
+    await fs.promises.writeFile(temporary, `# Runs started before are dropped (written when the participants changed)\nat: ${at.toString()}\n`);
+    await fs.promises.rename(temporary, file);
 }
 
 /** Whether a file of a discipline folder is written by the app (its results or their UDA export), case ignored. */

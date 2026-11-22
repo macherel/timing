@@ -44,11 +44,16 @@ export const router = createRouter({
     { path: '/:event/:discipline/race', name: 'race', component: RacePage, meta: { page: 'race', section: 'race', selection: true } },
     { path: '/:event/:discipline/live', name: 'live', component: LivePage, meta: { page: 'live', section: 'race', selection: true } },
     {
-      // Its tabs: …/config (settings), …/config/participants, …/config/results
-      path: '/:event/:discipline/config/:tab(advanced|lock|participants|results)?',
+      // Its tabs: …/config (settings), …/config/advanced, …/config/lock, …/config/data
+      path: '/:event/:discipline/config/:tab(advanced|lock|data)?',
       name: 'disciplineConfig',
       component: DisciplineConfigPage,
       meta: { page: 'disciplineConfig', section: 'race', selection: true, adminOnly: true },
+    },
+    // The participants and results tabs, now one
+    {
+      path: '/:event/:discipline/config/:tab(participants|results)',
+      redirect: (to) => ({ name: 'disciplineConfig', params: { event: to.params.event, discipline: to.params.discipline, tab: 'data' } }),
     },
     { path: '/:event/:discipline', redirect: (to) => ({ name: 'race', params: to.params }) },
     // Links from before the discipline was in the path

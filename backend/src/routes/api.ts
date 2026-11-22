@@ -26,7 +26,9 @@ import {
 } from '../services/eventService.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import {
+    backupFile,
     disciplineFile,
+    listBackups,
     listDisciplineFiles,
     MAX_UPLOAD_BYTES,
     UploadError,
@@ -40,6 +42,7 @@ import {
     resetRuns,
     prepareRun,
     readResultRows,
+    resetResults,
     RUN_STATUSES,
     setResultStatus,
     voidRun,
@@ -180,14 +183,25 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
     res.json(saved);
 });
 
-// Settings page of a discipline: its participant files and the files the app writes
+// Settings page of a discipline: its participant files, the files the app writes, and the backups of its results
 router.get('/events/:event/:discipline/files', async (req: Request, res: Response) => {
     const dir = await disciplineDir(String(req.params.event), String(req.params.discipline));
     if (!dir) {
         res.status(404).json({ problems: ['Unknown event or discipline.'] });
         return;
     }
-    res.json({ files: await listDisciplineFiles(dir) });
+    res.json({ files: await listDisciplineFiles(dir), backups: await listBackups(dir) });
+});
+
+// Settings page of a discipline: downloads a file of one of its backups
+router.get('/events/:event/:discipline/backups/:backup/:file', async (req: Request, res: Response) => {
+    const dir = await disciplineDir(String(req.params.event), String(req.params.discipline));
+    const file = dir && (await backupFile(dir, String(req.params.backup), String(req.params.file)));
+    if (!file) {
+        res.status(404).json({ problems: ['Unknown event, discipline, backup or file.'] });
+        return;
+    }
+    res.download(file);
 });
 
 // Settings page of a discipline: downloads one of its files
@@ -220,7 +234,9 @@ router.put(
         }
         let written: { name: string; created: boolean };
         try {
-            written = await writeParticipantFile(dir, String(req.params.file), req.body);
+            // New participants, new results: the runs timed so far are saved with the participants they were timed
+            // for, then dropped
+            written = await writeParticipantFile(dir, String(req.params.file), req.body, () => resetResults(event, discipline));
         } catch (error) {
             if (!(error instanceof UploadError)) throw error;
             res.status(error.status).json({ problems: [error.message] });

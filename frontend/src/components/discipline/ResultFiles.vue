@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import type { DisciplineFile } from '../../types';
 import FileTable from './FileTable.vue';
 
-/** Results tab of the settings page of a discipline: its results file and their UDA export, to download. */
+/** Results of the data tab of the settings page of a discipline: its results file and their UDA export, to download. */
 const props = defineProps<{
   event: string;
   discipline: string;

@@ -2,26 +2,27 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
-import type { DisciplineFile, ParticipantsResponse } from '../types';
+import type { Backup, DisciplineFile, ParticipantsResponse } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import DisciplineSettingsForm, { type SettingsSection } from '../components/discipline/DisciplineSettingsForm.vue';
 import ParticipantFiles from '../components/discipline/ParticipantFiles.vue';
 import ResultFiles from '../components/discipline/ResultFiles.vue';
+import BackupFiles from '../components/discipline/BackupFiles.vue';
 import PageTabs from '../components/PageTabs.vue';
 import { discipline, disciplineExists, eventName, eventsLoaded, leaveSettings, loadEvents } from '../selection';
 
 /**
  * The settings page of a discipline (/<event>/<discipline>/config), hidden while the administration is locked, in
- * five tabs, each with its URL. The first three are the sections of one form, saved together:
+ * four tabs, each with its URL. The first three are the sections of one form, saved together:
  * - settings (…/config): the basic settings, what triggers the runs, attempts and best time;
  * - advanced (…/config/advanced): precision and rounding of the times, last runs shown;
  * - lock (…/config/lock): period and access.
  *   Saving or cancelling goes back to the page of the discipline it came from, as the gear beside the title does;
  *   leaving another way with unsaved changes asks first. Switching tabs keeps them;
- * - participants (…/config/participants): its participant files, to download, replace or add;
- * - results (…/config/results): its results file and their UDA export, to download.
+ * - data (…/config/data): its participant files, to download, replace or add; its results file and their UDA export,
+ *   to download; and the backups of its results made when its participants changed, to download.
  */
-const TABS = ['settings', 'advanced', 'lock', 'participants', 'results'] as const;
+const TABS = ['settings', 'advanced', 'lock', 'data'] as const;
 type Tab = (typeof TABS)[number];
 // The tabs of the settings form, and its section on each
 const SECTIONS: Partial<Record<Tab, SettingsSection>> = { settings: 'basic', advanced: 'advanced', lock: 'lock' };
@@ -71,6 +72,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload));
 
 // The files of the discipline, with its participants count and the problems found in their files
 const files = ref<DisciplineFile[]>([]);
+const backups = ref<Backup[]>([]);
 const count = ref<number | null>(null);
 const problems = ref<string[]>([]);
 const filesError = ref<string | null>(null);
@@ -83,10 +85,11 @@ async function loadFiles(): Promise<void> {
     const [filesResponse, participantsResponse] = await Promise.all([fetch(`${base}/files`), fetch(`${base}/participants`)]);
     if (!filesResponse.ok) throw new Error(`HTTP ${filesResponse.status}`);
     if (!participantsResponse.ok) throw new Error(`HTTP ${participantsResponse.status}`);
-    const list: { files: DisciplineFile[] } = await filesResponse.json();
+    const list: { files: DisciplineFile[]; backups: Backup[] } = await filesResponse.json();
     const participants: ParticipantsResponse = await participantsResponse.json();
     if (request !== filesRequest) return;
     files.value = list.files;
+    backups.value = list.backups;
     count.value = participants.participants.length;
     problems.value = participants.problems;
     filesError.value = null;
@@ -138,16 +141,18 @@ if (!eventsLoaded.value) loadEvents();
       </section>
       <section v-if="!section" :id="`panel-${tab}`" role="tabpanel" :aria-labelledby="`tab-${tab}`" class="card">
         <p v-if="filesError" class="alert error">{{ filesError }}</p>
-        <ParticipantFiles
-          v-if="tab === 'participants'"
-          :event="eventName"
-          :discipline="discipline"
-          :files="files"
-          :count="count"
-          :problems="problems"
-          @changed="loadFiles"
-        />
-        <ResultFiles v-else :event="eventName" :discipline="discipline" :files="files" />
+        <section aria-labelledby="data-participants">
+          <h3 id="data-participants">{{ $t('files.sections.participants') }}</h3>
+          <ParticipantFiles :event="eventName" :discipline="discipline" :files="files" :count="count" :problems="problems" @changed="loadFiles" />
+        </section>
+        <section aria-labelledby="data-results">
+          <h3 id="data-results">{{ $t('files.sections.results') }}</h3>
+          <ResultFiles :event="eventName" :discipline="discipline" :files="files" />
+        </section>
+        <section aria-labelledby="data-backups">
+          <h3 id="data-backups">{{ $t('files.sections.backups') }}</h3>
+          <BackupFiles :event="eventName" :discipline="discipline" :backups="backups" />
+        </section>
       </section>
     </template>
   </main>
@@ -166,5 +171,8 @@ if (!eventsLoaded.value) loadEvents();
 }
 .card {
   border-top-left-radius: 0;
+}
+.card section + section {
+  margin-top: 24px;
 }
 </style>

@@ -1,5 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { readFile, resetWorkDir, workDir, writeFiles } from './helpers.js';
@@ -122,21 +124,24 @@ describe('files of a discipline', () => {
         expect((await call('GET', '/events/CFM26/nope/files')).status).toBe(404);
     });
 
-    it('saves the first participant file as participants.csv, then only replaces it', async () => {
+    it('saves the first participant file as <event>-<discipline>-competitors.csv, then only replaces it', async () => {
         writeFiles({ 'CFM26/200m/config.yaml': 'access: auto\n' });
         const upload200 = (file: string, content: string) =>
             fetch(`${base}/events/CFM26/200m/files/${file}`, { method: 'PUT', headers: { 'Content-Type': 'text/csv' }, body: content }).then(
                 async (response) => ({ status: response.status, body: await response.json() }),
             );
-        expect(await upload200('export.csv', 'bib;name\n21;Ann Martin\n')).toEqual({ status: 201, body: { name: 'participants.csv', created: true } });
-        expect(readFile('CFM26/200m/participants.csv')).toBe('bib;name\n21;Ann Martin\n');
+        expect(await upload200('export.csv', 'bib;name\n21;Ann Martin\n')).toEqual({ status: 201, body: { name: 'CFM26-200m-competitors.csv', created: true } });
+        expect(readFile('CFM26/200m/CFM26-200m-competitors.csv')).toBe('bib;name\n21;Ann Martin\n');
 
         // Another file is refused, the file itself replaced
         expect(await upload200('other.csv', 'bib;name\n22;Bea Martin\n')).toEqual({
             status: 409,
             body: { problems: ['The discipline has its participant files already: replace one of them.'] },
         });
-        expect(await upload200('participants.csv', 'bib;name\n22;Bea Martin\n')).toEqual({ status: 200, body: { name: 'participants.csv', created: false } });
+        expect(await upload200('CFM26-200m-competitors.csv', 'bib;name\n22;Bea Martin\n')).toEqual({
+            status: 200,
+            body: { name: 'CFM26-200m-competitors.csv', created: false },
+        });
         expect((await call('GET', '/events/CFM26/200m/participants')).body.participants.map((p: any) => p.bib)).toEqual(['22']);
     });
 
@@ -148,6 +153,40 @@ describe('files of a discipline', () => {
         expect(await upload('WOMEN.csv', 'bib;name\n22;Bea Martin\n')).toEqual({ status: 200, body: { name: 'women.csv', created: false } });
         expect(readFile('CFM26/100m/women.csv')).toBe('bib;name\n22;Bea Martin\n');
         expect((await call('GET', '/events/CFM26/100m/participants')).body.participants.map((p: any) => p.bib)).toEqual(['7', '12', '22']);
+    });
+
+    it('saves the results, then resets them, when the participants change', async () => {
+        const run = '7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;PC;Line 1;2026-11-05T10:00:10Z';
+        writeFiles({ 'CFM26/100m/CFM26-100m-results.csv': `bib;name;start;finish;status;computer;line;updated\n${run}\n` });
+
+        expect((await upload('men.csv', 'bib;name\n8;Max Petit\n')).status).toBe(200);
+        expect((await call('GET', '/events/CFM26/100m/results')).body.results).toEqual([]);
+        expect((await call('GET', '/events/CFM26/100m/participants')).body.participants.map((p: any) => p.bib)).toEqual(['8']);
+        expect(readFile('CFM26/100m/CFM26-100m-results.csv')).toBeNull();
+        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBeNull();
+
+        // The backup, with the participants of before, is listed apart, the reset not at all
+        const { files, backups } = (await call('GET', '/events/CFM26/100m/files')).body;
+        expect(files.map((file: any) => file.name)).toEqual(['men.csv']);
+        expect(backups).toEqual([
+            {
+                name: expect.stringMatching(/^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d$/),
+                date: expect.stringMatching(/^\d{4}-/),
+                files: expect.any(Array),
+            },
+        ]);
+        // Each file suffixed by the date of the backup
+        const date = backups[0].name;
+        expect(backups[0].files.map((file: any) => [file.name, file.kind])).toEqual([
+            [`CFM26-100m-results-${date}.csv`, 'results'],
+            [`CFM26-100m-uda-results-${date}.csv`, 'uda'],
+            [`CFM26-100m-men-${date}.csv`, 'participants'],
+        ]);
+        const backup = `${base}/events/CFM26/100m/backups/${date}`;
+        expect(await (await fetch(`${backup}/CFM26-100m-results-${date}.csv`)).text()).toContain(run);
+        expect(await (await fetch(`${backup}/CFM26-100m-men-${date}.csv`)).text()).toBe('bib;name\n7;Hugo Guérin\n12;Léa Martin\n');
+        expect((await fetch(`${backup}/..%2F..%2Fconfig.yaml`)).status).toBe(404);
+        expect((await fetch(`${base}/events/CFM26/100m/backups/nope/men.csv`)).status).toBe(404);
     });
 
     it('refuses what is not a participant file', async () => {

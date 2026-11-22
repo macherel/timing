@@ -237,21 +237,56 @@ paths:
       summary: Files of a discipline
       description: |
         The participant files (any other CSV file of the folder) and the files the app writes: its results, their UDA
-        export and its settings. Other files are left out.
+        export and its settings. Other files are left out. Also the backups of its results, each with the participant
+        files of that moment, made when its participants changed.
       operationId: listDisciplineFiles
       responses:
         '200':
-          description: The files, sorted by name
+          description: The files, sorted by name, and the backups, newest first
           content:
             application/json:
               schema:
                 type: object
-                required: [files]
+                required: [files, backups]
                 properties:
                   files:
                     type: array
                     items: { $ref: '#/components/schemas/DisciplineFile' }
+                  backups:
+                    type: array
+                    items: { $ref: '#/components/schemas/Backup' }
         '404': { $ref: '#/components/responses/UnknownDiscipline' }
+
+  /events/{event}/{discipline}/backups/{backup}/{file}:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+      - name: backup
+        in: path
+        required: true
+        description: Name of a backup of the discipline
+        schema: { type: string, examples: [2026-11-05_08-03-09] }
+      - name: file
+        in: path
+        required: true
+        description: Name of a file of the backup
+        schema: { type: string, examples: [CFM26-100m-results.csv] }
+    get:
+      tags: [Events]
+      summary: Downloads a file of a backup of a discipline
+      description: Only the files of the backups listed by `GET /events/{event}/{discipline}/files`.
+      operationId: downloadBackupFile
+      responses:
+        '200':
+          description: The file, as an attachment
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404':
+          description: Unknown event, discipline, backup or file
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
 
   /events/{event}/{discipline}/files/{file}:
     parameters:
@@ -283,9 +318,11 @@ paths:
       summary: Uploads a participant file
       description: |
         Writes the body, as is, to a participant file of the discipline. A discipline without participant file gets
-        it as `participants.csv`, whatever the name in the URL; a discipline with participant files only has them
+        it as `<event>-<discipline>-competitors.csv`, whatever the name in the URL; a discipline with participant files only has them
         replaced (409 for another name), a name that differs only in case keeping the file's own. The name must be a
-        .csv file name valid on every system, other than the results files. At most 5 MB. The UDA export is written again, the sync copies the file, and pages get a
+        .csv file name valid on every system, other than the results files. At most 5 MB. New participants reset the
+        results: the runs timed so far are saved with the participant files to `backup/<date of their last
+        change>/`, then dropped (the results files are removed), on every synced computer (`results-reset.yaml` records when). The UDA export is written again, the sync copies the file, and pages get a
         `SYNC_UPDATE` message. Only the pages hide it while the administration is locked.
       operationId: uploadParticipantFile
       requestBody:
@@ -934,11 +971,26 @@ components:
         size: { type: integer, description: Size in bytes }
         modified: { type: string, format: date-time, description: Last change }
 
+    Backup:
+      type: object
+      required: [name, date, files]
+      description: Results saved before the participants of the discipline changed, with their UDA export and the participant files of that moment
+      properties:
+        name:
+          type: string
+          description: 'Name of its folder in backup/: the last change of the results saved, local time (a -2, -3... suffix for another backup of that date)'
+          examples: [2026-11-05_08-03-09]
+        date: { type: [string, 'null'], format: date-time, description: 'That date, null when the name is not one' }
+        files:
+          type: array
+          description: 'The results file (kind results) first, their UDA export (kind uda), then the participant files (kind participants), prefixed by <event>-<discipline>- as the results files; each name suffixed by the name of the backup, e.g. CFM26-100m-men-2026-11-05_08-03-09.csv'
+          items: { $ref: '#/components/schemas/DisciplineFile' }
+
     UploadedFile:
       type: object
       required: [name, created]
       properties:
-        name: { type: string, description: 'The name written: participants.csv for the first file, else the name of the file replaced' }
+        name: { type: string, description: 'The name written: <event>-<discipline>-competitors.csv for the first file, else the name of the file replaced' }
         created: { type: boolean, description: Whether the file is new }
 
     NewName:

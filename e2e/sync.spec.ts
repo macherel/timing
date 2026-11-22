@@ -77,3 +77,27 @@ test('shares the participants, the results and the live activity', async ({ page
   await expect(live.locator('.ranking tbody tr')).toHaveCount(1);
   await expect(live.locator('.ranking tbody tr td.name')).toHaveText('Léa Martin');
 });
+
+test('resets the results on both computers when the participants change, and shares the backup', async ({ request }) => {
+  // Runs from the test before
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv', b.dir), { timeout: 15_000 }).toMatch(/\n12;Léa Martin;/);
+
+  const response = await request.put(url(a, '/api/events/CFM26/100m/files/women.csv'), {
+    headers: { 'Content-Type': 'text/csv' },
+    data: 'bib;name\n13;Inès Roux\n',
+  });
+  expect(response.status()).toBe(200);
+
+  // The other computer gets the backup, with the participants of before, then drops the runs
+  await expect.poll(() => readFile('CFM26/100m/women.csv', b.dir), { timeout: 15_000 }).toBe('bib;name\n13;Inès Roux\n');
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv', b.dir), { timeout: 15_000 }).toBeNull();
+  const backups = fs.readdirSync(path.join(b.dir, 'CFM26/100m/backup'));
+  expect(backups).toEqual(fs.readdirSync(path.join(a.dir, 'CFM26/100m/backup')));
+  expect(readFile(`CFM26/100m/backup/${backups[0]}/CFM26-100m-women-${backups[0]}.csv`, b.dir)).toBe(SAMPLE['CFM26/100m/women.csv']);
+  expect(readFile(`CFM26/100m/backup/${backups[0]}/CFM26-100m-results-${backups[0]}.csv`, b.dir)).toMatch(/\n12;Léa Martin;/);
+
+  // The runs dropped do not come back
+  await new Promise((resolve) => setTimeout(resolve, 4000));
+  expect(readFile('CFM26/100m/CFM26-100m-results.csv', a.dir)).toBeNull();
+  expect(readFile('CFM26/100m/CFM26-100m-results.csv', b.dir)).toBeNull();
+});
