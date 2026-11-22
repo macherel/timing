@@ -150,9 +150,12 @@ const fr: Messages = {
       '{event} / {discipline} est fermée : {reason}. Les passages et les modifications de résultats sont désactivés (voir les réglages de la discipline dans le menu du titre).',
     noParticipant: 'Aucun participant dans {event} / {discipline} : ajoutez dans son dossier des fichiers CSV avec des lignes {format}.',
     problems: '{n} problème dans les fichiers de {discipline} | {n} problèmes dans les fichiers de {discipline}',
-    lines: 'Lignes de cet ordinateur',
-    line: 'Ligne : {line}',
     noLine: 'Aucune ligne n’est configurée sur cet ordinateur : ajoutez-en une sur la page {config} pour chronométrer.',
+    lineNotReady: 'Pas de nouveau départ possible sur cette ligne : l’appareil du départ ou de l’arrivée n’est pas branché ou pas écouté (voir la page Configuration matérielle). Ses résultats restent modifiables.',
+    noReadyLine: 'Aucune ligne n’est prête : les appareils du départ et de l’arrivée doivent être branchés. Leur état est sur la page {config}.',
+    chooseLine: 'Sur quelle ligne chronométrez-vous ?',
+    lineDisabled: 'Pas de nouveau départ possible sur cette ligne : elle est désactivée sur la page Configuration matérielle. Ses résultats restent modifiables.',
+    backToLines: 'Retour au choix de la ligne',
     lineState: {
       idle: 'Libre',
       ready: 'Un participant attend le départ',
@@ -275,6 +278,7 @@ const fr: Messages = {
     confirmRemoveUsed: 'Supprimer l’appareil « {name} » ? Il est utilisé par : {lines}. Leur départ ou leur arrivée n’aura plus d’appareil.',
     lines: 'Lignes',
     noLine: 'Aucune ligne pour l’instant : ajoutez-en une pour chronométrer sur cet ordinateur.',
+    linesReady: 'lignes prêtes : {ready}/{total}',
     linesHint:
       'Sur chaque ligne, un participant à la fois est chronométré, d’un appui sur son bouton de départ à un appui sur son bouton d’arrivée. Plusieurs lignes peuvent partager un appareil (un bouton chacune).',
     addLine: '+ Ajouter une ligne',
@@ -304,6 +308,20 @@ const fr: Messages = {
     release: 'au relâchement',
     patternHint:
       'Le bouton est appuyé tant que {condition}. Le masque et la valeur sont en hexadécimal. {button} les remplit quand vous appuyez sur le bouton.',
+    ready: '✔ Prête',
+    notReady: '✘ Pas prête',
+    readyHint: 'Les appareils du départ et de l’arrivée sont branchés et écoutés : la ligne peut chronométrer.',
+    notReadyHint: 'Le départ ou l’arrivée ne peut pas être enregistré pour l’instant : voir l’état de chacun.',
+    gateState: {
+      none: 'aucun appareil',
+      checking: 'vérification…',
+      missing: 'appareil non branché',
+      ready: '✔ écouté',
+      failing: '✘ lecture impossible',
+      disabled: 'branché (ligne désactivée)',
+      unsaved: 'branché, écouté après l’enregistrement',
+      notListened: 'branché mais pas écouté : voir Diagnostic',
+    },
   },
 
   device: {

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Gate, LastResult, LineRun, RunResult, RunState, RunStatus } from '../types/messages.js';
-import { getLines, isLine, onLinesChange } from './lines.js';
+import { getLines, isLine, isLineEnabled, isLineReady, onLinesChange } from './lines.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
 import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
@@ -50,7 +50,8 @@ function stateOf(line: string): LineState {
     return state;
 }
 
-// A line removed from config.yaml loses its run: no crossing can reach it any more
+// A line removed from config.yaml loses its run: no crossing can reach it any more. The pages are told about the
+// lines and whether they are ready
 onLinesChange(() => {
     const lines = getLines();
     for (const [line, state] of lineStates) {
@@ -68,7 +69,7 @@ onLinesChange(() => {
 export function getLineRuns(): LineRun[] {
     return getLines().map((line) => {
         const { run, lastResult } = stateOf(line);
-        return { line, run, lastResult };
+        return { line, enabled: isLineEnabled(line), ready: isLineReady(line), run, lastResult };
     });
 }
 

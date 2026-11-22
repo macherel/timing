@@ -1,4 +1,4 @@
-import type { DeviceRule, DevicesConfig, Gate, GateRule, LineRule, RecentReport } from '../types';
+import type { DeviceRule, DevicesConfig, Gate, GateRule, HardwareStatus, HidInterface, LineRule, RecentReport } from '../types';
 import { t } from '../i18n';
 
 /**
@@ -255,4 +255,55 @@ export function findPressedButton(reports: { path: string; report: RecentReport 
     return { reportId: report.reportId, byteIndex: rising[0].byteIndex, mask: 1 << rising[0].bit };
   }
   return null;
+}
+
+/** The connected interfaces of a device of the form, matched on its IDs, serial number and USB port. */
+export function deviceInterfaces(device: DeviceForm, status: HardwareStatus | null): HidInterface[] {
+  const vendorId = parseHex(device.vendorId);
+  const productId = parseHex(device.productId);
+  const serialNumber = device.serialNumber.trim();
+  const usbPort = device.usbPort.trim();
+  return (status?.interfaces ?? []).filter(
+    (item) =>
+      parseInt(item.vendorId, 16) === vendorId &&
+      parseInt(item.productId, 16) === productId &&
+      (!serialNumber || item.serialNumber === serialNumber) &&
+      (!usbPort || item.usbPort === usbPort),
+  );
+}
+
+/**
+ * Whether the device of a gate can record crossings right now:
+ * - none: no device chosen; checking: the hardware status is not known yet;
+ * - missing: the device is not plugged in (or its IDs are wrong);
+ * - ready: the app listens to it; failing: the app cannot read it (`error`);
+ * - disabled: plugged in, but the line is disabled; unsaved: plugged in, listened to once the config is saved;
+ * - notListened: plugged in and saved, but not listened to (e.g. another device rule claims it).
+ */
+export type GateState = 'none' | 'checking' | 'missing' | 'ready' | 'failing' | 'disabled' | 'unsaved' | 'notListened';
+export interface GateStatus {
+  state: GateState;
+  error?: string;
+}
+
+export function gateStatus(
+  line: LineForm,
+  gate: Gate,
+  devices: DeviceForm[],
+  status: HardwareStatus | null,
+  isDirty: boolean,
+): GateStatus {
+  const device = devices.find((d) => d.key === line[gate].deviceKey);
+  if (!device) return { state: 'none' };
+  if (!status) return { state: 'checking' };
+  const paths = new Set(deviceInterfaces(device, status).map((item) => item.path));
+  if (paths.size === 0) return { state: 'missing' };
+
+  // The app opens the interfaces under the name of their device rule
+  const opened = status.devices.filter((d) => paths.has(d.path) && d.deviceName === device.name.trim());
+  if (opened.some((d) => d.state === 'listening')) return { state: 'ready' };
+  const failing = opened.find((d) => d.state === 'failing');
+  if (failing) return { state: 'failing', error: [failing.error, failing.hint].filter(Boolean).join(' ') };
+  if (!line.enabled) return { state: 'disabled' };
+  return { state: isDirty ? 'unsaved' : 'notListened' };
 }

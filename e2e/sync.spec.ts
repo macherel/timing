@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { cross, readFile, resetWorkDir, SAMPLE } from './helpers';
+import { cross, chooseLine, readFile, resetWorkDir, SAMPLE } from './helpers';
 
 /**
  * Two computers on the network with the same sync key: two more servers started by this test, with their own
@@ -59,6 +59,7 @@ test('shares the participants, the results and the live activity', async ({ page
   await live.goto(url(b, '/live?event=CFM26&discipline=100m'));
   const race = await page.context().newPage();
   await race.goto(url(a, '/?event=CFM26&discipline=100m'));
+  await chooseLine(race);
   await race.getByPlaceholder('Bib number or name').fill('lea');
   await race.getByRole('option', { name: '12 Léa Martin' }).click();
 

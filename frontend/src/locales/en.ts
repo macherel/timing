@@ -158,10 +158,13 @@ export default {
     // {format} is the line format, bib;name
     noParticipant: 'No participant in {event} / {discipline}: add CSV files with {format} lines to its folder.',
     problems: '{n} problem in the files of {discipline} | {n} problems in the files of {discipline}',
-    lines: 'Lines of this computer',
-    line: 'Line: {line}',
     // {config} is a link to the configuration page
     noLine: 'No line is configured on this computer: add one on the {config} page to time runs.',
+    lineNotReady: 'No new start on this line: the start or finish device is not plugged in or not listened to (see the Hardware configuration page). Its results can still be changed.',
+    noReadyLine: 'No line is ready: the start and finish devices must be plugged in. Their state is on the {config} page.',
+    chooseLine: 'Which line do you time on?',
+    lineDisabled: 'No new start on this line: it is disabled on the Hardware configuration page. Its results can still be changed.',
+    backToLines: 'Back to the choice of a line',
     lineState: {
       idle: 'Free',
       ready: 'A participant is waiting for the start',
@@ -283,6 +286,7 @@ export default {
     confirmRemoveUsed: 'Remove device "{name}"? It is used by: {lines}. Their start or finish will have no device.',
     lines: 'Lines',
     noLine: 'No line yet: add one to time runs on this computer.',
+    linesReady: 'lines ready: {ready}/{total}',
     linesHint:
       'One participant at a time is timed on each line, from a press of its start button to a press of its finish button. Several lines can share a device (one button each).',
     addLine: '+ Add line',
@@ -314,6 +318,20 @@ export default {
     // {condition} is the formula, (report[byte] & mask) == value; {button} is line.detect
     patternHint:
       'The button is pressed while {condition}. Mask and value are hex. {button} fills them in when you press the button.',
+    ready: '✔ Ready',
+    notReady: '✘ Not ready',
+    readyHint: 'The start and finish devices are plugged in and listened to: the line can time runs.',
+    notReadyHint: 'The start or the finish cannot be recorded for now: see the state of each.',
+    gateState: {
+      none: 'no device',
+      checking: 'checking…',
+      missing: 'device not plugged in',
+      ready: '✔ listened to',
+      failing: '✘ cannot be read',
+      disabled: 'plugged in (line disabled)',
+      unsaved: 'plugged in, listened to once saved',
+      notListened: 'plugged in but not listened to: see Diagnostics',
+    },
   },
 
   device: {

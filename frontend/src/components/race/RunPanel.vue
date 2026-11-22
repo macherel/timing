@@ -21,6 +21,8 @@ const props = defineProps<{
   busy: boolean;
   // Why runs and result changes are disabled (outside the discipline's period), or null
   closed: string | null;
+  // Why no run can start on the line (not ready or disabled), or null; its results can still be changed
+  startBlocked?: string | null;
   // Runs allowed per participant, from config.yaml (in the discipline folder). null: unlimited
   attempts: number | null;
   // Which time is the best, from config.yaml: shortest, or longest for a slow race
@@ -117,11 +119,13 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
         <button
           type="button"
           class="ready"
-          :disabled="busy || line === null || run.status !== 'idle' || noAttemptLeft || closed !== null"
+          :disabled="busy || line === null || !!startBlocked || run.status !== 'idle' || noAttemptLeft || closed !== null"
           :title="
             line === null
               ? $t('run.noLine')
-              : closed
+              : startBlocked
+                ? startBlocked
+                : closed
                 ? $t('run.closedTitle', { reason: closed })
                 : noAttemptLeft
                   ? $t('run.noAttemptLeft')

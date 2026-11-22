@@ -46,6 +46,10 @@ export interface LastResult {
 /** A line of a computer and its run (GET /api/lines) */
 export interface LineRun {
   line: string;
+  // Whether the line is enabled in config.yaml: a disabled line is listed, but never ready
+  enabled: boolean;
+  // Whether the line is enabled and the app listens to the devices of its start and finish
+  ready: boolean;
   run: RunState;
   lastResult: LastResult | null;
 }

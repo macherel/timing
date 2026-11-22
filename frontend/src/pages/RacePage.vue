@@ -81,8 +81,23 @@ const picker = ref<InstanceType<typeof ParticipantPicker> | null>(null);
 // The lines of this computer and their runs are kept by the backend and pushed to every open page
 const lines = ref<LineRun[]>([]);
 const linesLoaded = ref(false);
-// The line this page times on: the one chosen in this browser, or else the first one
-const line = computed(() => lines.value.find((l) => l.line === selectedLine.value) ?? lines.value[0] ?? null);
+// A line can start runs when it is enabled and the app listens to its start and finish devices. Any line can be chosen
+// though, to edit its results, or to cancel a run in progress after a device is unplugged
+const readyLines = computed(() => lines.value.filter((item) => item.ready));
+// Why a line cannot start a run, or null when it can
+const notReadyReason = (item: LineRun) =>
+  item.ready ? null : item.enabled ? t('race.lineNotReady') : t('race.lineDisabled');
+// Green: ready and free; orange or green: a participant is ready or running; red: no run can start
+const dotClass = (item: LineRun) => (item.run.status !== 'idle' ? item.run.status : item.ready ? 'idle' : 'unusable');
+// The line this page times on: the one chosen in this browser. None is chosen for the user: until they choose one, the
+// page only shows the lines to choose from
+const line = computed(() => lines.value.find((l) => l.line === selectedLine.value) ?? null);
+const startBlocked = computed(() => (line.value ? notReadyReason(line.value) : null));
+// A chosen line removed from config.yaml is let go, back to the choice of a line: the page never moves to another line
+// by itself
+watch([line, linesLoaded], ([current, loaded]) => {
+  if (!current && loaded && selectedLine.value) selectLine('');
+});
 const run = computed<RunState>(() => line.value?.run ?? { status: 'idle' });
 const results = ref<RunResult[]>([]);
 const lastResult = ref<RunResult | null>(null);
@@ -166,10 +181,13 @@ function setRun(name: string, next: RunState): void {
   }
 }
 
-function chooseLine(name: string): void {
+async function chooseLine(name: string): Promise<void> {
   selectLine(name);
   lastResult.value = null;
   showRun();
+  // The participant field appears with the line
+  await nextTick();
+  if (!selected.value) picker.value?.focus();
 }
 
 function onMessage(message: ServerMessage): void {
@@ -330,24 +348,42 @@ onMounted(reload);
     <i18n-t v-if="linesLoaded && lines.length === 0" keypath="race.noLine" tag="p" class="alert warn">
       <template #config><RouterLink to="/config">{{ $t('pages.config') }}</RouterLink></template>
     </i18n-t>
-    <nav v-else-if="lines.length > 1" class="lines" role="tablist" :aria-label="$t('race.lines')">
-      <button
-        v-for="item in lines"
-        :key="item.line"
-        type="button"
-        role="tab"
-        class="line-tab"
-        :aria-selected="item === line"
-        :title="$t(`race.lineState.${item.run.status}`)"
-        @click="chooseLine(item.line)"
-      >
-        <span class="dot" :class="item.run.status"></span>
-        {{ item.line }}
-        <span v-if="item.run.status !== 'idle'" class="muted mono">{{ item.run.participant.bib }}</span>
-      </button>
-    </nav>
-    <p v-else-if="line" class="muted line-name">{{ $t('race.line', { line: line.line }) }}</p>
+    <section v-else-if="linesLoaded && !line" class="line-choice" data-testid="line-choice">
+      <h2>{{ $t('race.chooseLine') }}</h2>
+      <i18n-t v-if="readyLines.length === 0" keypath="race.noReadyLine" tag="p" class="alert warn">
+        <template #config><RouterLink to="/config">{{ $t('pages.config') }}</RouterLink></template>
+      </i18n-t>
+      <div class="line-cards">
+        <button
+          v-for="item in lines"
+          :key="item.line"
+          type="button"
+          class="line-card"
+          :class="{ blocked: !item.ready && item.run.status === 'idle' }"
+          :title="notReadyReason(item) ?? undefined"
+          @click="chooseLine(item.line)"
+        >
+          <span class="line-card-name"><span class="dot" :class="dotClass(item)"></span>{{ item.line }}</span>
+          <span class="muted small">
+            <template v-if="item.run.status !== 'idle'">{{ $t(`race.lineState.${item.run.status}`) }} · {{ item.run.participant.bib }} {{ item.run.participant.name }}</template>
+            <template v-else-if="item.ready">{{ $t('race.lineState.idle') }}</template>
+            <template v-else>&nbsp;</template>
+          </span>
+        </button>
+      </div>
+    </section>
+    <div v-else-if="line" class="line-bar">
+    <button type="button" class="secondary icon back" :title="$t('race.backToLines')" :aria-label="$t('race.backToLines')" @click="selectLine('')">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+    </button>
+    <p class="line-name" data-testid="current-line">
+      <span class="dot" :class="dotClass(line)" :title="notReadyReason(line) ?? $t(`race.lineState.${line.run.status}`)"></span>
+      {{ line.line }}
+    </p>
+    </div>
 
+    <template v-if="line">
+    <p v-if="startBlocked && run.status === 'idle'" class="alert warn" data-testid="start-blocked">{{ startBlocked }}</p>
     <div v-if="eventsLoaded && events.length === 0 && !eventsError" class="alert hint">
       <i18n-t keypath="race.noEvent" tag="p">
         <template #dir><code>{{ workDir }}</code></template>
@@ -414,6 +450,7 @@ onMounted(reload);
     <RunPanel
       :closed="closedReason"
       :line="line?.line ?? null"
+      :start-blocked="startBlocked"
       :attempts="settings.attempts"
       :best="settings.best"
       :precision="settings.precision"
@@ -429,6 +466,7 @@ onMounted(reload);
       @disqualify="voidRun('disqualify')"
       @set-status="setStatus"
     />
+    </template>
   </main>
 </template>
 
@@ -443,30 +481,17 @@ onMounted(reload);
 .choose button {
   margin: 0;
 }
-.lines {
+.line-bar {
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 12px;
   margin-bottom: 16px;
 }
-.line-tab {
+.back {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  margin-bottom: -1px;
-  background: transparent;
-  color: var(--text);
-  border: 1px solid transparent;
-  border-radius: 6px 6px 0 0;
-}
-.line-tab[aria-selected='true'] {
-  background: var(--surface);
-  border-color: var(--border);
-  border-bottom-color: var(--surface);
-  color: var(--text-h);
-  font-weight: 600;
+  justify-content: center;
+  padding: 4px 8px;
 }
 .dot {
   width: 10px;
@@ -474,14 +499,56 @@ onMounted(reload);
   border-radius: 50%;
   background: var(--border);
 }
+/* Green: the line is ready (its devices are listened to); orange: a participant waits for the start */
+.dot.idle {
+  background: var(--ok);
+}
 .dot.ready {
   background: var(--warn);
 }
 .dot.running {
   background: var(--ok);
 }
+.dot.unusable {
+  background: var(--error);
+}
 .line-name {
-  margin: 0 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.line-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.line-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px;
+  text-align: left;
+  background: var(--surface);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.line-card.blocked {
+  opacity: 0.75;
+}
+.line-card-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.2em;
+  font-weight: 600;
+}
+.small {
+  font-size: 0.85em;
 }
 .tree {
   font-family: var(--mono);

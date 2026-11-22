@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { readFile, resetWorkDir, writeFiles } from './helpers';
+import { chooseLine, readFile, resetWorkDir, writeFiles } from './helpers';
 
 test.beforeEach(() => resetWorkDir());
 
@@ -114,6 +114,7 @@ test('diagnostics page shows the backend and the configuration state', async ({ 
 test.describe('language', () => {
   test('switches to French with the flag, and keeps it after a reload', async ({ page }) => {
     await page.goto('/');
+    await chooseLine(page);
     await page.getByRole('button', { name: /^Timing/ }).click();
     await page.getByRole('menuitemradio', { name: 'Français' }).click();
 
@@ -122,6 +123,7 @@ test.describe('language', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
 
     await page.reload();
+    await chooseLine(page);
     await expect(page.getByPlaceholder('Numéro de dossard ou nom')).toBeVisible();
     await page.getByRole('button', { name: /^Timing/ }).click();
     await expect(page.getByRole('menuitemradio', { name: 'Français' })).toHaveAttribute('aria-checked', 'true');

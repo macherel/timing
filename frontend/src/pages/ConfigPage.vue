@@ -8,8 +8,10 @@ import {
   emptyForm,
   emptyDevice,
   emptyLine,
+  deviceInterfaces,
   findPressedButton,
   GATES,
+  gateStatus,
   groupProblems,
   hex,
   parseHex,
@@ -18,6 +20,7 @@ import {
   toForm,
   type ConfigForm,
   type DeviceForm,
+  type GateStatus,
 } from '../config/configForm';
 import DeviceEditor from '../components/config/DeviceEditor.vue';
 import LineEditor from '../components/config/LineEditor.vue';
@@ -91,6 +94,32 @@ watch(hardwareStatus, (current) => {
 
 const config = computed(() => toConfig(form.value));
 const isDirty = computed(() => loaded.value && JSON.stringify(config.value) !== savedSnapshot.value);
+
+// Whether the devices of each line can record its crossings right now, by line key. Replaced only when it changes,
+// for the same reason as connectedModels
+type LineStatus = Record<Gate, GateStatus>;
+const lineStatuses = shallowRef(new Map<number, LineStatus>());
+watch(
+  [hardwareStatus, form, isDirty],
+  () => {
+    const next = new Map<number, LineStatus>(
+      form.value.lines.map((line) => [
+        line.key,
+        {
+          start: gateStatus(line, 'start', form.value.devices, hardwareStatus.value, isDirty.value),
+          finish: gateStatus(line, 'finish', form.value.devices, hardwareStatus.value, isDirty.value),
+        },
+      ]),
+    );
+    if (JSON.stringify([...next]) !== JSON.stringify([...lineStatuses.value])) lineStatuses.value = next;
+  },
+  { deep: true, immediate: true },
+);
+const enabledLines = computed(() => form.value.lines.filter((line) => line.enabled));
+const readyLines = computed(
+  () => enabledLines.value.filter((line) => GATES.every((gate) => lineStatuses.value.get(line.key)?.[gate].state === 'ready')).length,
+);
+const hardwareChecked = computed(() => hardwareStatus.value !== null);
 const groupedProblems = computed(() => groupProblems(problems.value));
 const canSave = computed(
   () =>
@@ -203,15 +232,7 @@ function linesUsing(device: DeviceForm): string[] {
 /** The recent reports of the connected interfaces of a device, oldest first, and why they cannot be read. */
 function deviceReports(device: DeviceForm): { reports: { path: string; report: RecentReport }[]; failure: string | null; found: boolean } {
   const status = hardwareStatus.value;
-  const vendorId = parseHex(device.vendorId);
-  const productId = parseHex(device.productId);
-  const interfaces = (status?.interfaces ?? []).filter(
-    (item) =>
-      parseInt(item.vendorId, 16) === vendorId &&
-      parseInt(item.productId, 16) === productId &&
-      (!device.serialNumber.trim() || item.serialNumber === device.serialNumber.trim()) &&
-      (!device.usbPort.trim() || item.usbPort === device.usbPort.trim()),
-  );
+  const interfaces = deviceInterfaces(device, status);
   const reports: { path: string; report: RecentReport }[] = [];
   let failure: string | null = null;
   for (const item of interfaces) {
@@ -383,6 +404,12 @@ onUnmounted(() => {
           <span v-else-if="problems.length === 0" class="ok-text">{{ $t('config.valid') }}</span>
           <span v-else class="error-text">{{ $t('config.problems', problems.length) }}</span>
         </span>
+        <span v-if="!invalidFile && enabledLines.length > 0 && hardwareChecked">
+          ·
+          <span :class="readyLines === enabledLines.length ? 'ok-text' : 'error-text'" data-testid="lines-ready">
+            {{ $t('config.linesReady', { ready: readyLines, total: enabledLines.length }) }}
+          </span>
+        </span>
       </p>
 
       <Teleport to="body">
@@ -425,6 +452,7 @@ onUnmounted(() => {
             :count="form.lines.length"
             :problems="validating ? [] : (groupedProblems.byLine.get(index) ?? [])"
             :devices="form.devices"
+            :status="lineStatuses.get(line.key) ?? null"
             :detecting="detection?.lineKey === line.key ? detection.gate : null"
             :detect-message="detection?.lineKey === line.key ? detection.message : null"
             @remove="removeLine(index)"

@@ -72,3 +72,8 @@ export async function startRun(page: Page, request: APIRequestContext): Promise<
   await cross(request, 'start');
   await expect(page.getByRole('timer')).toBeVisible();
 }
+
+/** Chooses a line on the race page, which asks for one each time it is opened. */
+export async function chooseLine(page: Page, line = 'Line 1'): Promise<void> {
+  await page.getByTestId('line-choice').getByRole('button', { name: new RegExp(`^${line}`) }).click();
+}

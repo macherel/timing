@@ -87,7 +87,7 @@ describe('RunPanel', () => {
   });
 
   function mountPanel(
-    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; lastResult: RunResult | null }> = {},
+    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null }> = {},
   ) {
     return mountWithI18n(RunPanel, {
       props: { participant: HUGO, line: 'Line 1', run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth', ...props },
@@ -137,6 +137,13 @@ describe('RunPanel', () => {
     const wrapper = mountPanel({ line: null });
     expect(readyButton(wrapper).attributes('disabled')).toBeDefined();
     expect(readyButton(wrapper).attributes('title')).toBe('No line on this computer');
+  });
+
+  it('cannot get ready on a line that cannot start runs, but its results can still be changed', () => {
+    const wrapper = mountPanel({ startBlocked: 'No new start on this line', results: [result({})] });
+    expect(readyButton(wrapper).attributes('disabled')).toBeDefined();
+    expect(readyButton(wrapper).attributes('title')).toBe('No new start on this line');
+    expect(wrapper.find('select').attributes('disabled')).toBeUndefined();
   });
 
   it('tells when another participant is running', () => {

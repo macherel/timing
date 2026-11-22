@@ -271,8 +271,8 @@ paths:
               schema: { $ref: '#/components/schemas/Problems' }
         '409':
           description: |
-            A run is in progress on the line, the participant is ready or running on another line, has no attempt
-            left, or the discipline is closed
+            The line is not ready (see LineRun.ready), a run is in progress on the line, the participant is ready or
+            running on another line, has no attempt left, or the discipline is closed
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problems' }
@@ -331,7 +331,7 @@ paths:
               required: [gate]
               properties:
                 gate: { type: string, enum: [start, finish] }
-                line: { type: string, description: 'The line, the first one by default', examples: [Line 1] }
+                line: { type: string, description: 'The line, the first enabled one by default', examples: [Line 1] }
       responses:
         '200':
           description: The run of the line after the crossing
@@ -340,6 +340,11 @@ paths:
               schema: { $ref: '#/components/schemas/RunState' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/UnknownLine' }
+        '409':
+          description: The line is disabled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
 
   /simulate/reset:
     post:
@@ -845,9 +850,17 @@ components:
     LineRun:
       type: object
       description: A line of a computer, with its run
-      required: [line, run, lastResult]
+      required: [line, enabled, ready, run, lastResult]
       properties:
         line: { type: string, examples: [Line 1] }
+        enabled:
+          type: boolean
+          description: Whether the line is enabled in config.yaml. A disabled line is listed, but is never ready
+        ready:
+          type: boolean
+          description: |
+            Whether the line is enabled and the app listens to the devices of its start and finish, so both
+            crossings can be recorded (always true for an enabled line with simulated gates). A participant can only be made ready on a ready line
         run: { $ref: '#/components/schemas/RunState' }
         lastResult:
           description: The last run ended on the line, shown until the next participant is ready on it. null for none

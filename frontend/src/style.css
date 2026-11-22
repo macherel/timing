@@ -163,6 +163,10 @@ button.secondary {
   background: var(--error-bg);
   color: var(--error);
 }
+.badge.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
 
 .alert {
   padding: 8px 12px;

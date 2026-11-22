@@ -129,8 +129,8 @@ describe('a run with simulated gates', () => {
     it('lists the simulated lines when config.yaml has none, with their runs', async () => {
         await call('POST', '/lines/Line%202/ready', { event: 'CFM26', discipline: '100m', bib: '12' });
         expect((await call('GET', '/lines')).body.lines).toEqual([
-            { line: 'Line 1', run: { status: 'idle' }, lastResult: null },
-            { line: 'Line 2', run: expect.objectContaining({ status: 'ready', participant: expect.objectContaining({ bib: '12' }) }), lastResult: null },
+            { line: 'Line 1', enabled: true, ready: true, run: { status: 'idle' }, lastResult: null },
+            { line: 'Line 2', enabled: true, ready: true, run: expect.objectContaining({ status: 'ready', participant: expect.objectContaining({ bib: '12' }) }), lastResult: null },
         ]);
         // The gates of another line do not start it
         expect((await cross('start', 'Line 1')).body).toEqual({ status: 'idle' });
@@ -146,8 +146,13 @@ describe('a run with simulated gates', () => {
                 'devices: [{ name: "G", vendorId: 1, productId: 1 }]',
             ].join('\n'),
         });
-        expect((await call('POST', '/simulate/reset')).body.lines.map((l: any) => l.line)).toEqual(['North']);
+        // The disabled line is listed, but cannot be used
+        expect((await call('POST', '/simulate/reset')).body.lines.map(({ line, enabled, ready }: any) => ({ line, enabled, ready }))).toEqual([
+            { line: 'North', enabled: true, ready: true },
+            { line: 'Off', enabled: false, ready: false },
+        ]);
         expect((await call('POST', `${LINE}/ready`, { event: 'CFM26', discipline: '100m', bib: '7' })).status).toBe(404);
+        expect((await call('POST', '/lines/Off/ready', { event: 'CFM26', discipline: '100m', bib: '7' })).status).toBe(409);
         expect((await call('POST', '/lines/North/ready', { event: 'CFM26', discipline: '100m', bib: '7' })).body.status).toBe('ready');
     });
 
@@ -193,7 +198,7 @@ describe('a run with simulated gates', () => {
         expect((await call('GET', '/live')).body.instances[0].lines[0].lastResult).not.toBeNull();
         await call('POST', `${LINE}/ready`, { event: 'CFM26', discipline: '100m', bib: '12' });
 
-        expect((await call('POST', '/simulate/reset')).body.lines[0]).toEqual({ line: 'Line 1', run: { status: 'idle' }, lastResult: null });
+        expect((await call('POST', '/simulate/reset')).body.lines[0]).toEqual({ line: 'Line 1', enabled: true, ready: true, run: { status: 'idle' }, lastResult: null });
         expect((await call('GET', '/live')).body.instances[0].lines[0]).toMatchObject({ run: { status: 'idle' }, lastResult: null });
     });
 });

@@ -18,11 +18,13 @@ beforeEach(async () => {
     writeFiles({ 'CFM26/100m/men.csv': 'bib;name\n7;Hugo Guérin\n', 'CFM26/100m/women.csv': '12;Léa Martin\n' });
     vi.resetModules();
     runs = await import('../src/services/runService.js');
-    (await import('../src/services/lines.js')).setConfiguredLines([LINE, OTHER_LINE]);
+    (await import('../src/services/lines.js')).setConfiguredLines([LINE, OTHER_LINE].map(asLine));
 });
 
 const LINE = 'Line 1';
 const OTHER_LINE = 'Line 2';
+// A line whose start and finish are on the same device
+const asLine = (name: string) => ({ name, enabled: true, start: 'Receiver', finish: 'Receiver' });
 const lastResult = (line = LINE) => runs.getLineRuns().find((l) => l.line === line)?.lastResult;
 
 const at = (iso: string) => Temporal.Instant.from(iso);
@@ -155,8 +157,8 @@ describe('several lines', () => {
 
     it('drop the run of a line removed from the configuration', async () => {
         await runs.prepareRun(OTHER_LINE, 'CFM26', '100m', LEA);
-        (await import('../src/services/lines.js')).setConfiguredLines([LINE]);
-        expect(runs.getLineRuns()).toEqual([{ line: LINE, run: { status: 'idle' }, lastResult: null }]);
+        (await import('../src/services/lines.js')).setConfiguredLines([LINE].map(asLine));
+        expect(runs.getLineRuns()).toEqual([{ line: LINE, enabled: true, ready: false, run: { status: 'idle' }, lastResult: null }]);
         expect(runs.isAnyRunActive()).toBe(false);
     });
 });
@@ -399,7 +401,7 @@ describe('USB scans', () => {
         }));
         try {
             runs = await import('../src/services/runService.js');
-            (await import('../src/services/lines.js')).setConfiguredLines([LINE]);
+            (await import('../src/services/lines.js')).setConfiguredLines([LINE].map(asLine));
             const ready = runs.prepareRun(LINE, 'CFM26', '100m', HUGO);
             await new Promise((resolve) => setTimeout(resolve, 50));
             expect(runs.getRunState(LINE)!.status).toBe('idle');
@@ -410,5 +412,30 @@ describe('USB scans', () => {
         } finally {
             vi.doUnmock('../src/services/hardware/usbHid.js');
         }
+    });
+});
+
+describe('line readiness', () => {
+    it('is ready once the app listens to the devices of its start and finish', async () => {
+        const lines = await import('../src/services/lines.js');
+        lines.setConfiguredLines([{ name: LINE, enabled: true, start: 'Start cell', finish: 'Finish cell' }]);
+        const ready = () => runs.getLineRuns().map((l) => l.ready);
+        expect(ready()).toEqual([false]);
+        lines.setListeningDevices(['Start cell']);
+        expect(ready()).toEqual([false]);
+        lines.setListeningDevices(['Start cell', 'Finish cell']);
+        expect(ready()).toEqual([true]);
+        lines.setListeningDevices(['Finish cell']);
+        expect(ready()).toEqual([false]);
+    });
+
+    it('lists a disabled line, never ready', async () => {
+        const lines = await import('../src/services/lines.js');
+        lines.setConfiguredLines([asLine(LINE), { ...asLine(OTHER_LINE), enabled: false }]);
+        lines.setListeningDevices(['Receiver']);
+        expect(runs.getLineRuns().map(({ line, enabled, ready }) => ({ line, enabled, ready }))).toEqual([
+            { line: LINE, enabled: true, ready: true },
+            { line: OTHER_LINE, enabled: false, ready: false },
+        ]);
     });
 });

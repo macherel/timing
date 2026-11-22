@@ -1,18 +1,39 @@
 <script setup lang="ts">
 import type { Gate } from '../../types';
-import { GATES, type DeviceForm, type LineForm } from '../../config/configForm';
+import { computed } from 'vue';
+import { GATES, type DeviceForm, type GateState, type GateStatus, type LineForm } from '../../config/configForm';
 
 const line = defineModel<LineForm>({ required: true });
-defineProps<{
+const props = defineProps<{
   index: number;
   count: number;
   problems: string[];
   devices: DeviceForm[];
+  // Whether the devices of the start and finish can record crossings right now; null until known
+  status: Record<Gate, GateStatus> | null;
   // The gate of this line waiting for a button press, and what the detection says (e.g. why it failed)
   detecting: Gate | null;
   detectMessage: { kind: 'hint' | 'error'; text: string } | null;
 }>();
 defineEmits<{ remove: []; move: [delta: number]; detect: [gate: Gate]; stopDetect: [] }>();
+
+const GATE_BADGE: Record<GateState, string> = {
+  ready: 'ok',
+  missing: 'error',
+  failing: 'error',
+  notListened: 'error',
+  unsaved: 'warn',
+  disabled: 'warn',
+  none: '',
+  checking: '',
+};
+
+// The line records crossings only when both its devices are listened to; unknown while the status is checked
+const isReady = computed<boolean | null>(() => {
+  const states = GATES.map((gate) => props.status?.[gate].state);
+  if (states.every((state) => state === 'ready')) return true;
+  return states.some((state) => state === undefined || state === 'checking') ? null : false;
+});
 
 const deviceLabel = (device: DeviceForm, index: number) => device.name.trim() || `#${index + 1}`;
 </script>
@@ -29,6 +50,15 @@ const deviceLabel = (device: DeviceForm, index: number) => device.name.trim() ||
         <input v-model="line.enabled" type="checkbox" />
         {{ $t('line.enabled') }}
       </label>
+      <span
+        v-if="line.enabled && isReady !== null"
+        class="badge readiness"
+        :class="isReady ? 'ok' : 'error'"
+        :title="$t(isReady ? 'line.readyHint' : 'line.notReadyHint')"
+        data-testid="line-ready"
+      >
+        {{ isReady ? $t('line.ready') : $t('line.notReady') }}
+      </span>
       <div class="line-actions">
         <button type="button" class="icon" :disabled="index === 0" :title="$t('line.moveUp')" @click="$emit('move', -1)">↑</button>
         <button type="button" class="icon" :disabled="index === count - 1" :title="$t('line.moveDown')" @click="$emit('move', 1)">↓</button>
@@ -38,7 +68,18 @@ const deviceLabel = (device: DeviceForm, index: number) => device.name.trim() ||
 
     <div class="gates">
       <fieldset v-for="gate in GATES" :key="gate" class="gate" :class="gate">
-        <legend>{{ $t(`line.${gate}`) }}</legend>
+        <legend>
+          {{ $t(`line.${gate}`) }}
+          <span
+            v-if="status"
+            class="badge"
+            :class="GATE_BADGE[status[gate].state]"
+            :title="status[gate].error"
+            :data-testid="`gate-status-${gate}`"
+          >
+            {{ $t(`line.gateState.${status[gate].state}`) }}
+          </span>
+        </legend>
         <div class="row">
           <label class="field grow">
             <span>{{ $t('line.device') }}</span>
@@ -110,6 +151,14 @@ const deviceLabel = (device: DeviceForm, index: number) => device.name.trim() ||
   align-items: flex-end;
   gap: 16px;
   flex-wrap: wrap;
+}
+.readiness {
+  align-self: center;
+  font-weight: 600;
+}
+.gate legend .badge {
+  font-weight: normal;
+  margin-left: 6px;
 }
 .line-number {
   font-weight: 600;

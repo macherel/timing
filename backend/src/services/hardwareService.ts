@@ -2,10 +2,9 @@ import type { EventEmitter } from 'events';
 import HID from 'node-hid';
 import { handleCrossing } from './raceService.js';
 import { isAnyRunActive } from './runService.js';
-import { setConfiguredLines } from './lines.js';
+import { setConfiguredLines, setListeningDevices } from './lines.js';
 import {
     CONFIG_PATH,
-    enabledLines,
     loadDevicesConfig,
     parseDevicesConfig,
     readDevicesConfigFile,
@@ -55,7 +54,7 @@ const MONITOR_LEASE_MS = 5000;
 const USB_SCAN_INTERVAL_MS = 3000;
 
 /** An open interface: node-hid, or libusb for the interfaces the OS HID driver does not handle (WinUSB). */
-type ReportSource = EventEmitter & { close(): void };
+type ReportSource = EventEmitter & { close(): void | Promise<void> };
 
 interface Connection {
     deviceName: string;
@@ -210,6 +209,7 @@ export function stopHardwareService(): void {
 
     connections.forEach((conn, devicePath) => closeQuietly(conn.device, devicePath));
     connections.clear();
+    updateListeningDevices();
     failures.clear();
     monitors.forEach((conn, devicePath) => closeQuietly(conn.device, devicePath));
     monitors.clear();
@@ -342,7 +342,9 @@ export async function reloadDevicesConfig(): Promise<void> {
 
 function applyConfig(loaded: DevicesConfig): void {
     config = loaded;
-    setConfiguredLines(enabledLines(loaded).map((line) => line.name));
+    setConfiguredLines(
+        (loaded.lines ?? []).map((line) => ({ name: line.name, enabled: line.enabled, start: line.start.device, finish: line.finish.device }))
+    );
 }
 
 function onConfigChange(): void {
@@ -422,18 +424,20 @@ async function syncConnectedDevices(): Promise<void> {
     const activeAssignments = assignments.filter(isActive);
     const activePaths = new Set(activeAssignments.map((a) => a.device.path));
     // Before opening the configured interfaces, so that one is never open twice (exclusive on some systems)
-    syncMonitors(collectionsByPath, activePaths);
+    await syncMonitors(collectionsByPath, activePaths);
 
     for (const { device, rule } of activeAssignments) {
+        if (!serviceRunning) return;
         const conn = connections.get(device.path);
         if (conn) {
             updateConnection(conn, rule, gateTriggers(config, rule.name), stateChanged);
         } else {
-            openConnection(rule, gateTriggers(config, rule.name), device, hasNumberedReports(device.path, collectionsByPath));
+            await openConnection(rule, gateTriggers(config, rule.name), device, hasNumberedReports(device.path, collectionsByPath));
         }
     }
 
     closeStaleConnections(activePaths);
+    updateListeningDevices();
     // Unplugged or disabled interfaces start with a clean slate when they come back
     failures.forEach((_, devicePath) => {
         if (!activePaths.has(devicePath)) failures.delete(devicePath);
@@ -444,7 +448,7 @@ async function syncConnectedDevices(): Promise<void> {
  * Opens the interfaces of the device models the diagnostics page asked for, except those a rule already uses,
  * and closes the monitors that are no longer asked for, unplugged, or now used by a rule.
  */
-function syncMonitors(collectionsByPath: Map<string, HID.Device[]>, activePaths: Set<string>): void {
+async function syncMonitors(collectionsByPath: Map<string, HID.Device[]>, activePaths: Set<string>): Promise<void> {
     const now = Date.now();
     monitorLeases.forEach((until, model) => {
         if (until <= now) monitorLeases.delete(model);
@@ -467,11 +471,11 @@ function syncMonitors(collectionsByPath: Map<string, HID.Device[]>, activePaths:
         if (!wanted.has(devicePath)) monitorFailures.delete(devicePath);
     });
 
-    wanted.forEach((collections, devicePath) => {
+    for (const [devicePath, collections] of wanted) {
         if (!monitors.has(devicePath)) {
-            openMonitor({ ...collections[0], path: devicePath }, hasNumberedReports(devicePath, collectionsByPath));
+            await openMonitor({ ...collections[0], path: devicePath }, hasNumberedReports(devicePath, collectionsByPath));
         }
-    });
+    }
 }
 
 function isUsbScanDue(): boolean {
@@ -496,8 +500,12 @@ function hasNumberedReports(devicePath: string, collectionsByPath: Map<string, H
     return usbInterfaces.some((u) => u.path === devicePath && u.numberedReports);
 }
 
-function openReportSource(devicePath: string): ReportSource {
-    if (!isUsbPath(devicePath)) return new HID.HID(devicePath);
+/**
+ * Opens an interface. HIDAsync reads on a thread of its own: HID.HID would wait for each report on a thread of the
+ * libuv pool (4 threads by default), so a few idle devices would block every file access of the app.
+ */
+async function openReportSource(devicePath: string): Promise<ReportSource> {
+    if (!isUsbPath(devicePath)) return HID.HIDAsync.open(devicePath);
     const target = usbInterfaces.find((u) => u.path === devicePath);
     if (!target) throw new Error('USB interface not found');
     return new UsbHidReader(target);
@@ -545,6 +553,11 @@ function updateConnection(conn: Connection, rule: DeviceRule, triggers: GateTrig
     if (logIt) log.info(`Updated the line gates of "${rule.name}"`);
 }
 
+/** Tells the lines which devices are listened to, so they know whether they are ready. */
+function updateListeningDevices(): void {
+    setListeningDevices([...connections.values()].map((conn) => conn.deviceName));
+}
+
 function closeStaleConnections(activePaths: Set<string>): void {
     connections.forEach((conn, devicePath) => {
         if (activePaths.has(devicePath)) return;
@@ -562,12 +575,17 @@ function closeStaleConnections(activePaths: Set<string>): void {
 /**
  * Opens an interface and starts listening to its reports. A failure is recorded and retried on the next poll.
  */
-function openConnection(rule: DeviceRule, triggers: GateTrigger[], hidDevice: HidDevice, numberedReports: boolean): void {
+async function openConnection(rule: DeviceRule, triggers: GateTrigger[], hidDevice: HidDevice, numberedReports: boolean): Promise<void> {
     let device: ReportSource;
     try {
-        device = openReportSource(hidDevice.path);
+        device = await openReportSource(hidDevice.path);
     } catch (error) {
         recordFailure(hidDevice.path, rule.name, errorMessage(error), hidDevice);
+        return;
+    }
+    // The service stopped while the interface was opening
+    if (!serviceRunning) {
+        closeQuietly(device, hidDevice.path);
         return;
     }
 
@@ -588,13 +606,17 @@ function openConnection(rule: DeviceRule, triggers: GateTrigger[], hidDevice: Hi
  * Opens an interface for the diagnostics page only: its reports are kept, but nothing fires a race event.
  * Failures are shown on the page and retried on the next poll, without logging them as errors.
  */
-function openMonitor(hidDevice: HidDevice, numberedReports: boolean): void {
+async function openMonitor(hidDevice: HidDevice, numberedReports: boolean): Promise<void> {
     const name = hidDevice.product || modelKey(hidDevice);
     let device: ReportSource;
     try {
-        device = openReportSource(hidDevice.path);
+        device = await openReportSource(hidDevice.path);
     } catch (error) {
         recordMonitorFailure(hidDevice, name, errorMessage(error));
+        return;
+    }
+    if (!serviceRunning) {
+        closeQuietly(device, hidDevice.path);
         return;
     }
 
@@ -695,6 +717,7 @@ function onReadError(conn: Connection, hidDevice: HidDevice, error: unknown): vo
 
     closeQuietly(conn.device, hidDevice.path);
     connections.delete(hidDevice.path);
+    updateListeningDevices();
     // A real unplug makes the device vanish from the next poll; otherwise it is reopened
     recordFailure(hidDevice.path, conn.deviceName, `Read error: ${errorMessage(error)}`, hidDevice);
 }
@@ -727,10 +750,11 @@ function recordFailure(devicePath: string, deviceName: string, message: string, 
 }
 
 function closeQuietly(device: ReportSource, devicePath: string): void {
+    // Expected to fail when the device was already unplugged
+    const onError = (error: unknown) => log.debug(`Close failed for ${devicePath}:`, errorMessage(error));
     try {
-        device.close();
+        Promise.resolve(device.close()).catch(onError);
     } catch (error) {
-        // Expected when the device was already unplugged
-        log.debug(`Close failed for ${devicePath}:`, errorMessage(error));
+        onError(error);
     }
 }

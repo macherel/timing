@@ -12,7 +12,6 @@ import { t } from './i18n';
  */
 
 const STORAGE_KEY = 'timing.selection';
-const LINE_STORAGE_KEY = 'timing.line';
 
 export const events = ref<EventSummary[]>([]);
 export const workDir = ref('');
@@ -35,26 +34,13 @@ export const currentEvent = computed(() => events.value.find((event) => event.na
 export const disciplineExists = computed(() => currentEvent.value?.disciplines.includes(discipline.value) ?? false);
 
 /**
- * The line the race page times on, chosen on the page. Each browser remembers its own, so the operators of the
- * lines of a computer (e.g. on tablets) each keep theirs. Empty: none chosen yet (the first line is used).
+ * The line the race page times on, chosen on the page. Not remembered when the app is opened again (or reloaded), so
+ * the operator always says which line they time on. Empty: none chosen, the race page asks for one.
  */
-export const selectedLine = ref(rememberedLine());
-
-function rememberedLine(): string {
-  try {
-    return localStorage.getItem(LINE_STORAGE_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
+export const selectedLine = ref('');
 
 export function selectLine(line: string): void {
   selectedLine.value = line;
-  try {
-    localStorage.setItem(LINE_STORAGE_KEY, line);
-  } catch {
-    // Private window or blocked storage: the choice is kept until the page is reloaded
-  }
 }
 
 /** Whether a page works on the selected event and discipline (the race pages, not the administration). */

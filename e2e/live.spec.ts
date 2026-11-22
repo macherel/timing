@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { resetServer, cross, getReady, participantInput, pickParticipant, resetWorkDir, writeFiles } from './helpers';
+import { resetServer, cross, getReady, participantInput, pickParticipant, chooseLine, resetWorkDir, writeFiles } from './helpers';
 
 const RESULTS_HEADER = 'bib;name;start;finish;status;updated';
 
@@ -12,6 +12,7 @@ test.beforeEach(async ({ request }) => {
 async function openPages(page: Page) {
   const live = await page.context().newPage();
   await page.goto('/?event=CFM26&discipline=100m');
+  await chooseLine(page);
   await live.goto('/live?event=CFM26&discipline=100m');
   return { race: page, live, card: live.locator('.lane') };
 }

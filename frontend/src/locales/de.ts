@@ -154,9 +154,12 @@ const de: Messages = {
     noParticipant:
       'Keine Teilnehmer in {event} / {discipline}: lege CSV-Dateien mit Zeilen im Format {format} in ihren Ordner.',
     problems: '{n} Problem in den Dateien von {discipline} | {n} Probleme in den Dateien von {discipline}',
-    lines: 'Bahnen dieses Computers',
-    line: 'Bahn: {line}',
     noLine: 'Auf diesem Computer ist keine Bahn konfiguriert: fügen Sie auf der Seite {config} eine hinzu, um zu zeitmessen.',
+    lineNotReady: 'Kein neuer Start auf dieser Bahn: das Gerät von Start oder Ziel ist nicht angeschlossen oder wird nicht abgehört (siehe Seite Hardware-Konfiguration). Ihre Ergebnisse können weiterhin geändert werden.',
+    noReadyLine: 'Keine Bahn ist bereit: die Geräte von Start und Ziel müssen angeschlossen sein. Ihr Zustand steht auf der Seite {config}.',
+    chooseLine: 'Auf welcher Bahn messen Sie die Zeit?',
+    lineDisabled: 'Kein neuer Start auf dieser Bahn: sie ist auf der Seite Hardware-Konfiguration deaktiviert. Ihre Ergebnisse können weiterhin geändert werden.',
+    backToLines: 'Zurück zur Auswahl der Bahn',
     lineState: {
       idle: 'Frei',
       ready: 'Ein Teilnehmer wartet auf den Start',
@@ -280,6 +283,7 @@ const de: Messages = {
     confirmRemoveUsed: 'Gerät „{name}“ entfernen? Es wird verwendet von: {lines}. Ihr Start oder Ziel hat dann kein Gerät mehr.',
     lines: 'Bahnen',
     noLine: 'Noch keine Bahn: fügen Sie eine hinzu, um auf diesem Computer zu zeitmessen.',
+    linesReady: 'Bahnen bereit: {ready}/{total}',
     linesHint:
       'Auf jeder Bahn wird jeweils ein Teilnehmer gemessen, vom Drücken ihrer Start-Taste bis zum Drücken ihrer Ziel-Taste. Mehrere Bahnen können sich ein Gerät teilen (je eine Taste).',
     addLine: '+ Bahn hinzufügen',
@@ -309,6 +313,20 @@ const de: Messages = {
     release: 'Loslassen',
     patternHint:
       'Die Taste ist gedrückt, solange {condition}. Maske und Wert sind hexadezimal. {button} füllt sie aus, wenn Sie die Taste drücken.',
+    ready: '✔ Bereit',
+    notReady: '✘ Nicht bereit',
+    readyHint: 'Die Geräte von Start und Ziel sind angeschlossen und werden abgehört: die Bahn kann Zeiten messen.',
+    notReadyHint: 'Start oder Ziel kann derzeit nicht erfasst werden: siehe den Zustand von beiden.',
+    gateState: {
+      none: 'kein Gerät',
+      checking: 'wird geprüft…',
+      missing: 'Gerät nicht angeschlossen',
+      ready: '✔ wird abgehört',
+      failing: '✘ nicht lesbar',
+      disabled: 'angeschlossen (Bahn deaktiviert)',
+      unsaved: 'angeschlossen, wird nach dem Speichern abgehört',
+      notListened: 'angeschlossen, aber nicht abgehört: siehe Diagnose',
+    },
   },
 
   device: {

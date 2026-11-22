@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { Router, Request, Response } from 'express';
 import { getHardwareStatus, reloadDevicesConfig } from '../services/hardwareService.js';
-import { getLines, isLine, SIMULATE_GATES } from '../services/lines.js';
+import { getLines, isLine, isLineEnabled, isLineReady, SIMULATE_GATES } from '../services/lines.js';
 import {
     CONFIG_PATH,
     GATES,
@@ -159,9 +159,9 @@ router.get('/lines', (req: Request, res: Response) => {
 });
 
 // The run of the line of the URL, or a 404 answer
-function lineRun(req: Request, res: Response): { line: string } | null {
+function lineRun(req: Request, res: Response): { line: string; ready: boolean } | null {
     const line = String(req.params.line);
-    if (getRunState(line)) return { line };
+    if (getRunState(line)) return { line, ready: isLineReady(line) };
     res.status(404).json({ problems: [`Unknown line "${line}".`] });
     return null;
 }
@@ -170,6 +170,10 @@ function lineRun(req: Request, res: Response): { line: string } | null {
 router.post('/lines/:line/ready', async (req: Request, res: Response) => {
     const target = lineRun(req, res);
     if (!target) return;
+    if (!target.ready) {
+        res.status(409).json({ problems: [`${target.line} is not ready: it is disabled, or the app does not listen to the device of its start or finish.`] });
+        return;
+    }
     const { event, discipline, bib } = req.body ?? {};
     const list = typeof event === 'string' && typeof discipline === 'string' ? await loadParticipants(event, discipline) : null;
     const participant = list?.participants.find((p) => p.bib === String(bib));
@@ -208,18 +212,23 @@ router.post('/lines/:line/cancel', (req: Request, res: Response) => {
     res.json(getRunState(target.line));
 });
 
-// Simulated gates (see SIMULATE_GATES): a crossing of the start or finish gate of a line (the first one by default)
+// Simulated gates (see SIMULATE_GATES): a crossing of the start or finish gate of a line (the first enabled one by default)
 // now, as a device button would fire it
 if (SIMULATE_GATES) {
     log.warn('Simulated gates are on (TIMING_SIMULATE_GATES=1): POST /api/simulate/crossing fires crossings, POST /api/simulate/reset starts over.');
     router.post('/simulate/crossing', (req: Request, res: Response) => {
-        const { gate, line = getLines()[0] } = req.body ?? {};
+        const { gate, line = getLines().find(isLineEnabled) } = req.body ?? {};
         if (!GATES.includes(gate)) {
             res.status(400).json({ problems: [`gate must be ${GATES.join(' or ')}.`] });
             return;
         }
         if (!isLine(line)) {
             res.status(404).json({ problems: [`Unknown line "${line}".`] });
+            return;
+        }
+        // Like its device buttons, which are not listened to
+        if (!isLineEnabled(line)) {
+            res.status(409).json({ problems: [`${line} is disabled.`] });
             return;
         }
         handleCrossing(line, gate, 'Simulator', Temporal.Now.instant());

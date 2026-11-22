@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  gateStatus,
   emptyDevice,
   emptyForm,
   emptyLine,
@@ -11,7 +12,7 @@ import {
   toForm,
 } from '../src/config/configForm';
 import { setLocale } from '../src/i18n';
-import type { DevicesConfig, RecentReport } from '../src/types';
+import type { DeviceStatus, DevicesConfig, HardwareStatus, HidInterface, RecentReport } from '../src/types';
 
 const CONFIG: DevicesConfig = {
   port: 8080,
@@ -127,5 +128,35 @@ describe('findPressedButton', () => {
 
   it('finds nothing without a new press', () => {
     expect(findPressedButton([{ path: '/a', report: report('1', [{ byteIndex: 0, bit: 0, isSet: false }]) }], new Set())).toBeNull();
+  });
+});
+
+describe('gateStatus', () => {
+  const form = toForm({
+    devices: [{ name: 'Receiver', vendorId: 0x046d, productId: 0xc548 }],
+    lines: [
+      { name: 'Line 1', enabled: true, start: { device: 'Receiver', byteIndex: 1, mask: 1, value: 1 }, finish: { device: 'Receiver', byteIndex: 1, mask: 2, value: 2 } },
+    ],
+  });
+  const line = form.lines[0];
+  const plugged = { path: '/dev/hidraw0', vendorId: '046d', productId: 'c548', serialNumber: '', usbPort: '1-2' } as HidInterface;
+  const opened = (state: DeviceStatus['state']) =>
+    ({ deviceName: 'Receiver', path: '/dev/hidraw0', state, since: '', error: 'EACCES' }) as DeviceStatus;
+  const status = (interfaces: HidInterface[], devices: DeviceStatus[] = []) => ({ interfaces, devices }) as unknown as HardwareStatus;
+
+  it('tells whether the device of a gate is listened to', () => {
+    expect(gateStatus(line, 'start', form.devices, null, false).state).toBe('checking');
+    expect(gateStatus(line, 'start', form.devices, status([]), false).state).toBe('missing');
+    expect(gateStatus(line, 'start', form.devices, status([plugged], [opened('listening')]), false).state).toBe('ready');
+    expect(gateStatus(line, 'start', form.devices, status([plugged], [opened('failing')]), false)).toEqual({ state: 'failing', error: 'EACCES' });
+    expect(gateStatus(line, 'start', form.devices, status([plugged]), true).state).toBe('unsaved');
+    expect(gateStatus(line, 'start', form.devices, status([plugged]), false).state).toBe('notListened');
+    expect(gateStatus({ ...line, enabled: false }, 'start', form.devices, status([plugged]), false).state).toBe('disabled');
+    expect(gateStatus({ ...line, start: { ...line.start, deviceKey: null } }, 'start', form.devices, status([plugged]), false).state).toBe('none');
+  });
+
+  it('only counts the interfaces matching the serial number and USB port of the device', () => {
+    const devices = [{ ...form.devices[0], usbPort: '3-1' }];
+    expect(gateStatus(line, 'start', devices, status([plugged], [opened('listening')]), false).state).toBe('missing');
   });
 });

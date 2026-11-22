@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { resetServer, cross, getReady, participantInput, pickParticipant, readFile, resetWorkDir, startRun, writeFiles } from './helpers';
+import { SAMPLE, resetServer, cross, getReady, participantInput, pickParticipant, readFile, chooseLine, resetWorkDir, startRun, writeFiles } from './helpers';
 
 test.beforeEach(async ({ request }) => {
   resetWorkDir();
@@ -9,6 +9,7 @@ test.beforeEach(async ({ request }) => {
 test('explains how to add events, then picks the only event and discipline once they exist', async ({ page }) => {
   resetWorkDir({});
   await page.goto('/');
+  await chooseLine(page);
   await expect(page.getByText('No event yet.')).toBeVisible();
 
   writeFiles({ 'CFM26/100m/men.csv': '7;Hugo Guérin\n' });
@@ -23,6 +24,7 @@ test('explains how to add events, then picks the only event and discipline once 
 
 test('times a run from the start to the finish gate and saves it', async ({ page, request }) => {
   await page.goto('/');
+  await chooseLine(page);
   await pickParticipant(page, 'hug', '7 Hugo Guérin');
   await expect(page.getByText('men · Attempt 1')).toBeVisible();
 
@@ -43,14 +45,16 @@ test('times a run from the start to the finish gate and saves it', async ({ page
 
 test('times runs on two lines at once, each from its own gates', async ({ page, request }) => {
   await page.goto('/');
-  const tab = (name: string) => page.getByRole('tab', { name: new RegExp(`^${name}`) });
-  await expect(tab('Line 1')).toHaveAttribute('aria-selected', 'true');
+  await chooseLine(page);
+  const back = () => page.getByRole('button', { name: 'Back to the choice of a line' }).click();
+  await expect(page.getByTestId('current-line')).toHaveText('Line 1');
   await pickParticipant(page, 'hug', '7 Hugo Guérin');
   await startRun(page, request);
-  await expect(tab('Line 1')).toContainText('7');
 
   // The other line is free: another participant can get ready and run on it meanwhile
-  await tab('Line 2').click();
+  await back();
+  await expect(page.getByTestId('line-choice').getByRole('button', { name: /^Line 1/ })).toContainText('7 Hugo Guérin');
+  await chooseLine(page, 'Line 2');
   await expect(participantInput(page)).toBeEnabled();
   await pickParticipant(page, 'lea', '12 Léa Martin');
   await getReady(page);
@@ -61,7 +65,8 @@ test('times runs on two lines at once, each from its own gates', async ({ page, 
   await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n12;Léa Martin;.+;OK;/);
 
   // Hugo is still running on line 1, until its finish gate
-  await tab('Line 1').click();
+  await back();
+  await chooseLine(page, 'Line 1');
   await expect(participantInput(page)).toHaveValue('7 · Hugo Guérin');
   await expect(page.getByRole('timer')).toBeVisible();
   await cross(request, 'finish', undefined, 'Line 1');
@@ -71,6 +76,7 @@ test('times runs on two lines at once, each from its own gates', async ({ page, 
 
 test('cancels a run without saving it, after a confirmation', async ({ page, request }) => {
   await page.goto('/');
+  await chooseLine(page);
   await pickParticipant(page, '7', '7 Hugo Guérin');
   await startRun(page, request);
 
@@ -84,6 +90,7 @@ test('cancels a run without saving it, after a confirmation', async ({ page, req
 test('disqualifies a running participant, then turns the run into an invalid one that gives the attempt back', async ({ page, request }) => {
   writeFiles({ 'CFM26/100m/config.yaml': 'attempts: 1\n' });
   await page.goto('/');
+  await chooseLine(page);
   await expect(page.getByText('Participant (3 remaining / 3)')).toBeVisible();
   await pickParticipant(page, 'lea', '12 Léa Martin');
   await startRun(page, request);
@@ -112,6 +119,7 @@ test('shows participants without attempts left as done in the list', async ({ pa
       'bib;name;start;finish;status;updated\n21;Jean-Luc Martin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:00:10Z\n',
   });
   await page.goto('/');
+  await chooseLine(page);
   await participantInput(page).fill('martin');
   await expect(page.getByRole('option', { name: '21 Jean-Luc Martin' })).toContainText('done');
   await expect(page.getByRole('option', { name: '12 Léa Martin' })).not.toContainText('done');
@@ -123,6 +131,7 @@ test('locks the discipline from its settings, which disables runs and result cha
       'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:00:10Z\n',
   });
   await page.goto('/');
+  await chooseLine(page);
   await pickParticipant(page, '7', '7 Hugo Guérin');
 
   await page.getByRole('button', { name: 'CFM26 · 100m' }).click();
@@ -142,6 +151,7 @@ test('shows the times with the precision and rounding of the discipline settings
       'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:10.3441Z;OK;2026-11-05T10:00:11Z\n',
   });
   await page.goto('/');
+  await chooseLine(page);
   await pickParticipant(page, '7', '7 Hugo Guérin');
   // By default: rounded up to the hundredth
   const time = page.locator('.results tbody tr td').nth(1);
@@ -159,8 +169,62 @@ test('shows the times with the precision and rounding of the discipline settings
   await expect.poll(() => readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toContain('7,,0,10,34\r\n');
 });
 
+test('asks for the line each time it is opened, and goes back to this choice', async ({ page }) => {
+  await page.goto('/');
+  const choice = page.getByTestId('line-choice');
+  await expect(choice.getByRole('heading', { name: 'Which line do you time on?' })).toBeVisible();
+  await expect(participantInput(page)).toHaveCount(0);
+
+  await choice.getByRole('button', { name: /^Line 2/ }).click();
+  await expect(page.getByTestId('current-line')).toHaveText('Line 2');
+  // No tabs: changing the line always goes through the choice
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  await expect(participantInput(page)).toBeVisible();
+
+  // The back button goes back to the choice
+  await page.getByRole('button', { name: 'Back to the choice of a line' }).click();
+  await expect(choice).toBeVisible();
+  await choice.getByRole('button', { name: /^Line 1/ }).click();
+  await expect(page.getByTestId('current-line')).toHaveText('Line 1');
+
+  // Asked again when the page is opened again
+  await page.reload();
+  await expect(choice).toBeVisible();
+});
+
+test('opens a disabled line to see its results, but starts no run on it', async ({ browser, request }) => {
+  const gate = (mask: number) => `{ device: "G", byteIndex: 0, mask: ${mask}, value: ${mask} }`;
+  resetWorkDir({
+    ...SAMPLE,
+    'config.yaml': [
+      'lines:',
+      `  - { name: "North", enabled: true, start: ${gate(1)}, finish: ${gate(2)} }`,
+      `  - { name: "Off", enabled: false, start: ${gate(1)}, finish: ${gate(2)} }`,
+      'devices: [{ name: "G", vendorId: 1, productId: 1 }]',
+    ].join('\n'),
+  });
+  await resetServer(request);
+  const page = await (await browser.newContext()).newPage();
+  await page.goto('/');
+  const choice = page.getByTestId('line-choice');
+  const disabled = 'No new start on this line: it is disabled on the Hardware configuration page. Its results can still be changed.';
+  await expect(choice.getByRole('button', { name: /^Off/ })).toHaveAttribute('title', disabled);
+  await choice.getByRole('button', { name: /^Off/ }).click();
+  await expect(page.getByTestId('start-blocked')).toHaveText(disabled);
+  await pickParticipant(page, 'hug', '7 Hugo Guérin');
+  await expect(page.getByRole('button', { name: 'Ready to start' })).toBeDisabled();
+
+  // The other line starts runs
+  await page.getByRole('button', { name: 'Back to the choice of a line' }).click();
+  await chooseLine(page, 'North');
+  await expect(page.getByTestId('start-blocked')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Ready to start' })).toBeEnabled();
+  await page.context().close();
+});
+
 test('refuses invalid discipline settings', async ({ page }) => {
   await page.goto('/');
+  await chooseLine(page);
   await page.getByRole('button', { name: 'CFM26 · 100m' }).click();
   await page.getByRole('button', { name: '⚙ Discipline settings' }).click();
 
@@ -181,6 +245,7 @@ test('refuses invalid discipline settings', async ({ page }) => {
 test('lists the problems of the participant files', async ({ page }) => {
   writeFiles({ 'CFM26/100m/men.csv': 'bib;name\n7;Hugo Guérin\nx;No bib\n' });
   await page.goto('/');
+  await chooseLine(page);
   // The participant list opens when the page focuses the search field: close it
   await participantInput(page).press('Escape');
   await page.getByText('1 problem in the files of 100m').click();
