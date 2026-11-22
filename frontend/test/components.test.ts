@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 import ParticipantPicker from '../src/components/race/ParticipantPicker.vue';
 import RunPanel from '../src/components/race/RunPanel.vue';
+import RecentRuns from '../src/components/race/RecentRuns.vue';
 import { setLocale } from '../src/i18n';
 import type { Participant, Precision, RunResult, RunState } from '../src/types';
 import { mountWithI18n } from './mount';
@@ -83,6 +84,8 @@ describe('RunPanel', () => {
     finish: '2026-11-05T10:00:12.345Z',
     timeMs: 12345,
     status: 'ok',
+    computer: 'PC',
+    line: 'Line 1',
     ...extra,
   });
 
@@ -200,5 +203,39 @@ describe('RunPanel', () => {
     await nextTick();
     expect(wrapper.text()).toContain('Essai 1 sur 3');
     expect(readyButton(wrapper).text()).toBe('Prêt au départ');
+  });
+});
+
+describe('RecentRuns', () => {
+  const result = (extra: Partial<RunResult>): RunResult => ({
+    bib: '7',
+    name: 'Hugo Guérin',
+    start: '2026-11-05T10:00:00Z',
+    finish: '2026-11-05T10:00:12.345Z',
+    timeMs: 12345,
+    status: 'ok',
+    computer: 'PC',
+    line: 'Line 1',
+    ...extra,
+  });
+  const mountRecent = (results: RunResult[], precision: Precision = 'hundredth') =>
+    mountWithI18n(RecentRuns, { props: { results, count: 3, precision } });
+
+  it('lists the runs with their bib, name, time and status', () => {
+    setLocale('en');
+    const wrapper = mountRecent([
+      result({ bib: '12', name: 'Léa Martin', timeMs: 11000 }),
+      result({ status: 'dq', finish: null, timeMs: null }),
+    ]);
+    const rows = wrapper.findAll('tbody tr').map((row) => row.findAll('td').map((cell) => cell.text()));
+    expect(rows.map((cells) => [cells[0], cells[1], cells[2], cells[4]])).toEqual([
+      ['12', 'Léa Martin', '11.00', 'OK'],
+      ['7', 'Hugo Guérin', '—', 'DQ'],
+    ]);
+    expect(wrapper.find('h3').text()).toBe('Last 3 runs of the line');
+  });
+
+  it('says when the line has no run yet', () => {
+    expect(mountRecent([]).find('table').exists()).toBe(false);
   });
 });

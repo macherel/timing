@@ -22,6 +22,7 @@ const SETTINGS: DisciplineSettings = {
     best: 'shortest',
     precision: 'hundredth',
     rounding: 'up',
+    recentRuns: 3,
 };
 
 beforeEach(resetWorkDir);
@@ -242,7 +243,7 @@ describe('discipline settings', () => {
     it('reads every setting', async () => {
         writeFiles({
             'E/D/config.yaml':
-                'attempts: 3\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\nprecision: thousandth\nrounding: nearest\n',
+                'attempts: 3\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\nprecision: thousandth\nrounding: nearest\nrecentRuns: 5\n',
         });
         expect(await loadDisciplineSettings(dir())).toEqual({
             settings: {
@@ -253,6 +254,7 @@ describe('discipline settings', () => {
                 best: 'longest',
                 precision: 'thousandth',
                 rounding: 'nearest',
+                recentRuns: 5,
             },
             problems: [],
         });
@@ -264,11 +266,11 @@ describe('discipline settings', () => {
     });
 
     it('ignores wrong settings and lists them', async () => {
-        writeFiles({ 'E/D/config.yaml': 'attempts: 0\naccess: maybe\nstart: someday\nbest: fastest\nprecision: minute\nrounding: down\ncolour: red\n' });
+        writeFiles({ 'E/D/config.yaml': 'attempts: 0\naccess: maybe\nstart: someday\nbest: fastest\nprecision: minute\nrounding: down\nrecentRuns: -1\ncolour: red\n' });
         const { settings, problems } = await loadDisciplineSettings(dir());
         expect(settings).toEqual(SETTINGS);
-        expect(problems).toHaveLength(7);
-        expect(problems.join('\n')).toMatch(/attempts.*access.*start.*best.*precision.*rounding.*unknown setting "colour"/s);
+        expect(problems).toHaveLength(8);
+        expect(problems.join('\n')).toMatch(/attempts.*access.*start.*best.*precision.*rounding.*recentRuns.*unknown setting "colour"/s);
     });
 
     it('ignores a period whose start is not before its end', async () => {
@@ -282,7 +284,7 @@ describe('discipline settings', () => {
         expect(validateDisciplineSettings({ attempts: 2, start: '2026-11-05T07:00Z', end: null, access: 'auto' })).toEqual([]);
         expect(validateDisciplineSettings({})).toEqual([]);
         expect(validateDisciplineSettings(null)).toEqual(['settings are missing']);
-        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest', precision: 'minute', rounding: 'down' })).toHaveLength(6);
+        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest', precision: 'minute', rounding: 'down', recentRuns: 1.5 })).toHaveLength(7);
         expect(validateDisciplineSettings({ start: '2026-11-05T17:00Z', end: '2026-11-05T07:00Z' })).toEqual(['start must be before end']);
     });
 
@@ -296,6 +298,7 @@ describe('discipline settings', () => {
             best: 'longest',
             precision: 'tenth',
             rounding: 'truncate',
+            recentRuns: 0,
         };
         await saveDisciplineSettings(dir(), saved);
 

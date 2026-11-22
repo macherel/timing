@@ -62,7 +62,11 @@ test('times runs on two lines at once, each from its own gates', async ({ page, 
   await expect(page.getByRole('timer')).toBeVisible();
   await cross(request, 'finish', undefined, 'Line 2');
   await expect(page.locator('.results tbody tr')).toHaveCount(1);
-  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n12;Léa Martin;.+;OK;/);
+  // The results file records the computer and the line of the run, and the line shows its last runs from it
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n12;Léa Martin;.+;OK;[^;\n]+;Line 2;/);
+  const recent = page.getByTestId('recent-runs').locator('tbody tr');
+  await expect(recent).toHaveCount(1);
+  await expect(recent).toContainText('Léa Martin');
 
   // Hugo is still running on line 1, until its finish gate
   await back();
@@ -71,7 +75,10 @@ test('times runs on two lines at once, each from its own gates', async ({ page, 
   await expect(page.getByRole('timer')).toBeVisible();
   await cross(request, 'finish', undefined, 'Line 1');
   await expect(page.locator('.results tbody tr')).toHaveCount(1);
-  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;/);
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;[^;\n]+;Line 1;/);
+  // Only the runs of this line
+  await expect(recent).toHaveCount(1);
+  await expect(recent).toContainText('Hugo Guérin');
 });
 
 test('cancels a run without saving it, after a confirmation', async ({ page, request }) => {

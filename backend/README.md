@@ -340,6 +340,9 @@ best: shortest
 precision: hundredth
 # How a time is brought to that unit: truncate, nearest or up
 rounding: up
+
+# How many of the last runs of a line the race page shows (0: none)
+recentRuns: 3
 ```
 
 - `attempts`: how many runs each participant may do. `OK` and `DQ` runs use up an attempt; `INVALID` runs do not (the participant is not at fault, so they run again). Once all attempts are used, the participant cannot be made ready: the race page shows "All 3 attempt(s) used" and disables _Ready to start_. Setting a run back to `INVALID` frees an attempt.
@@ -353,6 +356,7 @@ rounding: up
 
 - `best`: which time is a participant's best result, and ranks first: `shortest` (default, a race) or `longest` (a slow race, where the slowest participant wins). It decides the run highlighted as best on the race page, the ranking of the live page and the time written to `<event>-<discipline>-uda-results.csv`, which is rewritten when the setting changes. It is the _Best time_ choice in _⚙ Discipline settings_.
 - `precision`, `rounding`: the unit of the times (`second`, `tenth`, `hundredth` or `thousandth`, default `hundredth`) and how the measured time is brought to it: `truncate` (the digits beyond are dropped), `nearest` (a half goes up) or `up` (any fraction counts as a whole unit, the default). In hundredths, 12.3401 s gives 12.34 truncated or to the nearest, and 12.35 up. The rounding is done on the exact time between the two hardware timestamps (to the nanosecond). This time is the one shown on the race and live pages, compared to find the best run and the ranking (two times equal at this precision are tied), and written to `<event>-<discipline>-uda-results.csv`. `<event>-<discipline>-results.csv` keeps the exact start and finish, so a change applies to the runs already timed too, and `<event>-<discipline>-uda-results.csv` is rewritten. They are the _Time precision_ and _Rounding_ choices in _⚙ Discipline settings_.
+- `recentRuns`: how many of the last runs of the line the race page shows, below the participant (default `3`, `0` hides them). They are the runs of the discipline whose `computer` and `line` columns in `<event>-<discipline>-results.csv` are this computer and the chosen line, the latest start first, with their bib, name, time, start and status. The list is read only: a status is changed in the results of the participant. It is the _Last runs shown_ field in _⚙ Discipline settings_.
 
 - The file is read on every request. A wrong or unknown setting is ignored and listed on the race page.
 - _⚙ Discipline settings_, in the event menu of the title on the race pages ("CFM26 · 100m ▾"), edits these settings and saves the file (created if needed). Saving from the page rewrites the file in a standard layout: comments are not kept, other settings are. Every open page gets the new settings.
@@ -369,12 +373,12 @@ On the race page, choose the line (one tab per line when the computer has severa
 - Each finished run is appended to `<event>-<discipline>-results.csv` in the discipline folder, e.g. `CFM26/100m/CFM26-100m-results.csv` (this file is not read as a participant list):
 
   ```csv
-  bib;name;start;finish;status;updated
-  3;Gaspard Lacombe;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;OK;2026-11-05T20:30:35.340Z
-  4;Margaux Perrin;2026-11-05T20:49:57.848684082Z;;DQ;2026-11-05T20:50:02.511Z
+  bib;name;start;finish;status;computer;line;updated
+  3;Gaspard Lacombe;2026-11-05T20:30:34.108928955Z;2026-11-05T20:30:35.337341064Z;OK;Finish line;Line 1;2026-11-05T20:30:35.340Z
+  4;Margaux Perrin;2026-11-05T20:49:57.848684082Z;;DQ;Finish line;Line 2;2026-11-05T20:50:02.511Z
   ```
 
-  `start` and `finish` are UTC instants with nanoseconds, `status` is `OK`, `INVALID` or `DQ`, `updated` is when the line was last changed (used by the sync). The time is not stored: it is computed as `finish` − `start` (rounded to the millisecond), so editing a date by hand changes the time. A run is identified by `bib` and `start` together. Lines can be deleted by hand to remove a run. Columns are found by their header name: files with an older layout (a `time` column, no `status` column, read as `OK`, no `updated` column) are read too, and rewritten in this layout on their next write.
+  `start` and `finish` are UTC instants with nanoseconds, `status` is `OK`, `INVALID` or `DQ`, `computer` and `line` are the computer (its sync `name` when sync is on, its host name otherwise) and the line that timed the run, `updated` is when the line was last changed (used by the sync). The time is not stored: it is computed as `finish` − `start` (rounded to the millisecond), so editing a date by hand changes the time. A run is identified by `bib` and `start` together. Lines can be deleted by hand to remove a run. Columns are found by their header name: files with an older layout (a `time` column, no `status` column, read as `OK`, no `computer`, `line` or `updated` column) are read too, and rewritten in this layout on their next write.
 - A `results.csv` written by an earlier version is renamed to `<event>-<discipline>-results.csv` the first time the discipline is used (unless that file exists already), and its `uda-results.csv` is removed: it is written again with the next results.
 - Each write of `<event>-<discipline>-results.csv` also rewrites `<event>-<discipline>-uda-results.csv` beside it: the results in the import format of the UDA, to upload them there. One line per participant, sorted by bib, no header, comma separated:
 
@@ -407,6 +411,7 @@ sync:
   - `<event>-<discipline>-results.csv`: merged line by line. A run is identified by its bib and start; when a line was changed on both computers, the most recently changed (`updated` column) wins. The page of every computer updates live.
   - Not synced: `<event>-<discipline>-uda-results.csv` (each computer writes it from its `<event>-<discipline>-results.csv`), the root `config.yaml` (devices, port and name differ per computer), and the run in progress (each computer times its own runs).
 - Changes are sent at once to the other computers, which also check every 3 s, so a computer that was off catches up when it comes back.
+- Every computer must run a version of the app with the same sync protocol (`timing-sync/4` since the results file has its `computer` and `line` columns): a peer with another protocol is ignored.
 - The latest change wins, so the computers' clocks must roughly agree: the navigation bar warns when they differ by more than 2 s.
 - A deleted file or result line comes back from a computer that still has it: delete it on every computer while they are not connected, or mark the run `INVALID` instead.
 - The key prevents mixing with another timing app on the same network; it is not a protection against someone on the network who wants to change the results.
@@ -474,7 +479,7 @@ The full reference, with every request and response schema, is [`openapi.yaml`](
 - `PUT /api/events/:event/:discipline/settings` `{ settings: { attempts, start, end, access, best } }`: saves the discipline's `config.yaml` (`attempts`: a whole number from 1, or `null` for unlimited; `start`, `end`: ISO 8601 date-times, saved in UTC, or `null`; `access`: `auto`, `open` or `locked`; `best`: `shortest` or `longest`) and returns the `settings` read back with their `problems`. `422` for an invalid value.
 - `GET /api/events/:event/:discipline/results`: every run of the discipline from `<event>-<discipline>-results.csv`, oldest first.
 - `PATCH /api/events/:event/:discipline/results` `{ bib, start, status }`: sets the status (`ok`, `invalid` or `dq`) of the saved run of `bib` that started at `start` (bib and start together identify a run, as several participants can share a start). `404` when there is no such run, `409` to set `ok` on a run without a time, or when the discipline is closed (outside its period with `access: auto`, or `access: locked`).
-- `GET /api/lines`: the `lines` of this computer (the enabled lines of `config.yaml`, in its order), each with its `run` (see `RUN_UPDATE`) and `lastResult`.
+- `GET /api/lines`: the `computer` name (as written in the results files) and the `lines` of this computer (the enabled lines of `config.yaml`, in its order), each with its `run` (see `RUN_UPDATE`) and `lastResult`.
 - `POST /api/lines/:line/ready` `{ event, discipline, bib }`: the participant is ready on the line, its next start crossing starts their run. `404` for an unknown line or participant, `409` while a run is in progress on the line, when the participant is ready or running on another line, has no attempt left, or when the discipline is closed.
 - `POST /api/lines/:line/invalidate`, `POST /api/lines/:line/disqualify`: ends the running run of the line now and saves it as `INVALID` or `DQ`. `409` when no run is in progress on it.
 - `POST /api/lines/:line/cancel`: abandons the run of the line, nothing is saved.

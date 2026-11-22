@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatDuration, formatTime, hexByte, parseInstant } from '../src/format';
 import { fromLocalInput, showDateTime, toLocalInput } from '../src/race/dateTime';
 import { normalize, searchParticipants } from '../src/race/participantSearch';
-import { countsAsAttempt, sameRun } from '../src/race/results';
+import { countsAsAttempt, recentRunsOf, sameRun } from '../src/race/results';
 import type { Participant, RunResult } from '../src/types';
 
 describe('format', () => {
@@ -104,6 +104,8 @@ describe('results', () => {
     finish: null,
     timeMs: null,
     status: 'ok',
+    computer: 'PC',
+    line: 'Line 1',
     ...extra,
   });
 
@@ -117,5 +119,21 @@ describe('results', () => {
     expect(countsAsAttempt(run({ status: 'ok' }))).toBe(true);
     expect(countsAsAttempt(run({ status: 'dq' }))).toBe(true);
     expect(countsAsAttempt(run({ status: 'invalid' }))).toBe(false);
+  });
+
+  it('keeps the last runs of a line of a computer, the latest first', () => {
+    const at = (minute: number) => `2026-11-05T10:0${minute}:00Z`;
+    const results = [
+      run({ bib: '1', start: at(1) }),
+      run({ bib: '2', start: at(2), line: 'Line 2' }),
+      run({ bib: '3', start: at(3), computer: 'Other PC' }),
+      run({ bib: '4', start: at(4), computer: null, line: null }),
+      run({ bib: '5', start: at(5) }),
+      run({ bib: '6', start: at(6) }),
+      run({ bib: '7', start: at(7) }),
+    ];
+    expect(recentRunsOf(results, 'PC', 'Line 1', 3).map((r) => r.bib)).toEqual(['7', '6', '5']);
+    expect(recentRunsOf(results, 'PC', 'Line 1', 10).map((r) => r.bib)).toEqual(['7', '6', '5', '1']);
+    expect(recentRunsOf(results, 'PC', 'Line 1', 0)).toEqual([]);
   });
 });

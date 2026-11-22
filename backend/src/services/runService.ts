@@ -6,6 +6,7 @@ import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
 import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
 import { notifyActivityChange, notifyLocalChange } from '../utils/localChanges.js';
+import { computerName } from '../utils/computerName.js';
 import {
     closedReason,
     DEFAULT_SETTINGS,
@@ -191,7 +192,14 @@ function endRun(line: string, outcome: Pick<RunResult, 'finish' | 'timeMs' | 'st
     const state = stateOf(line);
     if (state.run.status !== 'running') return;
     const { event, discipline, participant, startedAt } = state.run;
-    const result: RunResult = { bib: participant.bib, name: participant.name, start: startedAt, ...outcome };
+    const result: RunResult = {
+        bib: participant.bib,
+        name: participant.name,
+        start: startedAt,
+        ...outcome,
+        computer: computerName(),
+        line,
+    };
     state.lastResult = { event, discipline, result, endedAt: new Date().toISOString() };
     setRun(line, { status: 'idle' });
     // Announced once saved: the pages that reload the results on this message (the live page) then get it
@@ -203,11 +211,12 @@ function formatSeconds(timeMs: number): string {
     return (timeMs / 1000).toFixed(3);
 }
 
-// Columns of the results file. The time is not stored: it is finish - start. `status` is OK, INVALID or DQ. `updated` is
+// Columns of the results file. The time is not stored: it is finish - start. `status` is OK, INVALID or DQ. `computer`
+// and `line` are the computer and the timing line of the run (empty for runs saved before these columns). `updated` is
 // when the line was last changed (UTC), so the sync keeps the latest change of a line edited on two computers.
-// Columns are found by their header name, so files with older layouts (with a time column, without status or
-// updated) are read too, and are rewritten in this layout on their next write.
-const COLUMNS = ['bib', 'name', 'start', 'finish', 'status', 'updated'] as const;
+// Columns are found by their header name, so files with older layouts (with a time column, without status, computer,
+// line or updated) are read too, and are rewritten in this layout on their next write.
+const COLUMNS = ['bib', 'name', 'start', 'finish', 'status', 'computer', 'line', 'updated'] as const;
 export type ResultRow = Record<(typeof COLUMNS)[number], string>;
 type Row = ResultRow;
 const RESULTS_HEADER = COLUMNS.join(';');
@@ -271,6 +280,8 @@ function parseRows(text: string): Row[] {
                 start: cell('start').trim(),
                 finish: cell('finish').trim(),
                 status: cell('status').trim() || 'OK',
+                computer: cell('computer').trim(),
+                line: cell('line').trim(),
                 updated: cell('updated').trim(),
             };
         });
@@ -367,6 +378,8 @@ function toRow(result: RunResult): Row {
         start: result.start,
         finish: result.finish ?? '',
         status: STATUS_TEXT[result.status],
+        computer: result.computer ?? '',
+        line: result.line ?? '',
         updated: nowText(),
     };
 }
@@ -392,7 +405,7 @@ function toResult(row: Row, rule: TimeRule): RunResult | null {
     const finish = row.finish || null;
     const timeMs = runTimeMs(row.start, finish, rule);
     if (status === 'ok' && timeMs === null) return null;
-    return { bib: row.bib, name: row.name, start: row.start, finish, timeMs, status };
+    return { bib: row.bib, name: row.name, start: row.start, finish, timeMs, status, computer: row.computer || null, line: row.line || null };
 }
 
 /** Rows of the results file, empty when it does not exist yet. */

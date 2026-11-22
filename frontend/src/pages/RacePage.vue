@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import type {
   DisciplineSettings,
   LineRun,
+  LinesResponse,
   RunStatus,
   Participant,
   ParticipantsResponse,
@@ -14,8 +15,9 @@ import type {
 } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import ParticipantPicker from '../components/race/ParticipantPicker.vue';
-import { countsAsAttempt, sameRun } from '../race/results';
+import { countsAsAttempt, recentRunsOf, sameRun } from '../race/results';
 import RunPanel from '../components/race/RunPanel.vue';
+import RecentRuns from '../components/race/RecentRuns.vue';
 import { showDateTime } from '../race/dateTime';
 import {
   currentEvent,
@@ -49,6 +51,7 @@ const NO_SETTINGS: DisciplineSettings = {
   best: 'shortest',
   precision: 'hundredth',
   rounding: 'up',
+  recentRuns: 3,
 };
 const settings = ref<DisciplineSettings>({ ...NO_SETTINGS });
 
@@ -81,6 +84,8 @@ const picker = ref<InstanceType<typeof ParticipantPicker> | null>(null);
 // The lines of this computer and their runs are kept by the backend and pushed to every open page
 const lines = ref<LineRun[]>([]);
 const linesLoaded = ref(false);
+// The name of this computer, as written with each result beside its line
+const computer = ref<string | null>(null);
 // A line can start runs when it is enabled and the app listens to its start and finish devices. Any line can be chosen
 // though, to edit its results, or to cancel a run in progress after a device is unplugged
 const readyLines = computed(() => lines.value.filter((item) => item.ready));
@@ -122,6 +127,12 @@ const finishedBibs = computed(() => {
 });
 const remainingCount = computed(() => participants.value.filter((p) => !finishedBibs.value.has(p.bib)).length);
 const participantResults = computed(() => results.value.filter((result) => result.bib === selected.value?.bib));
+// The last runs of the discipline timed on this line of this computer, the latest first, as many as its settings say
+const recentRuns = computed(() => {
+  const name = line.value?.line;
+  if (!name || computer.value === null) return [];
+  return recentRunsOf(results.value, computer.value, name, settings.value.recentRuns);
+});
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -162,7 +173,9 @@ function showRun(): void {
 
 async function loadLines(): Promise<void> {
   try {
-    lines.value = (await getJson<{ lines: LineRun[] }>('/api/lines')).lines;
+    const response = await getJson<LinesResponse>('/api/lines');
+    computer.value = response.computer;
+    lines.value = response.lines;
     linesLoaded.value = true;
     showRun();
   } catch (e) {
@@ -465,6 +478,13 @@ onMounted(reload);
       @invalidate="voidRun('invalidate')"
       @disqualify="voidRun('disqualify')"
       @set-status="setStatus"
+    />
+
+    <RecentRuns
+      v-if="disciplineExists && settings.recentRuns > 0"
+      :results="recentRuns"
+      :count="settings.recentRuns"
+      :precision="settings.precision"
     />
     </template>
   </main>

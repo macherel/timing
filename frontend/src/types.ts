@@ -33,6 +33,9 @@ export interface RunResult {
   finish: string | null;
   timeMs: number | null;
   status: RunStatus;
+  // The computer and its line that timed the run, null for a run saved before they were recorded
+  computer: string | null;
+  line: string | null;
 }
 
 /** The last run a line ended, until the next participant is ready on it */
@@ -41,6 +44,13 @@ export interface LastResult {
   discipline: string;
   result: RunResult;
   endedAt: string;
+}
+
+/** GET /api/lines: the name of this computer and its lines */
+export interface LinesResponse {
+  // As written in the computer column of the results file
+  computer: string;
+  lines: LineRun[];
 }
 
 /** A line of a computer and its run (GET /api/lines) */
@@ -310,6 +320,8 @@ export interface DisciplineSettings {
   // The times of the results already have them
   precision: Precision;
   rounding: 'truncate' | 'nearest' | 'up';
+  // How many of the last runs of a line the race page shows (0: none)
+  recentRuns: number;
 }
 
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';

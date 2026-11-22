@@ -84,6 +84,8 @@ export default {
     attempts: 'Attempts per participant',
     unlimited: 'Unlimited',
     attemptsHint: 'Invalid runs do not use up an attempt. Leave empty for unlimited attempts.',
+    recentRuns: 'Last runs shown',
+    recentRunsHint: 'How many of the last runs of the line the race page shows (0 to hide them).',
     best: {
       legend: 'Best time',
       shortest: 'Shortest',
@@ -115,6 +117,7 @@ export default {
     accessLegend: 'Runs and result changes',
     loadError: 'Cannot load the settings: {error}',
     attemptsInvalid: 'Attempts must be a whole number from 1, or empty for unlimited.',
+    recentRunsInvalid: 'The number of last runs must be a whole number from 0.',
     startAfterEnd: 'The start must be before the end.',
     saveError: 'Cannot save the settings: {error}',
   },
@@ -206,6 +209,12 @@ export default {
     noLine: 'No line on this computer',
   },
 
+  recent: {
+    title: 'Last run of the line | Last {n} runs of the line',
+    none: 'No run on this line yet.',
+    bib: 'Bib',
+    name: 'Name',
+  },
   picker: {
     placeholder: 'Bib number or name',
     allUsed: 'All attempts used',

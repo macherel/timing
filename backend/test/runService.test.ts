@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type Precision, type Rounding } from '../src/services/eventService.js';
 import type { ResultRow } from '../src/services/runService.js';
@@ -8,7 +9,7 @@ type RunService = typeof import('../src/services/runService.js');
 const HUGO = { bib: '7', name: 'Hugo Guérin', file: 'men' };
 const LEA = { bib: '12', name: 'Léa Martin', file: 'women' };
 const RESULTS = 'CFM26/100m/CFM26-100m-results.csv';
-const HEADER = 'bib;name;start;finish;status;updated';
+const HEADER = 'bib;name;start;finish;status;computer;line;updated';
 
 let runs: RunService;
 
@@ -62,13 +63,22 @@ describe('a timed run', () => {
                     finish: '2026-11-05T10:00:12.345Z',
                     timeMs: 12350,
                     status: 'ok',
+                    computer: os.hostname(),
+                    line: LINE,
                 },
             ]),
         );
         const [header, line] = readFile(RESULTS)!.trim().split('\n');
         expect(header).toBe(HEADER);
         // The time is not stored: it is finish - start
-        expect(line).toMatch(/^7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:12.345Z;OK;\d{4}-.+Z$/);
+        expect(line).toBe(`7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:12.345Z;OK;${os.hostname()};${LINE};${line.split(';').at(-1)}`);
+        expect(line.split(';').at(-1)).toMatch(/^\d{4}-.+Z$/);
+    });
+
+    it('records the sync name of config.yaml as the computer of the run when sync is on', async () => {
+        (await import('../src/utils/computerName.js')).setSyncName('Finish PC');
+        await timeRun();
+        expect((await runs.loadResults('CFM26', '100m'))![0]).toMatchObject({ computer: 'Finish PC', line: LINE });
     });
 
     it('ignores a finish before the start, and a start when nobody is ready', async () => {
@@ -272,15 +282,15 @@ describe('setResultStatus', () => {
 });
 
 describe('results file', () => {
-    it('reads older layouts by column name: a time column, no status, no updated', async () => {
+    it('reads older layouts by column name: a time column, no status, computer, line or updated', async () => {
         writeFiles({ [RESULTS]: 'bib;name;start;finish;time\n7;Hugo;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;10.000\n' });
         expect(await runs.loadResults('CFM26', '100m')).toEqual([
-            { bib: '7', name: 'Hugo', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:10Z', timeMs: 10000, status: 'ok' },
+            { bib: '7', name: 'Hugo', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:10Z', timeMs: 10000, status: 'ok', computer: null, line: null },
         ]);
     });
 
     it('leaves out valid lines without a readable time', async () => {
-        writeFiles({ [RESULTS]: `${HEADER}\n7;Hugo;2026-11-05T10:00:00Z;;OK;\n12;Léa;2026-11-05T10:01:00Z;;DQ;\n` });
+        writeFiles({ [RESULTS]: `${HEADER}\n7;Hugo;2026-11-05T10:00:00Z;;OK;;;\n12;Léa;2026-11-05T10:01:00Z;;DQ;;;\n` });
         expect((await runs.loadResults('CFM26', '100m'))!.map((r) => r.bib)).toEqual(['12']);
     });
 
@@ -320,16 +330,16 @@ describe('UDA export', () => {
 
     it('keeps the longest time for a slow race', () => {
         const rows = [
-            { bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:30Z', status: 'OK', updated: '' },
-            { bib: '7', name: 'X', start: '2026-11-05T10:01:00Z', finish: '2026-11-05T10:01:45.5Z', status: 'OK', updated: '' },
-            { bib: '7', name: 'X', start: '2026-11-05T10:02:00Z', finish: '2026-11-05T10:03:50Z', status: 'DQ', updated: '' },
+            { bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:30Z', status: 'OK', computer: '', line: '', updated: '' },
+            { bib: '7', name: 'X', start: '2026-11-05T10:01:00Z', finish: '2026-11-05T10:01:45.5Z', status: 'OK', computer: '', line: '', updated: '' },
+            { bib: '7', name: 'X', start: '2026-11-05T10:02:00Z', finish: '2026-11-05T10:03:50Z', status: 'DQ', computer: '', line: '', updated: '' },
         ];
         expect(runs.udaResults(rows, ['7'], { ...DEFAULT_SETTINGS, best: 'longest' })).toBe('7,,0,45,50\r\n');
         expect(runs.udaResults(rows, ['7'])).toBe('7,,0,30,0\r\n');
     });
 
     it('lists bibs with runs that are not in the participant list', async () => {
-        const rows = [{ bib: '5', name: 'X', start: '2026-11-05T10:00:00Z', finish: '', status: 'INVALID', updated: '' }];
+        const rows = [{ bib: '5', name: 'X', start: '2026-11-05T10:00:00Z', finish: '', status: 'INVALID', computer: '', line: '', updated: '' }];
         expect(runs.udaResults(rows, ['7'])).toBe('5,DNF,0,0,0\r\n7,DNF,0,0,0\r\n');
     });
 
@@ -339,7 +349,7 @@ describe('UDA export', () => {
     });
 
     it('uses the precision and rounding of the discipline, in hundredths at most', () => {
-        const rows = [{ bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:12.3449Z', status: 'OK', updated: '' }];
+        const rows = [{ bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:12.3449Z', status: 'OK', computer: '', line: '', updated: '' }];
         const uda = (precision: Precision, rounding: Rounding) => runs.udaResults(rows, ['7'], { best: 'shortest', precision, rounding });
         expect(uda('second', 'up')).toBe('7,,0,13,0\r\n');
         expect(uda('tenth', 'nearest')).toBe('7,,0,12,30\r\n');
@@ -357,18 +367,20 @@ describe('mergeResultRows (sync)', () => {
         start,
         finish: start.replace(':00Z', ':10Z'),
         status,
+        computer: 'PC',
+        line: 'Line 1',
         updated,
     });
 
     it('adds the lines it does not have, oldest run first', async () => {
-        writeFiles({ [RESULTS]: `${HEADER}\n7;Runner 7;2026-11-05T10:05:00Z;2026-11-05T10:05:10Z;OK;2026-11-05T10:05:10Z\n` });
+        writeFiles({ [RESULTS]: `${HEADER}\n7;Runner 7;2026-11-05T10:05:00Z;2026-11-05T10:05:10Z;OK;PC;Line 1;2026-11-05T10:05:10Z\n` });
         const changed = await runs.mergeResultRows('CFM26', '100m', [row('12', '2026-11-05T10:00:00Z', 'OK', '2026-11-05T10:00:10Z')]);
         expect(changed).toBe(true);
         expect((await runs.readResultRows('CFM26', '100m'))!.map((r) => r.bib)).toEqual(['12', '7']);
     });
 
     it('keeps the most recently changed version of a line', async () => {
-        writeFiles({ [RESULTS]: `${HEADER}\n7;Runner 7;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;2026-11-05T10:30:00Z\n` });
+        writeFiles({ [RESULTS]: `${HEADER}\n7;Runner 7;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;PC;Line 1;2026-11-05T10:30:00Z\n` });
 
         const older = row('7', '2026-11-05T10:00:00Z', 'DQ', '2026-11-05T10:20:00Z');
         expect(await runs.mergeResultRows('CFM26', '100m', [older])).toBe(false);

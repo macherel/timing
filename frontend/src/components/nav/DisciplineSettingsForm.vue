@@ -6,7 +6,8 @@ import { fromLocalInput, toLocalInput } from '../../race/dateTime';
 import { DECIMALS, formatDuration } from '../../format';
 
 /**
- * Edits a discipline's config.yaml: attempts, best time, precision and rounding of the times, period and access. Loads the settings itself; the race pages get the
+ * Edits a discipline's config.yaml: attempts, best time, precision and rounding of the times, period, access and the number
+ * of last runs of the line shown. Loads the settings itself; the race pages get the
  * saved ones through the SETTINGS_UPDATE message.
  */
 const props = defineProps<{ event: string; discipline: string }>();
@@ -61,6 +62,7 @@ const accessInput = ref<DisciplineSettings['access']>('auto');
 const bestInput = ref<DisciplineSettings['best']>('shortest');
 const precisionInput = ref<DisciplineSettings['precision']>('hundredth');
 const roundingInput = ref<DisciplineSettings['rounding']>('up');
+const recentRunsInput = ref<string | number>(3);
 const loaded = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
@@ -85,6 +87,7 @@ onMounted(async () => {
     bestInput.value = settings.best;
     precisionInput.value = settings.precision;
     roundingInput.value = settings.rounding;
+    recentRunsInput.value = settings.recentRuns;
     loaded.value = true;
   } catch (e) {
     error.value = t('settings.loadError', { error: errorText(e) });
@@ -96,6 +99,11 @@ async function save(): Promise<void> {
   const attempts = text === '' ? null : Number(text);
   if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
     error.value = t('settings.attemptsInvalid');
+    return;
+  }
+  const recentRuns = Number(String(recentRunsInput.value ?? '').trim() || 3);
+  if (!(Number.isInteger(recentRuns) && recentRuns >= 0)) {
+    error.value = t('settings.recentRunsInvalid');
     return;
   }
   if (startInput.value && endInput.value && startInput.value >= endInput.value) {
@@ -116,6 +124,7 @@ async function save(): Promise<void> {
           best: bestInput.value,
           precision: precisionInput.value,
           rounding: roundingInput.value,
+          recentRuns,
         },
       }),
     });
@@ -136,6 +145,11 @@ async function save(): Promise<void> {
         <input v-model="attemptsInput" type="number" min="1" step="1" :placeholder="$t('settings.unlimited')" class="attempts" />
       </label>
       <p class="muted small">{{ $t('settings.attemptsHint') }}</p>
+      <label class="field">
+        {{ $t('settings.recentRuns') }}
+        <input v-model="recentRunsInput" type="number" min="0" step="1" placeholder="3" class="attempts" data-testid="recent-runs-input" />
+      </label>
+      <p class="muted small">{{ $t('settings.recentRunsHint') }}</p>
       <fieldset class="choice">
         <legend>{{ $t('settings.best.legend') }}</legend>
         <div class="segmented" role="radiogroup">

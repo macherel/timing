@@ -81,6 +81,8 @@ const de: Messages = {
     attempts: 'Versuche pro Teilnehmer',
     unlimited: 'Unbegrenzt',
     attemptsHint: 'Ungültige Läufe verbrauchen keinen Versuch. Leer lassen für unbegrenzte Versuche.',
+    recentRuns: 'Angezeigte letzte Läufe',
+    recentRunsHint: 'Wie viele der letzten Läufe der Linie die Rennseite anzeigt (0 blendet sie aus).',
     best: {
       legend: 'Beste Zeit',
       shortest: 'Kürzeste',
@@ -112,6 +114,7 @@ const de: Messages = {
     accessLegend: 'Läufe und Ergebnisänderungen',
     loadError: 'Die Einstellungen können nicht geladen werden: {error}',
     attemptsInvalid: 'Die Versuche müssen eine ganze Zahl ab 1 sein, oder leer für unbegrenzt.',
+    recentRunsInvalid: 'Die Anzahl der letzten Läufe muss eine ganze Zahl ab 0 sein.',
     startAfterEnd: 'Der Beginn muss vor dem Ende liegen.',
     saveError: 'Die Einstellungen können nicht gespeichert werden: {error}',
   },
@@ -201,6 +204,12 @@ const de: Messages = {
     noLine: 'Keine Bahn auf diesem Computer',
   },
 
+  recent: {
+    title: 'Letzter Lauf der Linie | Letzte {n} Läufe der Linie',
+    none: 'Noch kein Lauf auf dieser Linie.',
+    bib: 'Startnummer',
+    name: 'Name',
+  },
   picker: {
     placeholder: 'Startnummer oder Name',
     allUsed: 'Alle Versuche verbraucht',

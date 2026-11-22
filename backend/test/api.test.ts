@@ -57,7 +57,7 @@ describe('events and participants', () => {
         const { status, body } = await call('GET', '/events/CFM26/100m/participants');
         expect(status).toBe(200);
         expect(body.participants.map((p: any) => p.bib)).toEqual(['7', '12']);
-        expect(body.settings).toEqual({ attempts: null, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up' });
+        expect(body.settings).toEqual({ attempts: null, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3 });
         expect((await call('GET', '/events/CFM26/nope/participants')).status).toBe(404);
     });
 });
@@ -76,6 +76,7 @@ describe('discipline settings', () => {
             best: 'shortest',
             precision: 'hundredth',
             rounding: 'up',
+            recentRuns: 3,
         });
         expect(readFile('CFM26/100m/config.yaml')).toContain('start: 2026-11-05T07:00Z');
         expect((await call('GET', '/events/CFM26/100m/settings')).body.settings).toEqual(body.settings);

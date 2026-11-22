@@ -9,6 +9,7 @@ import { broadcastToUI, getViewing } from '../websocket/wsServer.js';
 import { createLogger, errorMessage } from '../utils/logger.js';
 import { onActivityChange, onLocalChange } from '../utils/localChanges.js';
 import { WORK_DIR, workDirPath } from '../utils/workDir.js';
+import { setSyncName } from '../utils/computerName.js';
 import { isResultsFileName, resultsFileName } from './eventService.js';
 import { CONFIG_PATH } from './hardware/deviceConfig.js';
 import { getLineRuns, mergeResultRows, readResultRows, writeUdaResults, type ResultRow } from './runService.js';
@@ -47,7 +48,7 @@ const REQUEST_TIMEOUT_MS = 5000;
 const SYNCED_EXTENSIONS = ['.csv', '.yaml', '.yml'];
 // 2: results files are named <event>-<discipline>-results.csv (an older peer would copy them as participant lists)
 // 3: the activity has a run per line
-const PROTOCOL = 'timing-sync/3';
+const PROTOCOL = 'timing-sync/4';
 
 // Identifies this process in announcements, so it ignores its own and tells peers apart on one computer
 const INSTANCE_ID = crypto.randomUUID();
@@ -196,6 +197,7 @@ async function tick(): Promise<void> {
         broadcastLive();
     }
     config = next;
+    setSyncName(config?.name ?? null);
     if (!config) return;
 
     announce();
@@ -311,7 +313,7 @@ async function fileHash(file: string, stats: fs.Stats): Promise<string> {
  * with the same bib and start counts once, as a merge keeps one of them.
  */
 function resultsDigest(rows: ResultRow[]): string {
-    const lines = new Map(rows.map((row) => [`${row.bib}\t${row.start}`, [row.name, row.finish, row.status, row.updated].join('\t')]));
+    const lines = new Map(rows.map((row) => [`${row.bib}\t${row.start}`, [row.name, row.finish, row.status, row.computer, row.line, row.updated].join('\t')]));
     return sha256([...lines].map(([key, rest]) => `${key}\t${rest}`).sort().join('\n'));
 }
 

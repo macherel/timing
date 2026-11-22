@@ -94,6 +94,8 @@ export interface DisciplineSettings {
     // or rounded up. The time shown, ranked and written for the UDA is this one
     precision: Precision;
     rounding: Rounding;
+    // How many of the last runs of a line the race page shows (0: none)
+    recentRuns: number;
 }
 
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';
@@ -116,6 +118,7 @@ export const DEFAULT_SETTINGS: DisciplineSettings = {
     best: 'shortest',
     precision: 'hundredth',
     rounding: 'up',
+    recentRuns: 3,
 };
 
 /**
@@ -382,6 +385,9 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
         } else if (key === 'rounding') {
             if (ROUNDING_VALUES.includes(value as Rounding)) settings.rounding = value as Rounding;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: rounding must be truncate, nearest or up (times are rounded up)`);
+        } else if (key === 'recentRuns') {
+            if (Number.isInteger(value) && (value as number) >= 0) settings.recentRuns = value as number;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: recentRuns must be a whole number from 0 (the last 3 runs are shown)`);
         } else if (key === 'locked') {
             // Older setting, replaced by access: locked
             if (value === true && parsed.access === undefined) settings.access = 'locked';
@@ -469,6 +475,7 @@ export function validateDisciplineSettings(settings: any): string[] {
         best = DEFAULT_SETTINGS.best,
         precision = DEFAULT_SETTINGS.precision,
         rounding = DEFAULT_SETTINGS.rounding,
+        recentRuns = DEFAULT_SETTINGS.recentRuns,
     } = settings;
     const problems: string[] = [];
     if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
@@ -484,6 +491,7 @@ export function validateDisciplineSettings(settings: any): string[] {
     if (!BEST_VALUES.includes(best)) problems.push('best must be shortest or longest');
     if (!PRECISION_VALUES.includes(precision)) problems.push('precision must be second, tenth, hundredth or thousandth');
     if (!ROUNDING_VALUES.includes(rounding)) problems.push('rounding must be truncate, nearest or up');
+    if (!(Number.isInteger(recentRuns) && recentRuns >= 0)) problems.push('recentRuns must be a whole number from 0');
     return problems;
 }
 
@@ -497,7 +505,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, ...rest } = parsed;
+            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -526,6 +534,9 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         `precision: ${settings.precision}`,
         '# How a time is brought to that unit: truncate, nearest (a half goes up) or up',
         `rounding: ${settings.rounding}`,
+        '',
+        '# How many of the last runs of a line the race page shows (0: none). 3 when not set.',
+        `recentRuns: ${settings.recentRuns}`,
     ];
     if (Object.keys(others).length > 0) lines.push('', '# Other settings', yaml.stringify(others).trimEnd());
     await fs.promises.writeFile(file, `${lines.join('\n')}\n`, 'utf8');

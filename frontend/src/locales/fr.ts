@@ -80,6 +80,8 @@ const fr: Messages = {
     attempts: 'Essais par participant',
     unlimited: 'Illimité',
     attemptsHint: 'Les passages invalides ne comptent pas comme un essai. Laisser vide pour des essais illimités.',
+    recentRuns: 'Derniers passages affichés',
+    recentRunsHint: 'Nombre de derniers passages de la ligne affichés sur la page de course (0 pour ne pas les afficher).',
     best: {
       legend: 'Meilleur temps',
       shortest: 'Le plus court',
@@ -111,6 +113,7 @@ const fr: Messages = {
     accessLegend: 'Passages et modification des résultats',
     loadError: 'Impossible de charger les réglages : {error}',
     attemptsInvalid: 'Le nombre d’essais doit être un entier à partir de 1, ou vide pour illimité.',
+    recentRunsInvalid: 'Le nombre de derniers passages doit être un entier à partir de 0.',
     startAfterEnd: 'Le début doit être avant la fin.',
     saveError: 'Impossible d’enregistrer les réglages : {error}',
   },
@@ -197,6 +200,12 @@ const fr: Messages = {
     noLine: 'Aucune ligne sur cet ordinateur',
   },
 
+  recent: {
+    title: 'Dernier passage de la ligne | {n} derniers passages de la ligne',
+    none: 'Aucun passage sur cette ligne pour l’instant.',
+    bib: 'Dossard',
+    name: 'Nom',
+  },
   picker: {
     placeholder: 'Numéro de dossard ou nom',
     allUsed: 'Tous les essais sont utilisés',

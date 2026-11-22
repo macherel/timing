@@ -39,6 +39,7 @@ import { WORK_DIR } from '../utils/workDir.js';
 import { createLogger } from '../utils/logger.js';
 import { handleCrossing } from '../services/raceService.js';
 import { notifyLocalChange } from '../utils/localChanges.js';
+import { computerName } from '../utils/computerName.js';
 import {
     buildManifest,
     getLive,
@@ -109,7 +110,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         res.status(422).json({ problems });
         return;
     }
-    const { attempts, start, end, access, best, precision, rounding } = req.body.settings;
+    const { attempts, start, end, access, best, precision, rounding, recentRuns } = req.body.settings;
     await saveDisciplineSettings(dir, {
         attempts,
         start: start ? toDateTime(start, 'start') : null,
@@ -118,6 +119,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         best: best ?? DEFAULT_SETTINGS.best,
         precision: precision ?? DEFAULT_SETTINGS.precision,
         rounding: rounding ?? DEFAULT_SETTINGS.rounding,
+        recentRuns: recentRuns ?? DEFAULT_SETTINGS.recentRuns,
     });
     // The best result of each participant and its time may have changed (shortest or longest, precision, rounding)
     await writeUdaResults(event, discipline);
@@ -153,9 +155,9 @@ router.patch('/events/:event/:discipline/results', async (req: Request, res: Res
     res.json(outcome.result);
 });
 
-// Race page: the lines of this computer, each with its run (idle, ready or running) and the last run it ended
+// Race page: the name of this computer and its lines, each with its run (idle, ready or running) and the last run it ended
 router.get('/lines', (req: Request, res: Response) => {
-    res.json({ lines: getLineRuns() });
+    res.json({ computer: computerName(), lines: getLineRuns() });
 });
 
 // The run of the line of the URL, or a 404 answer

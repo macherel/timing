@@ -41,6 +41,8 @@ export interface RunResult {
     finish: string | null;  // null when the run was ended before the finish (invalidated or disqualified)
     timeMs: number | null;  // Finish - start in milliseconds, with the precision and rounding of the discipline settings. null when the run was ended before the finish (invalidated or disqualified)
     status: RunStatus;
+    computer: string | null; // The computer that timed the run, null for a run saved before this was recorded
+    line: string | null;     // The line of that computer that timed the run, null for a run saved before this was recorded
 }
 
 /** The last run a line ended, shown on the live pages until the next participant is ready on it. */
@@ -102,7 +104,7 @@ export interface SettingsUpdateMessage {
     event: string;
     discipline: string;
     settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
-        precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up' };
+        precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up'; recentRuns: number };
 }
 
 /** Sent to every frontend client when files of a discipline were changed by the sync with another computer. */

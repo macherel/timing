@@ -226,13 +226,18 @@ paths:
       operationId: getLines
       responses:
         '200':
-          description: Each line with its run and the last run it ended
+          description: The name of this computer, and each line with its run and the last run it ended
           content:
             application/json:
               schema:
                 type: object
-                required: [lines]
+                required: [computer, lines]
                 properties:
+                  computer:
+                    type: string
+                    description: |
+                      The name of this computer, as written in the `computer` column of the results files: its sync
+                      name when sync is on, its host name otherwise
                   lines:
                     type: array
                     items: { $ref: '#/components/schemas/LineRun' }
@@ -739,7 +744,7 @@ components:
 
     DisciplineSettings:
       type: object
-      required: [attempts, start, end, access, best, precision, rounding]
+      required: [attempts, start, end, access, best, precision, rounding, recentRuns]
       properties:
         attempts:
           type: [integer, 'null']
@@ -757,11 +762,15 @@ components:
         best: { $ref: '#/components/schemas/Best' }
         precision: { $ref: '#/components/schemas/Precision' }
         rounding: { $ref: '#/components/schemas/Rounding' }
+        recentRuns:
+          type: integer
+          minimum: 0
+          description: How many of the last runs of a line the race page shows (0 for none). 3 when not set
 
     DisciplineSettingsInput:
       type: object
       description: |
-        Every field is optional (null, auto for access, shortest for best, hundredth for precision, up for rounding). start and end accept any ISO 8601 date-time with an offset;
+        Every field is optional (null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns). start and end accept any ISO 8601 date-time with an offset;
         without an offset they are read in the server's time zone, and a date alone means the start of that day (start)
         or the next midnight (end). The start must be before the end.
       properties:
@@ -772,6 +781,7 @@ components:
         best: { $ref: '#/components/schemas/Best' }
         precision: { $ref: '#/components/schemas/Precision' }
         rounding: { $ref: '#/components/schemas/Rounding' }
+        recentRuns: { type: integer, minimum: 0 }
 
     SettingsResponse:
       type: object
@@ -789,7 +799,7 @@ components:
 
     RunResult:
       type: object
-      required: [bib, name, start, finish, timeMs, status]
+      required: [bib, name, start, finish, timeMs, status, computer, line]
       properties:
         bib: { type: string, examples: ['7'] }
         name: { type: string, examples: [Hugo Guérin] }
@@ -805,6 +815,14 @@ components:
             for 12.341 s rounded up to the hundredth). null without a finish
           examples: [12345]
         status: { $ref: '#/components/schemas/RunStatus' }
+        computer:
+          type: [string, 'null']
+          description: The computer that timed the run (sync name or host name). null for a run saved before it was recorded
+          examples: [Finish line]
+        line:
+          type: [string, 'null']
+          description: The line of that computer that timed the run. null for a run saved before it was recorded
+          examples: [Line 1]
 
     RunState:
       description: The run of a line, told apart by `status`
@@ -1142,7 +1160,7 @@ components:
       type: object
       required: [protocol, serverTime, files, results]
       properties:
-        protocol: { type: string, const: timing-sync/3 }
+        protocol: { type: string, const: timing-sync/4 }
         serverTime: { type: string, format: date-time }
         files:
           type: array
@@ -1166,11 +1184,13 @@ components:
     ResultRow:
       type: object
       description: A line of the results file as written (text columns)
-      required: [bib, name, start, finish, status, updated]
+      required: [bib, name, start, finish, status, computer, line, updated]
       properties:
         bib: { type: string }
         name: { type: string }
         start: { type: string }
         finish: { type: string, description: Empty without a finish }
         status: { type: string, examples: [OK, INVALID, DQ] }
+        computer: { type: string, description: The computer that timed the run, empty for older runs }
+        line: { type: string, description: The line of that computer that timed the run, empty for older runs }
         updated: { type: string, description: When the line was last changed (UTC); the latest change wins }
