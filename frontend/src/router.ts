@@ -44,7 +44,8 @@ export const router = createRouter({
     { path: '/:event/:discipline/race', name: 'race', component: RacePage, meta: { page: 'race', section: 'race', selection: true } },
     { path: '/:event/:discipline/live', name: 'live', component: LivePage, meta: { page: 'live', section: 'race', selection: true } },
     {
-      path: '/:event/:discipline/config',
+      // Its tabs: …/config (settings), …/config/participants, …/config/results
+      path: '/:event/:discipline/config/:tab(participants|results)?',
       name: 'disciplineConfig',
       component: DisciplineConfigPage,
       meta: { page: 'disciplineConfig', section: 'race', selection: true, adminOnly: true },

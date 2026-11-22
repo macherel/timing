@@ -279,7 +279,7 @@ Then run `sudo udevadm control --reload && sudo udevadm trigger` and replug the 
 
 ## 🏁 Events and Participants
 
-The home page of the app lists the events found in the working directory. Each event is a folder, each discipline a subfolder, and a discipline holds one or more participant CSV files (e.g. one per category), merged in the app:
+The home page of the app lists the events found in the working directory. Each event is a folder, each discipline a subfolder, and a discipline holds one or more participant CSV files (e.g. one per category), merged in the app. The folders can be created by hand, or from the home page unless the administration is locked (_+ New event_, _+ New discipline_; a new discipline gets a `config.yaml` of default settings, so the sync copies it to the other computers, while an event without a discipline stays on this computer). The _Participants_ tab of the settings page of a discipline downloads and replaces its participant files (5 MB at most each); a discipline without one gets its file there, saved as `participants.csv` whatever its name, and none is added to a discipline that has some, and the _Results_ tab downloads its results and their UDA export; a file removed by hand comes back from a synced computer that still has it:
 
 ```
 <working directory>/
@@ -466,6 +466,7 @@ HTTP and WebSocket share the same port, chosen at startup in this order: the `--
 - `RESULT_UPDATE` `{ event, discipline, result }`: the status of a saved run changed.
 - `SETTINGS_UPDATE` `{ event, discipline, settings }`: the settings of a discipline were saved from the race page.
 - `SYNC_UPDATE` `{ event, discipline }`: files of a discipline were changed by the sync with another computer.
+- `EVENTS_UPDATE`: an event or discipline was created from a page.
 - `LIVE_UPDATE` `{ instances }`: the activity of this computer or of a synced one changed (see `GET /api/live`).
 - From the page: `VIEWING` `{ event, discipline, line, participant }` tells which event and discipline a race page shows, the line it times on and the participant selected (`null` for none).
 

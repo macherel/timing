@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { SAMPLE, chooseLine, participantInput, resetServer, resetWorkDir, writeFiles } from './helpers';
+import { SAMPLE, chooseLine, participantInput, readFile, resetServer, resetWorkDir, writeFiles } from './helpers';
 
 test.beforeEach(async ({ request }) => {
   resetWorkDir();
@@ -34,10 +34,10 @@ test('lists the events with their disciplines, and opens the race page on the on
   await expect(header('CFM26')).toContainText('2 disciplines');
   await expect(cfm).toBeHidden();
   await header('UNICON22').click();
-  await expect(unicon.getByRole('button')).toHaveText(['Slalom']);
+  await expect(unicon.locator('.disciplines').getByRole('button')).toHaveText(['Slalom']);
   await header('CFM26').click();
   await expect(unicon).toBeHidden();
-  await expect(cfm.getByRole('button')).toHaveText(['100m', 'Slalom']);
+  await expect(cfm.locator('.disciplines').getByRole('button')).toHaveText(['100m', 'Slalom']);
 
   await cfm.getByRole('button', { name: '100m' }).click();
   await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
@@ -82,4 +82,39 @@ test('opens the pages of a discipline from the links made before it was in the p
   await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
   await page.goto('/live?event=CFM26&discipline=100m');
   await expect(page).toHaveURL(/\/CFM26\/100m\/live$/);
+});
+
+test('creates an event and its disciplines, unless the administration is locked', async ({ page }) => {
+  resetWorkDir({});
+  await page.goto('/');
+  await page.getByRole('button', { name: '+ New event' }).click();
+  await page.getByRole('textbox', { name: 'Name of the new event' }).fill('UNICON22');
+  await page.getByRole('button', { name: 'Create' }).click();
+
+  // The new event is open, its first discipline asked at once
+  const field = page.getByRole('textbox', { name: 'Name of the new discipline of UNICON22' });
+  await expect(field).toBeFocused();
+  await field.fill('Slalom');
+  await field.press('Enter');
+  const unicon = page.getByRole('region', { name: 'UNICON22' });
+  await expect(unicon.getByRole('button', { name: 'Slalom', exact: true })).toBeVisible();
+  // The only discipline does not open by itself while creating
+  await expect(page).toHaveURL(/\/$/);
+  expect(readFile('UNICON22/Slalom/config.yaml')).toContain('access: auto');
+
+  // A name that exists already (case ignored) is refused
+  await unicon.getByRole('button', { name: '+ New discipline' }).click();
+  await unicon.getByRole('textbox').fill('slalom');
+  await unicon.getByRole('button', { name: 'Create' }).click();
+  await expect(unicon.getByRole('alert')).toHaveText('Cannot create it: The discipline Slalom already exists.');
+  await unicon.getByRole('button', { name: 'Cancel' }).click();
+
+  await unicon.getByRole('button', { name: 'Slalom', exact: true }).click();
+  await expect(page).toHaveURL(/\/UNICON22\/Slalom\/race$/);
+
+  // Locked: nothing to create
+  writeFiles({ 'config.yaml': 'adminPassword: "s3cret"\n' });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '+ New event' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '+ New discipline' })).toHaveCount(0);
 });

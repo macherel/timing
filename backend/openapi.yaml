@@ -104,6 +104,71 @@ paths:
                   events:
                     type: array
                     items: { $ref: '#/components/schemas/EventSummary' }
+    post:
+      tags: [Events]
+      summary: Creates an event
+      description: |
+        Creates the folder of an event in the working directory, empty. The name is trimmed, and must be a folder name
+        on every system (at most 64 characters, none of / \ : * ? " < > |, no dot at the start or end, no name
+        reserved by Windows), other than `api`. Pages get an `EVENTS_UPDATE` message. Only the pages hide it while the
+        administration is locked.
+      operationId: createEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewName' }
+            example: { name: UNICON22 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [event]
+                properties:
+                  event: { type: string, description: The name of the event, trimmed, examples: [UNICON22] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Exists' }
+        '422': { $ref: '#/components/responses/Invalid' }
+
+  /events/{event}/disciplines:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+    post:
+      tags: [Events]
+      summary: Creates a discipline in an event
+      description: |
+        Creates the folder of a discipline in the event, with a config.yaml of the default settings, so the sync
+        copies it to the other computers. Same rules for the name as an event (`api` allowed). Pages get an
+        `EVENTS_UPDATE` message. Only the pages hide it while the administration is locked.
+      operationId: createDiscipline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewName' }
+            example: { name: Slalom }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [event, discipline]
+                properties:
+                  event: { type: string, examples: [UNICON22] }
+                  discipline: { type: string, description: The name of the discipline, trimmed, examples: [Slalom] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Unknown event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '409': { $ref: '#/components/responses/Exists' }
+        '422': { $ref: '#/components/responses/Invalid' }
 
   /events/{event}/{discipline}/participants:
     parameters:
@@ -161,6 +226,92 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SettingsResponse' }
         '404': { $ref: '#/components/responses/UnknownDiscipline' }
+        '422': { $ref: '#/components/responses/Invalid' }
+
+  /events/{event}/{discipline}/files:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+    get:
+      tags: [Events]
+      summary: Files of a discipline
+      description: |
+        The participant files (any other CSV file of the folder) and the files the app writes: its results, their UDA
+        export and its settings. Other files are left out.
+      operationId: listDisciplineFiles
+      responses:
+        '200':
+          description: The files, sorted by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [files]
+                properties:
+                  files:
+                    type: array
+                    items: { $ref: '#/components/schemas/DisciplineFile' }
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
+
+  /events/{event}/{discipline}/files/{file}:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+      - name: file
+        in: path
+        required: true
+        description: Name of a file of the discipline folder
+        schema: { type: string, examples: [men.csv] }
+    get:
+      tags: [Events]
+      summary: Downloads a file of a discipline
+      description: Only the files listed by `GET /events/{event}/{discipline}/files`.
+      operationId: downloadDisciplineFile
+      responses:
+        '200':
+          description: The file, as an attachment
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404':
+          description: Unknown event, discipline or file
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+    put:
+      tags: [Events]
+      summary: Uploads a participant file
+      description: |
+        Writes the body, as is, to a participant file of the discipline. A discipline without participant file gets
+        it as `participants.csv`, whatever the name in the URL; a discipline with participant files only has them
+        replaced (409 for another name), a name that differs only in case keeping the file's own. The name must be a
+        .csv file name valid on every system, other than the results files. At most 5 MB. The UDA export is written again, the sync copies the file, and pages get a
+        `SYNC_UPDATE` message. Only the pages hide it while the administration is locked.
+      operationId: uploadParticipantFile
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string, format: binary }
+            example: "bib;name\n7;Hugo Guérin\n"
+      responses:
+        '200':
+          description: Replaced
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadedFile' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadedFile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
+        '409':
+          description: The discipline has participant files, and none of this name
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
         '422': { $ref: '#/components/responses/Invalid' }
 
   /events/{event}/{discipline}/results:
@@ -695,6 +846,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Problems' }
+    Exists:
+      description: A folder of this name exists already (case ignored)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problems' }
     Invalid:
       description: Invalid values; `problems` lists each one
       content:
@@ -739,6 +895,31 @@ components:
           type: array
           items: { type: string }
           examples: [['Unknown event or discipline.']]
+
+    DisciplineFile:
+      type: object
+      required: [name, kind, size, modified]
+      properties:
+        name: { type: string, examples: [men.csv] }
+        kind:
+          type: string
+          enum: [participants, results, uda, settings]
+          description: A participant list, the results, their UDA export, or the settings (config.yaml)
+        size: { type: integer, description: Size in bytes }
+        modified: { type: string, format: date-time, description: Last change }
+
+    UploadedFile:
+      type: object
+      required: [name, created]
+      properties:
+        name: { type: string, description: 'The name written: participants.csv for the first file, else the name of the file replaced' }
+        created: { type: boolean, description: Whether the file is new }
+
+    NewName:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: Name of the folder to create }
 
     EventSummary:
       type: object

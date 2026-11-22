@@ -137,6 +137,12 @@ export default {
   },
 
   choice: {
+    newEvent: '+ New event',
+    newDiscipline: '+ New discipline',
+    eventName: 'Name of the new event',
+    disciplineName: 'Name of the new discipline of {event}',
+    create: 'Create',
+    createError: 'Cannot create it: {error}',
     disciplines: 'no discipline | 1 discipline | {n} disciplines',
     title: 'Choose the event and discipline to time',
     titleLive: 'Choose the event and discipline to show live',
@@ -145,6 +151,36 @@ export default {
       'No event yet. Create one folder per event in {dir}, one subfolder per discipline, and put the participant CSV files in it:',
     // {button} is switcher.reload
     noEventThen: 'Then click {button}.',
+  },
+
+  disciplineConfig: {
+    tabsLabel: 'Parts of the discipline settings',
+    tabs: {
+      settings: 'Settings',
+      participants: 'Participants',
+      results: 'Results',
+    },
+  },
+
+  files: {
+    participantsHint: 'The participants are read from the CSV files below (bib;name, or a UDA export). Replace a file to update them.',
+    count: 'No participant in all. | 1 participant in all. | {n} participants in all.',
+    noParticipantFile: 'No participant file yet: the file sent is saved as participants.csv.',
+    noResult: 'No result yet: the files are written at the first run.',
+    name: 'File',
+    modified: 'Modified',
+    size: 'Size',
+    actions: 'Actions',
+    download: 'Download',
+    replace: 'Replace…',
+    add: '+ Send the participant file (CSV)…',
+    added: '{name} added.',
+    replaced: '{name} replaced.',
+    tooLarge: '{name} is too large (5 MB at most).',
+    uploadError: 'Cannot send the file: {error}',
+    loadError: 'Cannot load the files: {error}',
+    resultsLabel: 'Every run, with its start, finish and status',
+    udaLabel: 'Best result of each participant, for the UDA',
   },
 
   race: {

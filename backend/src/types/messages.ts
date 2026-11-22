@@ -107,11 +107,16 @@ export interface SettingsUpdateMessage {
         precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up'; recentRuns: number };
 }
 
-/** Sent to every frontend client when files of a discipline were changed by the sync with another computer. */
+/** Sent to every frontend client when files of a discipline were changed by the sync with another computer, or uploaded. */
 export interface SyncUpdateMessage {
     type: 'SYNC_UPDATE';
     event: string;
     discipline: string;
+}
+
+/** Sent to every frontend client when an event or discipline is created from a page. */
+export interface EventsUpdateMessage {
+    type: 'EVENTS_UPDATE';
 }
 
 /** What an instance is doing, shown on the live pages of every synced computer. */
@@ -161,6 +166,7 @@ export type ClientMessage = {
 export type ServerMessage =
     | LiveUpdateMessage
     | SyncUpdateMessage
+    | EventsUpdateMessage
     | RaceUpdateMessage
     | RunUpdateMessage
     | LinesUpdateMessage

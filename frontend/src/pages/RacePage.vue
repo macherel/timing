@@ -215,6 +215,9 @@ function onMessage(message: ServerMessage): void {
     settings.value = message.settings;
     // The times depend on the precision and rounding
     loadResults();
+  } else if (message.type === 'EVENTS_UPDATE') {
+    // An event or discipline was created: the lists of the title menu
+    loadEvents();
   } else if (message.type === 'SYNC_UPDATE') {
     // Another computer added or changed files: new events or disciplines, participants, settings or results
     loadEvents().then(() => {

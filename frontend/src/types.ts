@@ -143,9 +143,15 @@ export interface LiveUpdateMessage {
   instances: LiveInstance[];
 }
 
+/** An event or discipline was created from a page */
+export interface EventsUpdateMessage {
+  type: 'EVENTS_UPDATE';
+}
+
 export type ServerMessage =
   | LiveUpdateMessage
   | SyncUpdateMessage
+  | EventsUpdateMessage
   | RaceUpdateMessage
   | RunUpdateMessage
   | LinesUpdateMessage
@@ -291,6 +297,15 @@ export interface ConfigFileResponse {
 export interface EventSummary {
   name: string;
   disciplines: string[];
+}
+
+/** A file of a discipline folder (GET /api/events/:event/:discipline/files) */
+export interface DisciplineFile {
+  name: string;
+  // A participant list, the results, their UDA export, or the settings (config.yaml)
+  kind: 'participants' | 'results' | 'uda' | 'settings';
+  size: number;
+  modified: string;
 }
 
 export interface EventsResponse {

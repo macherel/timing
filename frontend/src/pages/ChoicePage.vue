@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 import { useRaceSocket } from '../composables/useRaceSocket';
+import NewNameForm from '../components/choice/NewNameForm.vue';
+import { adminLocked } from '../adminLock';
 import { disciplineRoute, events, eventsError, eventsLoaded, lastSelection, listTarget, loadEvents, workDir } from '../selection';
 
 /**
  * The home page: every event of the working directory, as an accordion of its disciplines. A click opens the race page
- * on it, or the live page (?open=live, set by the race / live switch of the navigation bar).
+ * on it, or the live page (?open=live, set by the race / live switch of the navigation bar). Unless the administration
+ * is locked, new events and disciplines can be created here.
  */
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
 
 // The race or live page, to open on the discipline chosen
 const target = computed(() => listTarget(route));
@@ -28,14 +33,51 @@ function open(event: string, discipline: string, replace = false): void {
   else router.push(location);
 }
 
+// Set once an event or discipline is created here: the list stays, to go on adding
+const creating = ref(false);
+// The event just created: its "+ New discipline" opens at once
+const newEvent = ref('');
+
 // A single event and discipline need no click
 watch(
   events,
   (list) => {
+    if (creating.value) return;
     if (list.length === 1 && list[0].disciplines.length === 1) open(list[0].name, list[0].disciplines[0], true);
   },
   { immediate: true },
 );
+
+/** Sends a creation to the backend: null once done, or why it was refused. */
+async function post(path: string, name: string): Promise<string | null> {
+  creating.value = true;
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) return t('choice.createError', { error: body?.problems?.join(' ') ?? `HTTP ${response.status}` });
+    await loadEvents();
+    return null;
+  } catch (e) {
+    return t('choice.createError', { error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+async function createEvent(name: string): Promise<string | null> {
+  const error = await post('/api/events', name);
+  if (error === null) {
+    const created = events.value.find((event) => event.name.toLowerCase() === name.toLowerCase())?.name ?? name;
+    openEvent.value = created;
+    newEvent.value = created;
+  }
+  return error;
+}
+
+const createDiscipline = (event: string) => (name: string) =>
+  post(`/api/events/${encodeURIComponent(event)}/disciplines`, name);
 
 async function reload(): Promise<void> {
   refreshing.value = true;
@@ -46,7 +88,7 @@ async function reload(): Promise<void> {
 // Folders added on another computer appear without a reload
 useRaceSocket({
   onMessage: (message) => {
-    if (message.type === 'SYNC_UPDATE') loadEvents();
+    if (message.type === 'SYNC_UPDATE' || message.type === 'EVENTS_UPDATE') loadEvents();
   },
 });
 
@@ -107,9 +149,25 @@ loadEvents();
               {{ discipline }}
             </button>
           </div>
+          <NewNameForm
+            v-if="!adminLocked"
+            class="new-discipline"
+            :label="$t('choice.newDiscipline')"
+            :field-label="$t('choice.disciplineName', { event: event.name })"
+            :create="createDiscipline(event.name)"
+            :initially-open="newEvent === event.name"
+          />
         </div>
       </section>
     </div>
+
+    <NewNameForm
+      v-if="eventsLoaded && !adminLocked"
+      class="new-event"
+      :label="$t('choice.newEvent')"
+      :field-label="$t('choice.eventName')"
+      :create="createEvent"
+    />
   </main>
 </template>
 
@@ -202,6 +260,13 @@ loadEvents();
 }
 .small {
   font-size: 0.85em;
+}
+/* Administration: the forms to create a discipline (in its event) and an event (below the list) */
+.new-discipline {
+  margin-top: 12px;
+}
+.new-event {
+  margin-top: 12px;
 }
 .tree {
   font-family: var(--mono);

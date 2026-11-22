@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
 import { getHardwareStatus, reloadDevicesConfig } from '../services/hardwareService.js';
 import { getLines, isLine, isLineEnabled, isLineReady, SIMULATE_GATES } from '../services/lines.js';
 import {
@@ -12,6 +12,9 @@ import {
     writeDevicesConfigFile,
 } from '../services/hardware/deviceConfig.js';
 import {
+    createDiscipline,
+    createEvent,
+    CreateError,
     DEFAULT_SETTINGS,
     disciplineDir,
     listEvents,
@@ -22,6 +25,13 @@ import {
     validateDisciplineSettings,
 } from '../services/eventService.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
+import {
+    disciplineFile,
+    listDisciplineFiles,
+    MAX_UPLOAD_BYTES,
+    UploadError,
+    writeParticipantFile,
+} from '../services/disciplineFiles.js';
 import {
     cancelRun,
     getLineRuns,
@@ -77,6 +87,44 @@ router.get('/events', async (req: Request, res: Response) => {
     res.json({ workDir: WORK_DIR, events: await listEvents() });
 });
 
+/** Sends why an event or discipline cannot be created, or passes on another error. */
+function sendCreateError(res: Response, error: unknown): void {
+    if (!(error instanceof CreateError)) throw error;
+    res.status(error.status).json({ problems: [error.message] });
+}
+
+// Home page (administration): creates an event, an empty folder
+router.post('/events', async (req: Request, res: Response) => {
+    if (typeof req.body?.name !== 'string') {
+        res.status(400).json({ problems: ['name must be a string.'] });
+        return;
+    }
+    try {
+        const event = await createEvent(req.body.name);
+        broadcastToUI({ type: 'EVENTS_UPDATE' });
+        res.status(201).json({ event });
+    } catch (error) {
+        sendCreateError(res, error);
+    }
+});
+
+// Home page (administration): creates a discipline in an event, a folder with its settings file
+router.post('/events/:event/disciplines', async (req: Request, res: Response) => {
+    if (typeof req.body?.name !== 'string') {
+        res.status(400).json({ problems: ['name must be a string.'] });
+        return;
+    }
+    const event = String(req.params.event);
+    try {
+        const discipline = await createDiscipline(event, req.body.name);
+        broadcastToUI({ type: 'EVENTS_UPDATE' });
+        notifyLocalChange(event, discipline);
+        res.status(201).json({ event, discipline });
+    } catch (error) {
+        sendCreateError(res, error);
+    }
+});
+
 // Race page: participants of a discipline, merged from its CSV files. 404 when the event or discipline does not exist
 router.get('/events/:event/:discipline/participants', async (req: Request, res: Response) => {
     const list = await loadParticipants(String(req.params.event), String(req.params.discipline));
@@ -129,6 +177,60 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
     notifyLocalChange(event, discipline);
     res.json(saved);
 });
+
+// Settings page of a discipline: its participant files and the files the app writes
+router.get('/events/:event/:discipline/files', async (req: Request, res: Response) => {
+    const dir = await disciplineDir(String(req.params.event), String(req.params.discipline));
+    if (!dir) {
+        res.status(404).json({ problems: ['Unknown event or discipline.'] });
+        return;
+    }
+    res.json({ files: await listDisciplineFiles(dir) });
+});
+
+// Settings page of a discipline: downloads one of its files
+router.get('/events/:event/:discipline/files/:file', async (req: Request, res: Response) => {
+    const dir = await disciplineDir(String(req.params.event), String(req.params.discipline));
+    const file = dir && (await disciplineFile(dir, String(req.params.file)));
+    if (!file) {
+        res.status(404).json({ problems: ['Unknown event, discipline or file.'] });
+        return;
+    }
+    res.download(file);
+});
+
+// Settings page of a discipline: uploads its participant file (the first one, or one replacing a file), as the raw
+// bytes of the body
+router.put(
+    '/events/:event/:discipline/files/:file',
+    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES }),
+    async (req: Request, res: Response) => {
+        const event = String(req.params.event);
+        const discipline = String(req.params.discipline);
+        const dir = await disciplineDir(event, discipline);
+        if (!dir) {
+            res.status(404).json({ problems: ['Unknown event or discipline.'] });
+            return;
+        }
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+            res.status(400).json({ problems: ['The file is empty.'] });
+            return;
+        }
+        let written: { name: string; created: boolean };
+        try {
+            written = await writeParticipantFile(dir, String(req.params.file), req.body);
+        } catch (error) {
+            if (!(error instanceof UploadError)) throw error;
+            res.status(error.status).json({ problems: [error.message] });
+            return;
+        }
+        // The participants decide which bibs the UDA export lists
+        await writeUdaResults(event, discipline);
+        broadcastToUI({ type: 'SYNC_UPDATE', event, discipline });
+        notifyLocalChange(event, discipline);
+        res.status(written.created ? 201 : 200).json(written);
+    },
+);
 
 // Race page: results of a discipline (every run, oldest first)
 router.get('/events/:event/:discipline/results', async (req: Request, res: Response) => {

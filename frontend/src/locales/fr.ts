@@ -133,12 +133,48 @@ const fr: Messages = {
   },
 
   choice: {
+    newEvent: '+ Nouvelle compétition',
+    newDiscipline: '+ Nouvelle discipline',
+    eventName: 'Nom de la nouvelle compétition',
+    disciplineName: 'Nom de la nouvelle discipline de {event}',
+    create: 'Créer',
+    createError: 'Création impossible : {error}',
     disciplines: 'aucune discipline | 1 discipline | {n} disciplines',
     title: 'Choisissez la compétition et la discipline à chronométrer',
     titleLive: 'Choisissez la compétition et la discipline à afficher en direct',
     noEvent:
       'Aucune compétition pour l’instant. Créez un dossier par compétition dans {dir}, un sous-dossier par discipline, et placez-y les fichiers CSV des participants :',
     noEventThen: 'Cliquez ensuite sur {button}.',
+  },
+
+  disciplineConfig: {
+    tabsLabel: 'Parties des réglages de la discipline',
+    tabs: {
+      settings: 'Réglages',
+      participants: 'Participants',
+      results: 'Résultats',
+    },
+  },
+
+  files: {
+    participantsHint: 'Les participants sont lus dans les fichiers CSV ci-dessous (dossard;nom, ou un export UDA). Remplacez un fichier pour les mettre à jour.',
+    count: 'Aucun participant au total. | 1 participant au total. | {n} participants au total.',
+    noParticipantFile: 'Aucun fichier de participants pour l’instant : le fichier envoyé est enregistré sous participants.csv.',
+    noResult: 'Aucun résultat pour l’instant : les fichiers sont écrits au premier passage.',
+    name: 'Fichier',
+    modified: 'Modifié',
+    size: 'Taille',
+    actions: 'Actions',
+    download: 'Télécharger',
+    replace: 'Remplacer…',
+    add: '+ Envoyer le fichier des participants (CSV)…',
+    added: '{name} ajouté.',
+    replaced: '{name} remplacé.',
+    tooLarge: '{name} est trop gros (5 Mo au plus).',
+    uploadError: 'Envoi du fichier impossible : {error}',
+    loadError: 'Impossible de charger les fichiers : {error}',
+    resultsLabel: 'Tous les passages, avec leur départ, arrivée et statut',
+    udaLabel: 'Meilleur résultat de chaque participant, pour l’UDA',
   },
 
   race: {

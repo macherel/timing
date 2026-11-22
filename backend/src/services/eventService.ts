@@ -220,6 +220,67 @@ export async function listEvents(): Promise<EventSummary[]> {
     );
 }
 
+// Names that Windows refuses for a file or folder, with or without an extension
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+// Event names that would clash with the URLs of the app (/<event>/<discipline>/race)
+const RESERVED_EVENTS = ['api'];
+const MAX_NAME_LENGTH = 64;
+
+/**
+ * Why a name cannot be the folder of an event or discipline, or a file of a discipline, or null when it can. The rules
+ * are those of every system the app runs on (Windows is the strictest), so what is synced to another computer can be
+ * created there too.
+ */
+export function folderNameProblem(name: string, kind: 'event' | 'discipline' | 'file'): string | null {
+    if (name === '') return 'The name is missing.';
+    if (name.length > MAX_NAME_LENGTH) return `The name is too long (${MAX_NAME_LENGTH} characters at most).`;
+    if (/[\\/:*?"<>|\u0000-\u001f]/.test(name)) return 'The name cannot contain / \\ : * ? " < > |.';
+    if (name.startsWith('.') || name.endsWith('.')) return 'The name cannot start or end with a dot.';
+    if (WINDOWS_RESERVED.test(name)) return `${name} is a name reserved by Windows.`;
+    if (kind === 'event' && RESERVED_EVENTS.includes(name.toLowerCase())) return `${name} is a name reserved by the app.`;
+    return null;
+}
+
+/** An event or discipline that cannot be created: the HTTP status and why. */
+export class CreateError extends Error {
+    constructor(readonly status: 404 | 409 | 422, message: string) {
+        super(message);
+    }
+}
+
+/** Creates a folder in a parent folder, after checking its name and that no folder has it (case ignored). */
+async function createFolder(parent: string, name: string, kind: 'event' | 'discipline'): Promise<string> {
+    const problem = folderNameProblem(name, kind);
+    if (problem) throw new CreateError(422, problem);
+    // Case is ignored: Windows and macOS see CFM26 and cfm26 as the same folder
+    const existing = (await subdirectories(parent)).find((other) => other.toLowerCase() === name.toLowerCase());
+    if (existing) throw new CreateError(409, `The ${kind} ${existing} already exists.`);
+    const dir = path.join(parent, name);
+    await fs.promises.mkdir(dir, { recursive: true });
+    return dir;
+}
+
+/** Creates the folder of an event (the name is trimmed). Throws a CreateError when it cannot be created. */
+export async function createEvent(name: string): Promise<string> {
+    const event = name.trim();
+    await createFolder(WORK_DIR, event, 'event');
+    log.info(`Event ${event} created.`);
+    return event;
+}
+
+/**
+ * Creates the folder of a discipline in an event (the name is trimmed), with its settings file: the sync copies files
+ * only, so the discipline appears on the synced computers too. Throws a CreateError when it cannot be created.
+ */
+export async function createDiscipline(event: string, name: string): Promise<string> {
+    if (!(await subdirectories(WORK_DIR)).includes(event)) throw new CreateError(404, 'Unknown event.');
+    const discipline = name.trim();
+    const dir = await createFolder(path.join(WORK_DIR, event), discipline, 'discipline');
+    await saveDisciplineSettings(dir, DEFAULT_SETTINGS);
+    log.info(`Discipline ${event}/${discipline} created.`);
+    return discipline;
+}
+
 /**
  * Folder of a discipline, or null when the event or discipline does not exist. The names are checked against the
  * directory listing, so a request cannot reach files outside the working directory.

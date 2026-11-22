@@ -134,12 +134,48 @@ const de: Messages = {
   },
 
   choice: {
+    newEvent: '+ Neuer Wettkampf',
+    newDiscipline: '+ Neue Disziplin',
+    eventName: 'Name des neuen Wettkampfs',
+    disciplineName: 'Name der neuen Disziplin von {event}',
+    create: 'Anlegen',
+    createError: 'Anlegen nicht möglich: {error}',
     disciplines: 'keine Disziplin | 1 Disziplin | {n} Disziplinen',
     title: 'Wähle den Wettkampf und die Disziplin zum Zeiten',
     titleLive: 'Wähle den Wettkampf und die Disziplin für die Live-Anzeige',
     noEvent:
       'Noch kein Wettkampf. Lege in {dir} einen Ordner pro Wettkampf an, darin einen Unterordner pro Disziplin, und lege die CSV-Dateien der Teilnehmer hinein:',
     noEventThen: 'Klicke dann auf {button}.',
+  },
+
+  disciplineConfig: {
+    tabsLabel: 'Teile der Disziplin-Einstellungen',
+    tabs: {
+      settings: 'Einstellungen',
+      participants: 'Teilnehmer',
+      results: 'Ergebnisse',
+    },
+  },
+
+  files: {
+    participantsHint: 'Die Teilnehmer werden aus den CSV-Dateien unten gelesen (Startnummer;Name, oder ein UDA-Export). Ersetze eine Datei, um sie zu aktualisieren.',
+    count: 'Insgesamt kein Teilnehmer. | Insgesamt 1 Teilnehmer. | Insgesamt {n} Teilnehmer.',
+    noParticipantFile: 'Noch keine Teilnehmerdatei: die gesendete Datei wird als participants.csv gespeichert.',
+    noResult: 'Noch kein Ergebnis: die Dateien werden beim ersten Lauf geschrieben.',
+    name: 'Datei',
+    modified: 'Geändert',
+    size: 'Größe',
+    actions: 'Aktionen',
+    download: 'Herunterladen',
+    replace: 'Ersetzen…',
+    add: '+ Teilnehmerdatei (CSV) senden…',
+    added: '{name} hinzugefügt.',
+    replaced: '{name} ersetzt.',
+    tooLarge: '{name} ist zu groß (höchstens 5 MB).',
+    uploadError: 'Die Datei kann nicht gesendet werden: {error}',
+    loadError: 'Die Dateien können nicht geladen werden: {error}',
+    resultsLabel: 'Alle Läufe, mit Start, Ziel und Status',
+    udaLabel: 'Bestes Ergebnis jedes Teilnehmers, für die UDA',
   },
 
   race: {

@@ -62,6 +62,112 @@ describe('events and participants', () => {
     });
 });
 
+describe('creating events and disciplines', () => {
+    it('creates an event, then a discipline in it with its settings file', async () => {
+        expect(await call('POST', '/events', { name: ' UNICON22 ' })).toEqual({ status: 201, body: { event: 'UNICON22' } });
+        expect((await call('GET', '/events')).body.events).toContainEqual({ name: 'UNICON22', disciplines: [] });
+
+        expect(await call('POST', '/events/UNICON22/disciplines', { name: 'Slalom' })).toEqual({
+            status: 201,
+            body: { event: 'UNICON22', discipline: 'Slalom' },
+        });
+        expect((await call('GET', '/events')).body.events).toContainEqual({ name: 'UNICON22', disciplines: ['Slalom'] });
+        expect(readFile('UNICON22/Slalom/config.yaml')).toContain('access: auto');
+        expect((await call('GET', '/events/UNICON22/Slalom/participants')).body.participants).toEqual([]);
+    });
+
+    it('refuses a name that exists already, case ignored', async () => {
+        expect(await call('POST', '/events', { name: 'cfm26' })).toEqual({ status: 409, body: { problems: ['The event CFM26 already exists.'] } });
+        expect(await call('POST', '/events/CFM26/disciplines', { name: '100M' })).toEqual({
+            status: 409,
+            body: { problems: ['The discipline 100m already exists.'] },
+        });
+    });
+
+    it('refuses names that are not valid folder names everywhere', async () => {
+        for (const name of ['', '  ', 'a/b', '..', '.hidden', 'end.', 'what?', 'CON', 'nul.txt', 'x'.repeat(65)]) {
+            expect((await call('POST', '/events', { name })).status, name).toBe(422);
+        }
+        // /api/<discipline>/race would be an API URL
+        expect((await call('POST', '/events', { name: 'API' })).status).toBe(422);
+        expect((await call('POST', '/events/CFM26/disciplines', { name: 'api' })).status).toBe(201);
+        expect((await call('POST', '/events', {})).status).toBe(400);
+    });
+
+    it('needs an existing event for a discipline', async () => {
+        expect(await call('POST', '/events/NOPE/disciplines', { name: 'Slalom' })).toEqual({ status: 404, body: { problems: ['Unknown event.'] } });
+        expect(await call('POST', '/events/..%2F..%2Ftmp/disciplines', { name: 'x' })).toMatchObject({ status: 404 });
+    });
+});
+
+describe('files of a discipline', () => {
+    async function upload(file: string, content: string): Promise<{ status: number; body: any }> {
+        const response = await fetch(`${base}/events/CFM26/100m/files/${encodeURIComponent(file)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'text/csv' },
+            body: content,
+        });
+        return { status: response.status, body: await response.json() };
+    }
+
+    it('lists the participant files and the files the app writes', async () => {
+        writeFiles({ 'CFM26/100m/CFM26-100m-results.csv': 'bib;name;start;finish;status;updated\n', 'CFM26/100m/notes.txt': 'x' });
+        const { status, body } = await call('GET', '/events/CFM26/100m/files');
+        expect(status).toBe(200);
+        expect(body.files.map((file: any) => [file.name, file.kind])).toEqual([
+            ['CFM26-100m-results.csv', 'results'],
+            ['men.csv', 'participants'],
+        ]);
+        expect(body.files[1]).toMatchObject({ size: Buffer.byteLength('bib;name\n7;Hugo Guérin\n12;Léa Martin\n'), modified: expect.stringMatching(/^\d{4}-/) });
+        expect((await call('GET', '/events/CFM26/nope/files')).status).toBe(404);
+    });
+
+    it('saves the first participant file as participants.csv, then only replaces it', async () => {
+        writeFiles({ 'CFM26/200m/config.yaml': 'access: auto\n' });
+        const upload200 = (file: string, content: string) =>
+            fetch(`${base}/events/CFM26/200m/files/${file}`, { method: 'PUT', headers: { 'Content-Type': 'text/csv' }, body: content }).then(
+                async (response) => ({ status: response.status, body: await response.json() }),
+            );
+        expect(await upload200('export.csv', 'bib;name\n21;Ann Martin\n')).toEqual({ status: 201, body: { name: 'participants.csv', created: true } });
+        expect(readFile('CFM26/200m/participants.csv')).toBe('bib;name\n21;Ann Martin\n');
+
+        // Another file is refused, the file itself replaced
+        expect(await upload200('other.csv', 'bib;name\n22;Bea Martin\n')).toEqual({
+            status: 409,
+            body: { problems: ['The discipline has its participant files already: replace one of them.'] },
+        });
+        expect(await upload200('participants.csv', 'bib;name\n22;Bea Martin\n')).toEqual({ status: 200, body: { name: 'participants.csv', created: false } });
+        expect((await call('GET', '/events/CFM26/200m/participants')).body.participants.map((p: any) => p.bib)).toEqual(['22']);
+    });
+
+    it('replaces one of several participant files, but adds none', async () => {
+        writeFiles({ 'CFM26/100m/women.csv': 'bib;name\n21;Ann Martin\n' });
+        expect((await upload('kids.csv', 'bib;name\n30;Zoé Petit\n')).status).toBe(409);
+
+        // Another case: the file keeps its name
+        expect(await upload('WOMEN.csv', 'bib;name\n22;Bea Martin\n')).toEqual({ status: 200, body: { name: 'women.csv', created: false } });
+        expect(readFile('CFM26/100m/women.csv')).toBe('bib;name\n22;Bea Martin\n');
+        expect((await call('GET', '/events/CFM26/100m/participants')).body.participants.map((p: any) => p.bib)).toEqual(['7', '12', '22']);
+    });
+
+    it('refuses what is not a participant file', async () => {
+        expect(await upload('list.txt', 'x')).toEqual({ status: 422, body: { problems: ['A participant file must be a .csv file.'] } });
+        expect((await upload('CFM26-100m-results.csv', 'x')).status).toBe(422);
+        expect((await upload('config.yaml', 'x')).status).toBe(422);
+        expect((await upload('a?.csv', 'x')).status).toBe(422);
+        expect(await upload('empty.csv', '')).toEqual({ status: 400, body: { problems: ['The file is empty.'] } });
+    });
+
+    it('downloads a file of the discipline, and only those', async () => {
+        const response = await fetch(`${base}/events/CFM26/100m/files/men.csv`);
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-disposition')).toContain('attachment; filename=men.csv');
+        expect(await response.text()).toBe('bib;name\n7;Hugo Guérin\n12;Léa Martin\n');
+        expect((await fetch(`${base}/events/CFM26/100m/files/..%2F..%2Fconfig.yaml`)).status).toBe(404);
+        expect((await fetch(`${base}/events/CFM26/100m/files/nope.csv`)).status).toBe(404);
+    });
+});
+
 describe('discipline settings', () => {
     it('saves valid settings and returns them as read back from config.yaml', async () => {
         const settings = { attempts: 3, start: '2026-11-05T08:00+01:00', end: null, access: 'open' };
