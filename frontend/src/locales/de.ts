@@ -96,7 +96,7 @@ const de: Messages = {
     unlimited: 'Unbegrenzt',
     attemptsHint: 'Ungültige Läufe verbrauchen keinen Versuch. Leer lassen für unbegrenzte Versuche.',
     recentRuns: 'Angezeigte letzte Läufe',
-    recentRunsHint: 'Wie viele der letzten Läufe der Linie die Rennseite anzeigt (0 blendet sie aus).',
+    recentRunsHint: 'Wie viele der letzten Läufe der Bahn die Rennseite anzeigt (0 blendet sie aus).',
     best: {
       legend: 'Beste Zeit',
       shortest: 'Kürzeste',
@@ -217,10 +217,10 @@ const de: Messages = {
     noParticipant:
       'Keine Teilnehmer in {event} / {discipline}: lege CSV-Dateien mit Zeilen im Format {format} in ihren Ordner.',
     problems: '{n} Problem in den Dateien von {discipline} | {n} Probleme in den Dateien von {discipline}',
-    noLine: 'Auf diesem Computer ist keine Bahn konfiguriert: fügen Sie auf der Seite {config} eine hinzu, um zu zeitmessen.',
+    noLine: 'Auf diesem Computer ist keine Bahn konfiguriert: füge auf der Seite {config} eine hinzu, um zu zeitmessen.',
     lineNotReady: 'Kein neuer Start auf dieser Bahn: das Gerät von Start oder Ziel ist nicht angeschlossen oder wird nicht abgehört (siehe Seite Konfiguration). Ihre Ergebnisse können weiterhin geändert werden.',
     noReadyLine: 'Keine Bahn ist bereit: die Geräte von Start und Ziel müssen angeschlossen sein. Ihr Zustand steht auf der Seite {config}.',
-    chooseLine: 'Auf welcher Bahn messen Sie die Zeit?',
+    chooseLine: 'Auf welcher Bahn misst du die Zeit?',
     lineDisabled: 'Kein neuer Start auf dieser Bahn: sie ist auf der Seite Konfiguration deaktiviert. Ihre Ergebnisse können weiterhin geändert werden.',
     backToLines: 'Zurück zur Auswahl der Bahn',
     lineState: {
@@ -265,8 +265,8 @@ const de: Messages = {
   },
 
   recent: {
-    title: 'Letzter Lauf der Linie | Letzte {n} Läufe der Linie',
-    none: 'Noch kein Lauf auf dieser Linie.',
+    title: 'Letzter Lauf der Bahn | Letzte {n} Läufe der Bahn',
+    none: 'Noch kein Lauf auf dieser Bahn.',
     bib: 'Startnummer',
     name: 'Name',
   },
@@ -363,7 +363,7 @@ const de: Messages = {
     defaultLineName: 'Bahn {n}',
     confirmRemoveLine: 'Bahn „{name}“ entfernen?',
     confirmRemoveUsed: 'Gerät „{name}“ entfernen? Es wird verwendet von: {lines}. Ihr Start oder Ziel hat dann kein Gerät mehr.',
-    noLine: 'Noch keine Bahn: fügen Sie eine hinzu, um auf diesem Computer zu zeitmessen.',
+    noLine: 'Noch keine Bahn: füge eine hinzu, um auf diesem Computer zu zeitmessen.',
     linesReady: 'Bahnen bereit: {ready}/{total}',
     linesHint:
       'Auf jeder Bahn wird jeweils ein Teilnehmer gemessen, vom Drücken ihrer Start-Taste bis zum Drücken ihrer Ziel-Taste. Mehrere Bahnen können sich ein Gerät teilen (je eine Taste).',
@@ -384,16 +384,16 @@ const de: Messages = {
     chooseDevice: 'Gerät wählen…',
     noDevice: 'Zuerst unten ein Gerät hinzufügen',
     detect: 'Taste erkennen',
-    detectTitle: 'Drücken Sie die Taste am Gerät: ihr Muster wird ausgefüllt',
-    detectPress: 'Drücken Sie jetzt die Taste am Gerät (ohne die Maus zu bewegen)…',
-    detectTimeout: 'Kein Tastendruck empfangen. Drücken Sie erneut oder prüfen Sie das Gerät auf der Seite Diagnose.',
+    detectTitle: 'Drücke die Taste am Gerät: ihr Muster wird ausgefüllt',
+    detectPress: 'Drücke jetzt die Taste am Gerät (ohne die Maus zu bewegen)…',
+    detectTimeout: 'Kein Tastendruck empfangen. Drücke erneut oder prüfe das Gerät auf der Seite Diagnose.',
     detectNotConnected: 'Dieses Gerät ist nicht angeschlossen (oder seine IDs stimmen nicht).',
     detectCannotRead: 'Gerät kann nicht gelesen werden: {error}',
     edge: 'Durchgang beim',
     press: 'Drücken',
     release: 'Loslassen',
     patternHint:
-      'Die Taste ist gedrückt, solange {condition}. Maske und Wert sind hexadezimal. {button} füllt sie aus, wenn Sie die Taste drücken.',
+      'Die Taste ist gedrückt, solange {condition}. Maske und Wert sind hexadezimal. {button} füllt sie aus, wenn du die Taste drückst.',
     ready: '✔ Bereit',
     notReady: '✘ Nicht bereit',
     readyHint: 'Die Geräte von Start und Ziel sind angeschlossen und werden abgehört: die Bahn kann Zeiten messen.',

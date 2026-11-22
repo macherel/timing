@@ -4,3 +4,4 @@ dist
 workdir/
 test-results/
 playwright-report/
+docs/
