@@ -36,6 +36,16 @@ const de: Messages = {
     language: 'Sprache',
   },
 
+  lock: {
+    unlockTitle: 'Administration entsperren',
+    lockTitle: 'Administration sperren',
+    panelLabel: 'Administration entsperren',
+    password: 'Passwort',
+    unlock: 'Entsperren',
+    wrong: 'Falsches Passwort.',
+    failed: 'Prüfung nicht möglich: {error}',
+  },
+
   sync: {
     off: 'Synchronisierung aus',
     alone: 'Synchronisierung: kein anderer Computer',
@@ -276,6 +286,13 @@ const de: Messages = {
       name: 'Name dieses Computers',
       namePlaceholder: 'Der Computername',
       hint: 'Wird wenige Sekunden nach dem Speichern übernommen, ohne Neustart.',
+    },
+    password: {
+      title: 'Administrationspasswort',
+      label: 'Passwort',
+      show: 'Anzeigen',
+      hide: 'Verbergen',
+      hint: 'Wenn gesetzt, sind die Seiten Diagnose und Hardware-Konfiguration sowie die Disziplineinstellungen verborgen, bis es über das Schloss oben rechts eingegeben wird. Leer: keine Sperre. Es wird im Klartext in config.yaml gespeichert.',
     },
     discovery: {
       title: 'Standardschnittstelle',

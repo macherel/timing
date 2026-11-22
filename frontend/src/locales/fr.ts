@@ -36,6 +36,16 @@ const fr: Messages = {
     language: 'Langue',
   },
 
+  lock: {
+    unlockTitle: 'Déverrouiller l’administration',
+    lockTitle: 'Verrouiller l’administration',
+    panelLabel: 'Déverrouiller l’administration',
+    password: 'Mot de passe',
+    unlock: 'Déverrouiller',
+    wrong: 'Mot de passe incorrect.',
+    failed: 'Vérification impossible : {error}',
+  },
+
   sync: {
     off: 'Synchronisation désactivée',
     alone: 'Synchronisation : aucun autre ordinateur',
@@ -271,6 +281,13 @@ const fr: Messages = {
       name: 'Nom de cet ordinateur',
       namePlaceholder: 'Le nom de l’ordinateur',
       hint: 'Appliqué quelques secondes après l’enregistrement, sans redémarrage.',
+    },
+    password: {
+      title: 'Mot de passe d’administration',
+      label: 'Mot de passe',
+      show: 'Afficher',
+      hide: 'Masquer',
+      hint: 'S’il est défini, les pages Diagnostic et Configuration matérielle et les réglages des disciplines sont masqués jusqu’à ce qu’il soit saisi avec le cadenas en haut à droite. Vide : pas de verrouillage. Il est enregistré en clair dans config.yaml.',
     },
     discovery: {
       title: 'Interface par défaut',

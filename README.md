@@ -44,6 +44,7 @@ An event-driven, micro-service architecture built with **Node.js**, **TypeScript
 │   │   ├── locales/          # Interface texts: en.ts (the reference), fr.ts and de.ts
 │   │   ├── i18n.ts           # Languages, the language choice and its memory
 │   │   ├── selection.ts      # Selected event & discipline, shared by the navigation bar and the race pages
+│   │   ├── adminLock.ts      # Administration lock: hides the administration while the password is not typed
 │   │   ├── pages/            # Race, live, diagnostics and configuration pages
 │   │   └── main.ts           # Entry point
 │   ├── scripts/

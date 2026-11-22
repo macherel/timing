@@ -219,6 +219,33 @@ describe('device configuration', () => {
     });
 });
 
+describe('administration lock', () => {
+    it('is unlocked without password', async () => {
+        expect((await call('GET', '/admin/lock')).body).toEqual({ protected: false, unlocked: true });
+        expect((await call('POST', '/admin/unlock', { password: 'x' })).status).toBe(401);
+    });
+
+    it('unlocks with the token of the right password, until the password changes', async () => {
+        writeFiles({ 'config.yaml': 'adminPassword: secret\ndevices: []\n' });
+        expect((await call('GET', '/admin/lock')).body).toEqual({ protected: true, unlocked: false });
+        expect((await call('POST', '/admin/unlock', { password: 'wrong' })).status).toBe(401);
+
+        const { status, body } = await call('POST', '/admin/unlock', { password: 'secret' });
+        expect(status).toBe(200);
+        expect((await call('GET', `/admin/lock?token=${body.token}`)).body).toEqual({ protected: true, unlocked: true });
+        expect((await call('GET', '/admin/lock?token=other')).body.unlocked).toBe(false);
+
+        writeFiles({ 'config.yaml': 'adminPassword: changed\ndevices: []\n' });
+        expect((await call('GET', `/admin/lock?token=${body.token}`)).body.unlocked).toBe(false);
+    });
+
+    it('saves the password in config.yaml', async () => {
+        await call('PUT', '/config', { config: { adminPassword: 'p@ss "x"', devices: [] }, modifiedAt: null });
+        expect((await call('GET', '/config')).body.config.adminPassword).toBe('p@ss "x"');
+        expect((await call('POST', '/config/validate', { config: { adminPassword: '', devices: [] } })).body.problems).toHaveLength(1);
+    });
+});
+
 describe('sync routes', () => {
     it('refuses requests without the sync key', async () => {
         expect((await call('GET', '/sync/manifest')).status).toBe(403);

@@ -59,6 +59,8 @@ export interface DevicesConfig {
     port?: number;
     // Optional: sync with the instances on the local network that have the same key
     sync?: SyncSettings;
+    // Optional: hides the administration pages and the discipline settings until it is typed (see adminLock.ts)
+    adminPassword?: string;
     // Optional default HID interface for all rules (usagePage 1 / usage 2 = mouse)
     discoveryFilter?: {
         usagePage: number;
@@ -152,6 +154,14 @@ export function stringifyDevicesConfig(config: DevicesConfig): string {
         lines.push('# Sync with the computers on the local network that have the same key', 'sync:', `  key: ${text(String(config.sync.key))}`);
         if (config.sync.name !== undefined) lines.push(`  name: ${text(config.sync.name)}`);
         lines.push('');
+    }
+
+    if (config.adminPassword !== undefined) {
+        lines.push(
+            '# Password that unlocks the administration pages and the discipline settings',
+            `adminPassword: ${text(config.adminPassword)}`,
+            ''
+        );
     }
 
     if (config.discoveryFilter) {
@@ -290,6 +300,9 @@ export function validateDevicesConfig(config: any): string[] {
             problems.push('sync.key must be a non-empty text');
         }
         if (name !== undefined && typeof name !== 'string') problems.push('sync.name must be a text');
+    }
+    if (config.adminPassword !== undefined && !(typeof config.adminPassword === 'string' && config.adminPassword !== '')) {
+        problems.push('adminPassword must be a non-empty text');
     }
     if (
         config.discoveryFilter !== undefined &&

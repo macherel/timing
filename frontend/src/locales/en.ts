@@ -40,6 +40,16 @@ export default {
     language: 'Language',
   },
 
+  lock: {
+    unlockTitle: 'Unlock the administration',
+    lockTitle: 'Lock the administration',
+    panelLabel: 'Unlock the administration',
+    password: 'Password',
+    unlock: 'Unlock',
+    wrong: 'Wrong password.',
+    failed: 'Could not check it: {error}',
+  },
+
   sync: {
     off: 'Sync off',
     alone: 'Sync: no other computer',
@@ -279,6 +289,13 @@ export default {
       name: 'Name of this computer',
       namePlaceholder: 'The computer name',
       hint: 'Applied a few seconds after saving, no restart needed.',
+    },
+    password: {
+      title: 'Administration password',
+      label: 'Password',
+      show: 'Show',
+      hide: 'Hide',
+      hint: 'When set, the Diagnostics and Hardware configuration pages and the discipline settings are hidden until it is typed with the padlock at the top right. Empty: no lock. It is saved as plain text in config.yaml.',
     },
     discovery: {
       title: 'Default interface',

@@ -48,6 +48,8 @@ export interface ConfigForm {
   syncKey: string;
   // Empty for the computer name
   syncName: string;
+  // Empty for no administration lock
+  adminPassword: string;
   useDiscoveryFilter: boolean;
   discoveryUsagePage: string;
   discoveryUsage: string;
@@ -92,6 +94,7 @@ export function emptyForm(): ConfigForm {
     useSync: false,
     syncKey: '',
     syncName: '',
+    adminPassword: '',
     useDiscoveryFilter: false,
     discoveryUsagePage: '1',
     discoveryUsage: '2',
@@ -127,6 +130,7 @@ export function toForm(config: DevicesConfig): ConfigForm {
     useSync: config.sync !== undefined,
     syncKey: config.sync === undefined ? '' : String(config.sync.key),
     syncName: config.sync?.name ?? '',
+    adminPassword: config.adminPassword ?? '',
     useDiscoveryFilter: config.discoveryFilter !== undefined,
     discoveryUsagePage: text(config.discoveryFilter?.usagePage ?? 1),
     discoveryUsage: text(config.discoveryFilter?.usage ?? 2),
@@ -152,6 +156,8 @@ export function toConfig(form: ConfigForm): DevicesConfig {
     devices: form.devices.map(toRule),
   };
   if (form.useSync) config.sync = { key: form.syncKey.trim(), name: optionalText(form.syncName) };
+  // Kept as typed: spaces are part of the password
+  if (form.adminPassword !== '') config.adminPassword = form.adminPassword;
   if (form.useDiscoveryFilter) {
     config.discoveryFilter = {
       usagePage: parseDecimal(form.discoveryUsagePage) as number,

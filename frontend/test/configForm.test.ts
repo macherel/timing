@@ -42,6 +42,15 @@ describe('configuration form', () => {
     expect(toConfig(form)).toEqual(CONFIG);
   });
 
+  it('keeps the administration password as typed, and leaves it out when empty', () => {
+    const form = emptyForm();
+    form.adminPassword = ' my pass ';
+    expect(toConfig(form).adminPassword).toBe(' my pass ');
+    expect(toForm(toConfig(form)).adminPassword).toBe(' my pass ');
+    form.adminPassword = '';
+    expect(toConfig(form)).not.toHaveProperty('adminPassword');
+  });
+
   it('keeps a line on its device when the device is renamed', () => {
     const form = toForm(CONFIG);
     form.devices[0].name = 'Gate A';

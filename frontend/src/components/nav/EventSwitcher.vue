@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePopover } from '../../composables/usePopover';
 import DisciplineSettingsForm from './DisciplineSettingsForm.vue';
+import { adminLocked } from '../../adminLock';
 import {
   currentEvent,
   discipline,
@@ -42,7 +43,7 @@ watch(switcherOpen, async (isOpen) => {
   await nextTick();
   if (!selectionLock.value) eventSelect.value?.focus();
 });
-watch([eventName, discipline], () => (editingSettings.value = false));
+watch([eventName, discipline, adminLocked], () => (editingSettings.value = false));
 
 function onEvent(name: string): void {
   const event = events.value.find((e) => e.name === name);
@@ -112,7 +113,7 @@ function reload(): void {
 
       <div class="tools">
         <button
-          v-if="disciplineExists"
+          v-if="disciplineExists && !adminLocked"
           type="button"
           class="link"
           :aria-expanded="editingSettings"
@@ -124,7 +125,7 @@ function reload(): void {
         <button type="button" class="link" :title="$t('switcher.reloadTitle')" @click="reload">{{ $t('switcher.reload') }}</button>
       </div>
 
-      <section v-if="editingSettings && disciplineExists" class="settings-section">
+      <section v-if="editingSettings && disciplineExists && !adminLocked" class="settings-section">
         <h3>{{ $t('switcher.settingsOf', { event: eventName, discipline }) }}</h3>
         <DisciplineSettingsForm :event="eventName" :discipline="discipline" @done="editingSettings = false" />
       </section>

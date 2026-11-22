@@ -5,6 +5,7 @@ import { usePopover } from '../../composables/usePopover';
 import SyncIndicator from '../SyncIndicator.vue';
 import LanguageFlag from './LanguageFlag.vue';
 import { LOCALES, locale, setLocale } from '../../i18n';
+import { adminLocked } from '../../adminLock';
 
 const SECTIONS = ['race', 'admin'] as const;
 
@@ -17,9 +18,9 @@ const { open, toggle, close } = usePopover(root, button);
 // Sync state, shown at the bottom of the menu; a problem also shows a dot on the button
 const syncKind = ref<'off' | 'alone' | 'ok' | 'warn'>('off');
 
-// Pages of each section, in the order of the routes
+// Pages of each section, in the order of the routes. The administration is hidden while it is locked
 const groups = computed(() =>
-  SECTIONS.map((key) => ({
+  SECTIONS.filter((key) => key !== 'admin' || !adminLocked.value).map((key) => ({
     key,
     pages: router.options.routes.filter((r) => r.meta?.section === key && r.meta.page),
   })).filter((group) => group.pages.length > 0),

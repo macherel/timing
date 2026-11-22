@@ -40,6 +40,7 @@ import { createLogger } from '../utils/logger.js';
 import { handleCrossing } from '../services/raceService.js';
 import { notifyLocalChange } from '../utils/localChanges.js';
 import { computerName } from '../utils/computerName.js';
+import { lockState, unlock } from '../services/adminLock.js';
 import {
     buildManifest,
     getLive,
@@ -332,6 +333,22 @@ router.put('/config', async (req: Request, res: Response) => {
     }
 
     res.json({ modifiedAt: await writeDevicesConfigFile(stringifyDevicesConfig(config)) });
+});
+
+// Administration lock: whether config.yaml has an adminPassword, and whether ?token= (from unlock) unlocks it
+router.get('/admin/lock', (req: Request, res: Response) => {
+    res.json(lockState(req.query.token));
+});
+
+// Administration lock: the token for the password typed, to send with GET /admin/lock
+router.post('/admin/unlock', (req: Request, res: Response) => {
+    const token = unlock(req.body?.password);
+    if (token === null) {
+        log.warn('Wrong administration password typed.');
+        res.status(401).json({ problems: ['Wrong password.'] });
+        return;
+    }
+    res.json({ token });
 });
 
 export default router;

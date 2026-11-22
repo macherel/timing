@@ -268,6 +268,8 @@ export interface DevicesConfig {
   port?: number;
   // Sync with the computers on the local network that have the same key
   sync?: { key: string | number; name?: string };
+  // Hides the administration pages and the discipline settings until it is typed
+  adminPassword?: string;
   discoveryFilter?: { usagePage: number; usage: number };
   // Missing in a file without lines
   lines?: LineRule[];

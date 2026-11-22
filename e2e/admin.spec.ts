@@ -103,6 +103,38 @@ test.describe('configuration page', () => {
   });
 });
 
+test('the administration password hides the administration until it is typed', async ({ page }) => {
+  await page.goto('/config');
+  await page.getByTestId('admin-password').fill('s3cret');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved. The app applies the new configuration within a second.')).toBeVisible();
+  expect(readFile('config.yaml')).toContain('adminPassword: "s3cret"');
+
+  // The browser that set the password stays unlocked; the padlock locks it
+  await page.getByRole('button', { name: 'Lock the administration' }).click();
+  await expect(page).toHaveURL(/\/(\?.*)?$/);
+  await page.getByRole('button', { name: /Race/ }).click();
+  await expect(page.getByRole('menuitem', { name: 'Diagnostics' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Live' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'CFM26 · 100m' }).click();
+  await expect(page.getByRole('button', { name: '⚙ Discipline settings' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // The administration URLs lead to the race page
+  await page.goto('/diagnostics');
+  await expect(page).toHaveURL(/\/(\?.*)?$/);
+
+  await page.getByRole('button', { name: 'Unlock the administration' }).click();
+  await page.getByLabel('Password').fill('wrong');
+  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await expect(page.getByText('Wrong password.')).toBeVisible();
+  await page.getByLabel('Password').fill('s3cret');
+  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await page.getByRole('button', { name: /Race/ }).click();
+  await expect(page.getByRole('menuitem', { name: 'Diagnostics' })).toBeVisible();
+});
+
 test('diagnostics page shows the backend and the configuration state', async ({ page }) => {
   writeFiles({ 'config.yaml': 'devices: []\n' });
   await page.goto('/diagnostics');

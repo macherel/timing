@@ -25,6 +25,7 @@ import {
 import DeviceEditor from '../components/config/DeviceEditor.vue';
 import LineEditor from '../components/config/LineEditor.vue';
 import ToastMessage from '../components/ToastMessage.vue';
+import { checkLock, unlockAdmin } from '../adminLock';
 
 // Delay between the last change and the server-side validation
 const VALIDATE_DELAY_MS = 300;
@@ -45,6 +46,8 @@ const fileExists = ref(false);
 // Set when config.yaml exists but cannot be shown in the form
 const invalidFile = ref<{ content: string; problems: string[] } | null>(null);
 const loaded = ref(false);
+// Whether the administration password is shown as text
+const showPassword = ref(false);
 const loadError = ref<string | null>(null);
 
 const problems = ref<string[]>([]);
@@ -181,6 +184,9 @@ async function save(): Promise<void> {
       fileExists.value = true;
       savedSnapshot.value = JSON.stringify(config.value);
       message.value = { kind: 'ok', text: t('config.saved') };
+      // The browser that sets the password stays unlocked; the others are locked
+      if (config.value.adminPassword !== undefined) await unlockAdmin(config.value.adminPassword);
+      else await checkLock();
     } else if (response.status === 409) {
       conflict.value = true;
       message.value = { kind: 'warn', text: t('config.conflict') };
@@ -513,6 +519,27 @@ onUnmounted(() => {
         </section>
 
         <section>
+          <h2>{{ $t('config.password.title') }}</h2>
+          <div class="row">
+            <label class="field">
+              <span>{{ $t('config.password.label') }}</span>
+              <span class="password">
+                <input
+                  v-model="form.adminPassword"
+                  :type="showPassword ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  data-testid="admin-password"
+                />
+                <button type="button" class="secondary inline" :aria-pressed="showPassword" @click="showPassword = !showPassword">
+                  {{ showPassword ? $t('config.password.hide') : $t('config.password.show') }}
+                </button>
+              </span>
+            </label>
+            <span class="muted small">{{ $t('config.password.hint') }}</span>
+          </div>
+        </section>
+
+        <section>
           <h2>{{ $t('config.discovery.title') }}</h2>
           <label class="switch">
             <input v-model="form.useDiscoveryFilter" type="checkbox" />
@@ -555,6 +582,11 @@ onUnmounted(() => {
   gap: 12px 16px;
   align-items: flex-end;
   margin-top: 12px;
+}
+.password {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 .small {
   font-size: 0.85em;

@@ -36,6 +36,7 @@ openapi.yaml                     # OpenAPI 3.1 reference of the REST API
     ├── eventService.ts          # Events, disciplines and participant CSV files of the working directory
     ├── runService.ts            # Timed run of each line (ready → running → result in <event>-<discipline>-results.csv)
     ├── syncService.ts           # Finds the other instances on the network and syncs the event folders with them
+    ├── adminLock.ts             # Administration lock: checks the adminPassword of config.yaml, gives the unlock tokens
     ├── hardwareService.ts       # Polls devices, opens those the lines use, routes reports to the line gates, tracks status
     └── hardware/
         ├── deviceConfig.ts      # config.yaml types, loading, validation and watching
@@ -169,6 +170,7 @@ A relative path is resolved against the directory the command is started from. T
 port: 3001           # Optional port of the app, read at startup (default 3001)
 sync:                # Optional: sync with other computers, see "Syncing Several Computers"
   key: amber-otter-glide
+adminPassword: "1234" # Optional: hides the administration pages and the discipline settings until it is typed
 discoveryFilter:     # Optional default interface for all devices (1/2 = mouse)
   usagePage: 1
   usage: 2
@@ -242,6 +244,8 @@ devices:
 | `serialNumber`          | no       | Binds the rule to one unit. Many devices report an empty serial number, so use `usbPort` for those.                                                  |
 | `usbPort`               | no       | Binds the rule to a physical USB port (Linux, and Windows for the interfaces given to WinUSB). Needed when several identical devices are plugged in. |
 | `logReports`            | no       | `true` logs every changed raw report with the changed bits. For debugging only.                                                                      |
+
+**Administration lock**: with `adminPassword`, the pages no longer show the links to the diagnostics and configuration pages, nor the discipline settings, until someone types the password with the discreet lock button at the right of the navigation bar. The same button locks them again. Each browser is unlocked on its own; changing the password or restarting the app locks them all again. It keeps the operators away from the settings, it is not a security barrier: the API stays open, and the password is stored as plain text in `config.yaml`.
 
 Only the devices used by an enabled line are opened. A file without `lines` is valid but times nothing. Files of earlier versions (devices with `enabled` and `triggers`, no `lines`) still load, their devices included, but their triggers are ignored: add the lines on the configuration page.
 
@@ -473,6 +477,8 @@ The full reference, with every request and response schema, is [`openapi.yaml`](
 - `GET /api/config`: `config.yaml` parsed as `config`, with its path and modification time. `config` is `null` when the file is missing, or invalid (then `problems` says why and `content` holds the text).
 - `POST /api/config/validate` `{ config }`: the problems found in a config object, without saving it.
 - `PUT /api/config` `{ config, modifiedAt }`: writes the config to `config.yaml`. `422` with the problems if it is invalid; `409` if the file changed since `modifiedAt` (the value returned by `GET`).
+- `GET /api/admin/lock?token=`: whether `config.yaml` has an `adminPassword` (`protected`), and whether the token unlocks the administration (`unlocked`).
+- `POST /api/admin/unlock` `{ password }`: the `token` for the right password, `401` otherwise.
 - `GET /api/events`: the working directory (`workDir`) and its `events`, each with its `disciplines`.
 - `GET /api/events/:event/:discipline/participants`: the discipline's `participants` (`bib`, `name`, `file`: the category, from the `Age Group` column or else the CSV file name without extension), sorted by bib, its `settings` (`attempts`, `null` when unlimited, `start`, `end`, `access`, `best`) and the `problems` of ignored settings and skipped rows. `404` for an unknown event or discipline.
 - `GET /api/events/:event/:discipline/settings`: the discipline's `settings` from its `config.yaml`, and the `problems` found in it.

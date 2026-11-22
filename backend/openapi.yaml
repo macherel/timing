@@ -35,6 +35,10 @@ tags:
     description: What this computer and the synced ones are doing
   - name: Device configuration
     description: The device config.yaml at the root of the working directory
+  - name: Administration lock
+    description: |
+      With an `adminPassword` in config.yaml, the pages hide the administration pages and the discipline settings
+      until the password is typed. Only the pages are locked, not the API.
   - name: Simulated gates
     description: Gate crossings over HTTP, only when the server is started with `TIMING_SIMULATE_GATES=1`
   - name: Sync
@@ -469,6 +473,61 @@ paths:
       responses:
         '200':
           description: The problems found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+
+  /admin/lock:
+    get:
+      tags: [Administration lock]
+      summary: Whether the administration is locked
+      operationId: getAdminLock
+      parameters:
+        - name: token
+          in: query
+          required: false
+          description: Token returned by `POST /admin/unlock`
+          schema: { type: string }
+      responses:
+        '200':
+          description: |
+            `protected` is false without `adminPassword` (then `unlocked` is always true). A token stops unlocking when
+            the password changes or the app restarts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [protected, unlocked]
+                properties:
+                  protected: { type: boolean, description: Whether config.yaml has an adminPassword }
+                  unlocked: { type: boolean, description: Whether the token unlocks the administration }
+
+  /admin/unlock:
+    post:
+      tags: [Administration lock]
+      summary: Checks the administration password
+      operationId: unlockAdmin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string }
+      responses:
+        '200':
+          description: The right password
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token: { type: string, description: To send to `GET /admin/lock` }
+        '401':
+          description: Wrong password, or no password set
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problems' }
@@ -995,6 +1054,10 @@ components:
           properties:
             key: { type: [string, number], examples: [amber-otter-glide] }
             name: { type: string, description: Shown to the other computers (the host name by default) }
+        adminPassword:
+          type: string
+          minLength: 1
+          description: Hides the administration pages and the discipline settings until it is typed
         discoveryFilter:
           type: object
           required: [usagePage, usage]

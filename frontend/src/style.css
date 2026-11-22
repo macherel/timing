@@ -202,6 +202,7 @@ button.secondary {
   padding-bottom: 6px;
 }
 input[type='text'],
+input[type='password'],
 select {
   font: inherit;
   font-size: 15px;
@@ -213,6 +214,7 @@ select {
   min-width: 0;
 }
 input[type='text']:focus,
+input[type='password']:focus,
 select:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;

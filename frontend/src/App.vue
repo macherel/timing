@@ -2,6 +2,7 @@
 import { useRoute } from 'vue-router';
 import NavMenu from './components/nav/NavMenu.vue';
 import EventSwitcher from './components/nav/EventSwitcher.vue';
+import LockButton from './components/nav/LockButton.vue';
 import { usesSelection } from './selection';
 
 const route = useRoute();
@@ -11,6 +12,7 @@ const route = useRoute();
   <nav class="nav">
     <NavMenu />
     <EventSwitcher v-if="usesSelection(route)" class="event-title" />
+    <LockButton class="lock" />
   </nav>
   <RouterView />
 </template>
@@ -29,6 +31,12 @@ const route = useRoute();
 .event-title {
   grid-column: 2;
 }
+/* Discreet padlock of the administration lock, at the right */
+.lock {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
 /* Narrow screens: the title on its own line, under the menu */
 @media (max-width: 720px) {
   .nav {
@@ -38,6 +46,9 @@ const route = useRoute();
   .event-title {
     grid-column: 1;
     justify-self: center;
+  }
+  .lock {
+    grid-column: 1;
   }
 }
 </style>

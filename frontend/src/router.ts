@@ -4,6 +4,7 @@ import DiagnosticsPage from './pages/DiagnosticsPage.vue';
 import RacePage from './pages/RacePage.vue';
 import LivePage from './pages/LivePage.vue';
 import { installSelection } from './selection';
+import { adminLocked, checkLock } from './adminLock';
 import { locale, t } from './i18n';
 import { watch } from 'vue';
 
@@ -30,6 +31,17 @@ export const router = createRouter({
 });
 
 installSelection(router);
+
+// While the administration is locked, its pages lead to the race page
+router.beforeEach(async (to) => {
+  await checkLock();
+  if (to.meta.section === 'admin' && adminLocked.value) return { path: '/' };
+});
+
+// Locking from an administration page leaves it
+watch(adminLocked, (locked) => {
+  if (locked && router.currentRoute.value.meta.section === 'admin') router.push('/');
+});
 
 // The browser tab shows the page name, in the current language
 watch(
