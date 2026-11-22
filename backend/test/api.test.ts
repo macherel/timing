@@ -57,7 +57,7 @@ describe('events and participants', () => {
         const { status, body } = await call('GET', '/events/CFM26/100m/participants');
         expect(status).toBe(200);
         expect(body.participants.map((p: any) => p.bib)).toEqual(['7', '12']);
-        expect(body.settings).toEqual({ attempts: null, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3 });
+        expect(body.settings).toEqual({ attempts: null, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3, trigger: 'gates' });
         expect((await call('GET', '/events/CFM26/nope/participants')).status).toBe(404);
     });
 });
@@ -183,6 +183,7 @@ describe('discipline settings', () => {
             precision: 'hundredth',
             rounding: 'up',
             recentRuns: 3,
+            trigger: 'gates',
         });
         expect(readFile('CFM26/100m/config.yaml')).toContain('start: 2026-11-05T07:00Z');
         expect((await call('GET', '/events/CFM26/100m/settings')).body.settings).toEqual(body.settings);
@@ -236,8 +237,10 @@ describe('a run with simulated gates', () => {
     it('lists the simulated lines when config.yaml has none, with their runs', async () => {
         await call('POST', '/lines/Line%202/ready', { event: 'CFM26', discipline: '100m', bib: '12' });
         expect((await call('GET', '/lines')).body.lines).toEqual([
-            { line: 'Line 1', enabled: true, ready: true, run: { status: 'idle' }, lastResult: null },
-            { line: 'Line 2', enabled: true, ready: true, run: expect.objectContaining({ status: 'ready', participant: expect.objectContaining({ bib: '12' }) }), lastResult: null },
+            { line: 'Line 1', enabled: true, ready: true, manual: false, run: { status: 'idle' }, lastResult: null },
+            { line: 'Line 2', enabled: true, ready: true, manual: false, run: expect.objectContaining({ status: 'ready', participant: expect.objectContaining({ bib: '12' }) }), lastResult: null },
+            // The line of the disciplines timed by hand
+            { line: 'Manuel', enabled: true, ready: true, manual: true, run: { status: 'idle' }, lastResult: null },
         ]);
         // The gates of another line do not start it
         expect((await cross('start', 'Line 1')).body).toEqual({ status: 'idle' });
@@ -257,6 +260,7 @@ describe('a run with simulated gates', () => {
         expect((await call('POST', '/simulate/reset')).body.lines.map(({ line, enabled, ready }: any) => ({ line, enabled, ready }))).toEqual([
             { line: 'North', enabled: true, ready: true },
             { line: 'Off', enabled: false, ready: false },
+            { line: 'Manuel', enabled: true, ready: true },
         ]);
         expect((await call('POST', `${LINE}/ready`, { event: 'CFM26', discipline: '100m', bib: '7' })).status).toBe(404);
         expect((await call('POST', '/lines/Off/ready', { event: 'CFM26', discipline: '100m', bib: '7' })).status).toBe(409);
@@ -305,8 +309,41 @@ describe('a run with simulated gates', () => {
         expect((await call('GET', '/live')).body.instances[0].lines[0].lastResult).not.toBeNull();
         await call('POST', `${LINE}/ready`, { event: 'CFM26', discipline: '100m', bib: '12' });
 
-        expect((await call('POST', '/simulate/reset')).body.lines[0]).toEqual({ line: 'Line 1', enabled: true, ready: true, run: { status: 'idle' }, lastResult: null });
+        expect((await call('POST', '/simulate/reset')).body.lines[0]).toEqual({ line: 'Line 1', enabled: true, ready: true, manual: false, run: { status: 'idle' }, lastResult: null });
         expect((await call('GET', '/live')).body.instances[0].lines[0]).toMatchObject({ run: { status: 'idle' }, lastResult: null });
+    });
+});
+
+describe('a run timed by hand', () => {
+    const press = (line = 'Manuel') => call('POST', `/lines/${encodeURIComponent(line)}/key`);
+    const ready = (line: string) => call('POST', `/lines/${encodeURIComponent(line)}/ready`, { event: 'CFM26', discipline: '100m', bib: '7' });
+
+    beforeEach(() => writeFiles({ 'CFM26/100m/config.yaml': 'trigger: keyboard\n' }));
+
+    it('is started by a key press on the manual line, and finished by the next one', async () => {
+        // Nobody ready: nothing happens
+        expect((await press()).body).toEqual({ status: 'idle' });
+        expect((await ready('Manuel')).body.status).toBe('ready');
+        expect((await press()).body.status).toBe('running');
+        expect((await press()).body).toEqual({ status: 'idle' });
+
+        const [result] = await waitForResults(1);
+        expect(result).toMatchObject({ bib: '7', status: 'ok', line: 'Manuel' });
+        expect(result.timeMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('only runs on the manual line, which only runs the disciplines timed by hand', async () => {
+        const onGates = await ready('Line 1');
+        expect(onGates.status).toBe(409);
+        expect(onGates.body.problems[0]).toMatch(/timed by hand: its runs are on the line "Manuel"/);
+
+        writeFiles({ 'CFM26/100m/config.yaml': 'trigger: gates\n' });
+        expect((await ready('Manuel')).status).toBe(409);
+    });
+
+    it('refuses a key press on another line, or an unknown one', async () => {
+        expect((await press('Line 1')).status).toBe(409);
+        expect((await press('Nope')).status).toBe(404);
     });
 });
 

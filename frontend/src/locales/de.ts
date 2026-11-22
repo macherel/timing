@@ -84,6 +84,13 @@ const de: Messages = {
   },
 
   settings: {
+    trigger: {
+      legend: 'Auslösung',
+      gates: 'Lichtschranken',
+      gatesHint: 'Die Start- und Ziellichtschranken der auf der Rennseite gewählten Bahn starten und stoppen die Uhr.',
+      keyboard: 'Manuell (Leertaste)',
+      keyboardHint: 'Zeitmessung von Hand, auf der Bahn „Manuel“ jedes Computers: die Leertaste gibt den Start, dann das Ziel.',
+    },
     access: {
       auto: 'Automatisch',
       autoHint: 'Während des obigen Zeitraums geöffnet',
@@ -151,7 +158,9 @@ const de: Messages = {
   disciplineConfig: {
     tabsLabel: 'Teile der Disziplin-Einstellungen',
     tabs: {
-      settings: 'Einstellungen',
+      settings: 'Grundeinstellungen',
+      advanced: 'Erweiterte Einstellungen',
+      lock: 'Sperre',
       participants: 'Teilnehmer',
       results: 'Ergebnisse',
     },
@@ -199,6 +208,7 @@ const de: Messages = {
       cancel: 'Der Lauf kann nicht abgebrochen werden: {error}',
       invalidate: 'Der Lauf kann nicht für ungültig erklärt werden: {error}',
       disqualify: 'Der Teilnehmer kann nicht disqualifiziert werden: {error}',
+      key: 'Der Druck auf die Leertaste kann nicht erfasst werden: {error}',
     },
     confirmCancel: 'Diesen Lauf abbrechen? Seine Zeit wird nicht gespeichert.',
     confirmDisqualify:
@@ -240,6 +250,9 @@ const de: Messages = {
     attempt: 'Versuch {n}',
     attemptOf: 'Versuch {n} von {total}',
     waitingStart: 'Warten auf den Start…',
+    spaceKey: 'Leertaste',
+    pressToStart: 'Drücke die {key} für den Start.',
+    pressToFinish: 'Drücke die {key} im Ziel.',
     cancelRun: 'Lauf abbrechen',
     cancelRunTitle: 'Lauf aufgeben, nichts wird gespeichert',
     invalidate: 'Für ungültig erklären',

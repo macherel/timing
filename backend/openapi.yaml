@@ -376,8 +376,8 @@ paths:
       tags: [Run]
       summary: The lines of this computer, with their runs
       description: |
-        The enabled lines of config.yaml, in its order. With simulated gates and no line in config.yaml, two simulated
-        lines, "Line 1" and "Line 2". Pages get the changes through `RUN_UPDATE` and `LINES_UPDATE` messages.
+        The lines of config.yaml, in its order, then the manual line "Manuel" (disciplines timed by hand). With
+        simulated gates and no line in config.yaml, two simulated lines, "Line 1" and "Line 2", before it. Pages get the changes through `RUN_UPDATE` and `LINES_UPDATE` messages.
       operationId: getLines
       responses:
         '200':
@@ -432,7 +432,8 @@ paths:
         '409':
           description: |
             The line is not ready (see LineRun.ready), a run is in progress on the line, the participant is ready or
-            running on another line, has no attempt left, or the discipline is closed
+            running on another line, has no attempt left, the discipline is closed, or it is timed by hand and the line
+            is not the manual line (or the other way round)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problems' }
@@ -461,6 +462,31 @@ paths:
         '200': { $ref: '#/components/responses/Idle' }
         '404': { $ref: '#/components/responses/UnknownLine' }
         '409': { $ref: '#/components/responses/NoRun' }
+
+  /lines/{line}/key:
+    parameters:
+      - $ref: '#/components/parameters/Line'
+    post:
+      tags: [Run]
+      summary: The space bar was pressed on the race page of the manual line
+      description: |
+        For the disciplines timed by hand (`trigger: keyboard` in their settings), which run on the manual line,
+        "Manuel". Timestamped when the request arrives. It is the start crossing of the participant who is ready on the
+        line, or the finish crossing of the run in progress (which is saved). With no participant ready, nothing
+        changes.
+      operationId: pressKey
+      responses:
+        '200':
+          description: The run of the line after the key press
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunState' }
+        '404': { $ref: '#/components/responses/UnknownLine' }
+        '409':
+          description: The line is not the manual line (see LineRun.manual)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
 
   /lines/{line}/cancel:
     parameters:
@@ -984,7 +1010,7 @@ components:
 
     DisciplineSettings:
       type: object
-      required: [attempts, start, end, access, best, precision, rounding, recentRuns]
+      required: [attempts, start, end, access, best, precision, rounding, recentRuns, trigger]
       properties:
         attempts:
           type: [integer, 'null']
@@ -1006,11 +1032,19 @@ components:
           type: integer
           minimum: 0
           description: How many of the last runs of a line the race page shows (0 for none). 3 when not set
+        trigger: { $ref: '#/components/schemas/Trigger' }
+
+    Trigger:
+      type: string
+      enum: [gates, keyboard]
+      description: |
+        What starts and finishes the runs: the start and finish gates of a line of config.yaml (gates, the default),
+        or the space bar of the race page (keyboard: timed by hand, on the manual line "Manuel" of each computer).
 
     DisciplineSettingsInput:
       type: object
       description: |
-        Every field is optional (null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns). start and end accept any ISO 8601 date-time with an offset;
+        Every field is optional (null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, gates for trigger). start and end accept any ISO 8601 date-time with an offset;
         without an offset they are read in the server's time zone, and a date alone means the start of that day (start)
         or the next midnight (end). The start must be before the end.
       properties:
@@ -1022,6 +1056,7 @@ components:
         precision: { $ref: '#/components/schemas/Precision' }
         rounding: { $ref: '#/components/schemas/Rounding' }
         recentRuns: { type: integer, minimum: 0 }
+        trigger: { $ref: '#/components/schemas/Trigger' }
 
     SettingsResponse:
       type: object
@@ -1108,7 +1143,7 @@ components:
     LineRun:
       type: object
       description: A line of a computer, with its run
-      required: [line, enabled, ready, run, lastResult]
+      required: [line, enabled, ready, manual, run, lastResult]
       properties:
         line: { type: string, examples: [Line 1] }
         enabled:
@@ -1118,7 +1153,14 @@ components:
           type: boolean
           description: |
             Whether the line is enabled and the app listens to the devices of its start and finish, so both
-            crossings can be recorded (always true for an enabled line with simulated gates). A participant can only be made ready on a ready line
+            crossings can be recorded (always true for an enabled line with simulated gates, and for the manual
+            line). A participant can only be made ready on a ready line
+        manual:
+          type: boolean
+          description: |
+            Whether it is the manual line, "Manuel", listed after the lines of config.yaml on every computer: the line
+            of the disciplines timed by hand, started and finished with the space bar of the race page (see
+            `POST /lines/{line}/key`)
         run: { $ref: '#/components/schemas/RunState' }
         lastResult:
           description: The last run ended on the line, shown until the next participant is ready on it. null for none
@@ -1198,10 +1240,17 @@ components:
 
     LineRule:
       type: object
-      required: [name, enabled, start, finish]
+      required: [name, enabled]
+      description: |
+        A line started and finished by device buttons (`start` and `finish` required), or with the space bar of its race
+        page (`trigger: keyboard`, `start` and `finish` ignored)
       properties:
         name: { type: string, description: 'Unique, shown on the race and live pages', examples: [Line 1] }
         enabled: { type: boolean }
+        trigger:
+          type: string
+          enum: [gates, keyboard]
+          description: 'What starts and finishes the runs: device buttons (gates, the default) or the space bar'
         start: { $ref: '#/components/schemas/GateRule' }
         finish: { $ref: '#/components/schemas/GateRule' }
 

@@ -7,7 +7,7 @@ export interface RaceUpdateMessage {
     type: 'RACE_UPDATE';
     line: string;
     gate: Gate;
-    deviceName: string; // The device whose button fired, "Simulator" for the simulated gates
+    deviceName: string; // The device whose button fired, "Simulator" for the simulated gates, "Keyboard" for the space bar
     timestamp: string;  // Temporal.Instant as ISO 8601, nanosecond precision
 }
 
@@ -59,8 +59,10 @@ export interface LineRun {
     // Whether the line is enabled in config.yaml: a disabled line is listed, but never ready
     enabled: boolean;
     // Whether the line is enabled and the app listens to the devices of its start and finish (always for an enabled
-    // line with simulated gates)
+    // line with simulated gates, and for the manual line)
     ready: boolean;
+    // Whether it is the manual line, that times the disciplines timed by hand, with the space bar of the race page
+    manual: boolean;
     run: RunState;
     lastResult: LastResult | null;
 }
@@ -104,7 +106,8 @@ export interface SettingsUpdateMessage {
     event: string;
     discipline: string;
     settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
-        precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up'; recentRuns: number };
+        precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up'; recentRuns: number;
+        trigger: 'gates' | 'keyboard' };
 }
 
 /** Sent to every frontend client when files of a discipline were changed by the sync with another computer, or uploaded. */

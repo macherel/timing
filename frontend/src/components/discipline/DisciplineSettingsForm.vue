@@ -1,19 +1,36 @@
+<script lang="ts">
+/** The sections of the settings, each on its tab of the settings page. */
+export type SettingsSection = 'basic' | 'advanced' | 'lock';
+</script>
+
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DisciplineSettings } from '../../types';
 import { fromLocalInput, toLocalInput } from '../../race/dateTime';
 import { DECIMALS, formatDuration } from '../../format';
 
 /**
- * Edits a discipline's config.yaml: attempts, best time, precision and rounding of the times, period, access and the number
- * of last runs of the line shown. Loads the settings itself; the race pages get the
- * saved ones through the SETTINGS_UPDATE message. Tells whether it has unsaved changes (dirty).
+ * Edits a discipline's config.yaml, in three sections shown one at a time (the tabs of the settings page) and saved
+ * together:
+ * - basic: what triggers the runs (gates or the space bar), attempts and best time;
+ * - advanced: precision and rounding of the times, and the number of last runs of the line shown;
+ * - lock: period and access.
+ * Loads the settings itself; the race pages get the saved ones through the SETTINGS_UPDATE message. Tells whether it
+ * has unsaved changes (dirty).
  */
-const props = defineProps<{ event: string; discipline: string }>();
-const emit = defineEmits<{ done: [] }>();
+const props = defineProps<{ event: string; discipline: string; section: SettingsSection }>();
+const emit = defineEmits<{ done: []; showSection: [section: SettingsSection] }>();
 
 const { t } = useI18n();
+
+const TRIGGER_OPTIONS = computed(() =>
+  (['gates', 'keyboard'] as const).map((value) => ({
+    value,
+    label: t(`settings.trigger.${value}`),
+    hint: t(`settings.trigger.${value}Hint`),
+  })),
+);
 
 const ACCESS_OPTIONS = computed(() =>
   (['auto', 'open', 'locked'] as const).map((value) => ({
@@ -63,6 +80,7 @@ const bestInput = ref<DisciplineSettings['best']>('shortest');
 const precisionInput = ref<DisciplineSettings['precision']>('hundredth');
 const roundingInput = ref<DisciplineSettings['rounding']>('up');
 const recentRunsInput = ref<string | number>(3);
+const triggerInput = ref<DisciplineSettings['trigger']>('gates');
 const loaded = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
@@ -78,11 +96,37 @@ const fields = () =>
     precisionInput.value,
     roundingInput.value,
     String(recentRunsInput.value ?? '').trim(),
+    triggerInput.value,
   ]);
 const savedFields = ref('');
 /** Whether the form has changes not saved yet. */
 const dirty = computed(() => loaded.value && fields() !== savedFields.value);
 defineExpose({ dirty });
+
+// The browser refuses to send the form while a field is invalid, and says why beside it: a field of a hidden section
+// is shown first. Only the first invalid field of a submission counts: the browser checks them all
+let showingInvalid = false;
+async function onInvalid(event: Event): Promise<void> {
+  const field = event.target as HTMLInputElement;
+  const section = field.closest<HTMLElement>('[data-section]')?.dataset.section as SettingsSection | undefined;
+  if (showingInvalid || !section || section === props.section) return;
+  showingInvalid = true;
+  emit('showSection', section);
+  // The tab follows the URL, so it changes a little later: the field can only show why once its section is shown
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      stop();
+      clearTimeout(timer);
+      resolve();
+    };
+    const stop = watch(() => props.section, (shown) => shown === section && done());
+    const timer = setTimeout(done, 1000);
+  });
+  await nextTick();
+  // Fires invalid again, ignored while showingInvalid is set
+  if (props.section === section) field.reportValidity();
+  showingInvalid = false;
+}
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -105,6 +149,8 @@ onMounted(async () => {
     precisionInput.value = settings.precision;
     roundingInput.value = settings.rounding;
     recentRunsInput.value = settings.recentRuns;
+    // Missing from a server of an older version: the gates, as without the setting
+    triggerInput.value = settings.trigger ?? 'gates';
     savedFields.value = fields();
     loaded.value = true;
   } catch (e) {
@@ -143,6 +189,7 @@ async function save(): Promise<void> {
           precision: precisionInput.value,
           rounding: roundingInput.value,
           recentRuns,
+          trigger: triggerInput.value,
         },
       }),
     });
@@ -157,70 +204,88 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <form class="settings" @submit.prevent="save">
+  <form class="settings" @submit.prevent="save" @invalid.capture="onInvalid">
     <template v-if="loaded">
-      <label class="field">
-        {{ $t('settings.attempts') }}
-        <input v-model="attemptsInput" type="number" min="1" step="1" :placeholder="$t('settings.unlimited')" class="attempts" />
-      </label>
-      <p class="muted small">{{ $t('settings.attemptsHint') }}</p>
-      <label class="field">
-        {{ $t('settings.recentRuns') }}
-        <input v-model="recentRunsInput" type="number" min="0" step="1" placeholder="3" class="attempts" data-testid="recent-runs-input" />
-      </label>
-      <p class="muted small">{{ $t('settings.recentRunsHint') }}</p>
-      <fieldset class="choice">
-        <legend>{{ $t('settings.best.legend') }}</legend>
-        <div class="segmented" role="radiogroup">
-          <label v-for="option in BEST_OPTIONS" :key="option.value" :class="{ checked: bestInput === option.value }" :title="option.hint">
-            <input v-model="bestInput" type="radio" name="best" :value="option.value" />
-            {{ option.label }}
-          </label>
-        </div>
-        <p class="muted small">{{ BEST_OPTIONS.find((option) => option.value === bestInput)?.hint }}</p>
-      </fieldset>
-      <fieldset class="choice">
-        <legend>{{ $t('settings.precision.legend') }}</legend>
-        <div class="segmented" role="radiogroup">
-          <label v-for="option in PRECISION_OPTIONS" :key="option.value" :class="{ checked: precisionInput === option.value }">
-            <input v-model="precisionInput" type="radio" name="precision" :value="option.value" />
-            {{ option.label }}
-          </label>
-        </div>
-      </fieldset>
-      <fieldset class="choice">
-        <legend>{{ $t('settings.rounding.legend') }}</legend>
-        <div class="segmented" role="radiogroup">
-          <label v-for="option in ROUNDING_OPTIONS" :key="option.value" :class="{ checked: roundingInput === option.value }" :title="option.hint">
-            <input v-model="roundingInput" type="radio" name="rounding" :value="option.value" />
-            {{ option.label }}
-          </label>
-        </div>
-        <p class="muted small">
-          {{ ROUNDING_OPTIONS.find((option) => option.value === roundingInput)?.hint }}. {{ timeExample }}
-        </p>
-      </fieldset>
-      <div class="period">
+      <div v-show="section === 'basic'" data-section="basic">
         <label class="field">
-          {{ $t('settings.start') }}
-          <input v-model="startInput" type="datetime-local" :max="endInput || undefined" />
+          {{ $t('settings.attempts') }}
+          <input v-model="attemptsInput" type="number" min="1" step="1" :placeholder="$t('settings.unlimited')" class="attempts" />
         </label>
-        <label class="field">
-          {{ $t('settings.end') }}
-          <input v-model="endInput" type="datetime-local" :min="startInput || undefined" />
-        </label>
+        <p class="muted small">{{ $t('settings.attemptsHint') }}</p>
+        <fieldset class="choice">
+          <legend>{{ $t('settings.best.legend') }}</legend>
+          <div class="segmented" role="radiogroup">
+            <label v-for="option in BEST_OPTIONS" :key="option.value" :class="{ checked: bestInput === option.value }" :title="option.hint">
+              <input v-model="bestInput" type="radio" name="best" :value="option.value" />
+              {{ option.label }}
+            </label>
+          </div>
+          <p class="muted small">{{ BEST_OPTIONS.find((option) => option.value === bestInput)?.hint }}</p>
+        </fieldset>
+        <fieldset class="choice">
+          <legend>{{ $t('settings.trigger.legend') }}</legend>
+          <div class="segmented" role="radiogroup">
+            <label v-for="option in TRIGGER_OPTIONS" :key="option.value" :class="{ checked: triggerInput === option.value }" :title="option.hint">
+              <input v-model="triggerInput" type="radio" name="trigger" :value="option.value" />
+              {{ option.label }}
+            </label>
+          </div>
+          <p class="muted small" data-testid="trigger-hint">{{ TRIGGER_OPTIONS.find((option) => option.value === triggerInput)?.hint }}</p>
+        </fieldset>
       </div>
-      <p class="muted small">{{ $t('settings.periodHint') }}</p>
-      <fieldset class="choice">
-        <legend>{{ $t('settings.accessLegend') }}</legend>
-        <div class="segmented" role="radiogroup">
-          <label v-for="option in ACCESS_OPTIONS" :key="option.value" :class="[option.value, { checked: accessInput === option.value }]" :title="option.hint">
-            <input v-model="accessInput" type="radio" name="access" :value="option.value" />
-            {{ option.label }}
+
+      <div v-show="section === 'advanced'" data-section="advanced">
+        <fieldset class="choice">
+          <legend>{{ $t('settings.precision.legend') }}</legend>
+          <div class="segmented" role="radiogroup">
+            <label v-for="option in PRECISION_OPTIONS" :key="option.value" :class="{ checked: precisionInput === option.value }">
+              <input v-model="precisionInput" type="radio" name="precision" :value="option.value" />
+              {{ option.label }}
+            </label>
+          </div>
+        </fieldset>
+        <fieldset class="choice">
+          <legend>{{ $t('settings.rounding.legend') }}</legend>
+          <div class="segmented" role="radiogroup">
+            <label v-for="option in ROUNDING_OPTIONS" :key="option.value" :class="{ checked: roundingInput === option.value }" :title="option.hint">
+              <input v-model="roundingInput" type="radio" name="rounding" :value="option.value" />
+              {{ option.label }}
+            </label>
+          </div>
+          <p class="muted small">
+            {{ ROUNDING_OPTIONS.find((option) => option.value === roundingInput)?.hint }}. {{ timeExample }}
+          </p>
+        </fieldset>
+        <label class="field">
+          {{ $t('settings.recentRuns') }}
+          <input v-model="recentRunsInput" type="number" min="0" step="1" placeholder="3" class="attempts" data-testid="recent-runs-input" />
+        </label>
+        <p class="muted small">{{ $t('settings.recentRunsHint') }}</p>
+      </div>
+
+      <div v-show="section === 'lock'" data-section="lock">
+        <div class="period">
+          <label class="field">
+            {{ $t('settings.start') }}
+            <input v-model="startInput" type="datetime-local" :max="endInput || undefined" />
+          </label>
+          <label class="field">
+            {{ $t('settings.end') }}
+            <input v-model="endInput" type="datetime-local" :min="startInput || undefined" />
           </label>
         </div>
-        <p class="muted small">{{ ACCESS_OPTIONS.find((option) => option.value === accessInput)?.hint }}</p>
-      </fieldset>
+        <p class="muted small">{{ $t('settings.periodHint') }}</p>
+        <fieldset class="choice">
+          <legend>{{ $t('settings.accessLegend') }}</legend>
+          <div class="segmented" role="radiogroup">
+            <label v-for="option in ACCESS_OPTIONS" :key="option.value" :class="[option.value, { checked: accessInput === option.value }]" :title="option.hint">
+              <input v-model="accessInput" type="radio" name="access" :value="option.value" />
+              {{ option.label }}
+            </label>
+          </div>
+          <p class="muted small">{{ ACCESS_OPTIONS.find((option) => option.value === accessInput)?.hint }}</p>
+        </fieldset>
+      </div>
     </template>
     <p v-else-if="!error" class="muted small">{{ $t('common.loading') }}</p>
     <p v-if="error" class="alert error">{{ error }}</p>

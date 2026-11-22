@@ -132,6 +132,7 @@ test('locks the discipline from its settings, which disables runs and result cha
   await pickParticipant(page, '7', '7 Hugo Guérin');
 
   await openSettings(page);
+  await page.getByRole('tab', { name: 'Lock' }).click();
   await page.getByText('Locked', { exact: true }).click();
   await page.getByRole('button', { name: 'Save' }).click();
 
@@ -157,6 +158,7 @@ test('shows the times with the precision and rounding of the discipline settings
   await expect(time).toHaveText('10.35');
 
   await openSettings(page);
+  await page.getByRole('tab', { name: 'Advanced settings' }).click();
   await page.getByText('Thousandth', { exact: true }).click();
   await page.getByText('Truncate', { exact: true }).click();
   await expect(page.getByText('A measured time of 12.3456 s gives 12.345.')).toBeVisible();
@@ -221,6 +223,44 @@ test('opens a disabled line to see its results, but starts no run on it', async 
   await page.context().close();
 });
 
+test('times a discipline by hand with the space bar, on the manual line', async ({ page }) => {
+  await page.goto('/CFM26/100m/race');
+  // The manual line is not one of the lines to choose
+  await expect(page.getByTestId('line-choice').getByRole('button')).toHaveCount(2);
+
+  await openSettings(page);
+  // Without the setting, the discipline is timed by the gates
+  await expect(page.getByRole('radio', { name: 'Gates' })).toBeChecked();
+  await page.getByText('Manual (space bar)', { exact: true }).click();
+  await expect(page.getByTestId('trigger-hint')).toContainText('on the line “Manuel” of each computer');
+  await page.getByRole('button', { name: 'Save' }).click();
+  expect(readFile('CFM26/100m/config.yaml')).toContain('trigger: keyboard');
+
+  // No line to choose: the discipline runs on the manual line
+  await expect(page.getByTestId('current-line')).toHaveText('Manuel');
+  await expect(page.getByRole('button', { name: 'Back to the choice of a line' })).toHaveCount(0);
+  await pickParticipant(page, 'hug', '7 Hugo Guérin');
+
+  // Nobody is ready: the space bar does nothing (it types a space in a text field, as usual)
+  await participantInput(page).blur();
+  await page.keyboard.press('Space');
+  await expect(page.getByText('Waiting for the start…')).toHaveCount(0);
+  await getReady(page);
+  await expect(page.getByTestId('key-hint')).toHaveText('Press Space to start.');
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('timer')).toBeVisible();
+  await expect(page.getByTestId('key-hint')).toHaveText('Press Space at the finish.');
+
+  // A focused button is not clicked by the space bar during the run: the press finishes the run
+  page.on('dialog', (dialog) => dialog.dismiss());
+  await page.getByRole('button', { name: 'Cancel run' }).focus();
+  await page.keyboard.press('Space');
+  const row = page.locator('.results tbody tr');
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('td').nth(1)).toHaveText(/^\d+\.\d{2}$/);
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;[^;]*;Manuel;/);
+});
+
 test('closes the discipline settings with the gear, asking first when changes are not saved', async ({ page }) => {
   await page.goto('/CFM26/100m/race');
   await chooseLine(page);
@@ -233,6 +273,7 @@ test('closes the discipline settings with the gear, asking first when changes ar
 
   // A change not saved: asks, and stays when the answer is no
   await openSettings(page);
+  await page.getByRole('tab', { name: 'Advanced settings' }).click();
   await page.getByText('Thousandth', { exact: true }).click();
   const answers: string[] = [];
   page.on('dialog', (dialog) => {
@@ -241,7 +282,7 @@ test('closes the discipline settings with the gear, asking first when changes ar
   });
   await gear.click();
   await expect.poll(() => answers.length).toBe(1);
-  await expect(page).toHaveURL(/\/CFM26\/100m\/config$/);
+  await expect(page).toHaveURL(/\/CFM26\/100m\/config\/advanced$/);
   await gear.click();
   await expect(page).toHaveURL(/\/CFM26\/100m\/race$/);
   expect(answers).toEqual(Array(2).fill('You have unsaved changes. Leave this page anyway?'));
@@ -258,12 +299,17 @@ test('refuses invalid discipline settings', async ({ page }) => {
   // The browser refuses it first (min 1), so the form is not sent
   await expect(page.getByLabel('Attempts per participant')).toHaveJSProperty('validity.valid', false);
 
-  // An end before the start: the browser refuses it too (the end's min is the start)
+  // An end before the start: the browser refuses it too (the end's min is the start), and shows its tab
   await page.getByLabel('Attempts per participant').fill('');
+  await page.getByRole('tab', { name: 'Lock' }).click();
   await page.getByLabel('Start').fill('2026-11-05T18:00');
   await page.getByLabel('End').fill('2026-11-05T08:00');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByLabel('End')).toHaveJSProperty('validity.rangeUnderflow', true);
+  await page.getByRole('tab', { name: 'Basic settings' }).click();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/CFM26\/100m\/config\/lock$/);
+  await expect(page.getByLabel('End')).toBeVisible();
   expect(readFile('CFM26/100m/config.yaml')).toBeNull();
 });
 

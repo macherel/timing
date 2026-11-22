@@ -54,6 +54,12 @@ describe('config.yaml', () => {
         expect(parseDevicesConfig(text)).toEqual({ config: FULL, problems: [] });
     });
 
+    it('keeps the name of the manual line for it', () => {
+        expect(validateDevicesConfig({ lines: [{ name: 'Manuel', enabled: true, start: gate('G'), finish: gate('G') }], devices: [{ name: 'G', vendorId: 1, productId: 1 }] })).toEqual([
+            'lines[0].name "Manuel" is the name of the manual line (the disciplines timed by hand)',
+        ]);
+    });
+
     it('accepts no line and no device', () => {
         expect(parseDevicesConfig(stringifyDevicesConfig({ lines: [], devices: [] }))).toEqual({ config: { lines: [], devices: [] }, problems: [] });
         // A file without lines times nothing

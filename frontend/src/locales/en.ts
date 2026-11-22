@@ -87,6 +87,13 @@ export default {
   },
 
   settings: {
+    trigger: {
+      legend: 'Trigger',
+      gates: 'Gates',
+      gatesHint: 'The start and finish gates of the line chosen on the race page start and stop the clock.',
+      keyboard: 'Manual (space bar)',
+      keyboardHint: 'Timed by hand, on the line “Manuel” of each computer: the space bar gives the start, then the finish.',
+    },
     access: {
       auto: 'Auto',
       autoHint: 'Open during the period above',
@@ -156,7 +163,9 @@ export default {
   disciplineConfig: {
     tabsLabel: 'Parts of the discipline settings',
     tabs: {
-      settings: 'Settings',
+      settings: 'Basic settings',
+      advanced: 'Advanced settings',
+      lock: 'Lock',
       participants: 'Participants',
       results: 'Results',
     },
@@ -204,6 +213,7 @@ export default {
       cancel: 'Cannot cancel the run: {error}',
       invalidate: 'Cannot invalidate the run: {error}',
       disqualify: 'Cannot disqualify the participant: {error}',
+      key: 'Cannot record the press on Space: {error}',
     },
     confirmCancel: 'Cancel this run? Its time will not be saved.',
     confirmDisqualify: 'Disqualify {bib} {name}? The run ends now and is saved as disqualified (DQ).',
@@ -245,6 +255,9 @@ export default {
     attempt: 'Attempt {n}',
     attemptOf: 'Attempt {n} of {total}',
     waitingStart: 'Waiting for the start…',
+    spaceKey: 'Space',
+    pressToStart: 'Press {key} to start.',
+    pressToFinish: 'Press {key} at the finish.',
     cancelRun: 'Cancel run',
     cancelRunTitle: 'Abandon the run, nothing is saved',
     invalidate: 'Invalidate',

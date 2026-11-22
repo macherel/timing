@@ -49,8 +49,15 @@ const NO_SETTINGS: DisciplineSettings = {
   precision: 'hundredth',
   rounding: 'up',
   recentRuns: 3,
+  trigger: 'gates',
 };
 const settings = ref<DisciplineSettings>({ ...NO_SETTINGS });
+// The event and discipline whose settings are loaded: until then, whether it is timed by hand is not known
+const settingsOf = ref<string | null>(null);
+const disciplineKey = () => `${eventName.value}\n${discipline.value}`;
+const settingsKnown = computed(() => !disciplineExists.value || settingsOf.value === disciplineKey());
+// A discipline timed by hand runs on the manual line of this computer, with the space bar: no line to choose
+const manual = computed(() => disciplineExists.value && settings.value.trigger === 'keyboard');
 
 // The current time, refreshed often enough that the page opens and closes on the minute
 const now = ref(Date.now());
@@ -85,20 +92,24 @@ const linesLoaded = ref(false);
 const computer = ref<string | null>(null);
 // A line can start runs when it is enabled and the app listens to its start and finish devices. Any line can be chosen
 // though, to edit its results, or to cancel a run in progress after a device is unplugged
-const readyLines = computed(() => lines.value.filter((item) => item.ready));
+// The lines of config.yaml, to choose from for a discipline timed by the gates (the manual line is not one of them)
+const gateLines = computed(() => lines.value.filter((item) => !item.manual));
+const readyLines = computed(() => gateLines.value.filter((item) => item.ready));
 // Why a line cannot start a run, or null when it can
 const notReadyReason = (item: LineRun) =>
   item.ready ? null : item.enabled ? t('race.lineNotReady') : t('race.lineDisabled');
 // Green: ready and free; orange or green: a participant is ready or running; red: no run can start
 const dotClass = (item: LineRun) => (item.run.status !== 'idle' ? item.run.status : item.ready ? 'idle' : 'unusable');
-// The line this page times on: the one chosen in this browser. None is chosen for the user: until they choose one, the
-// page only shows the lines to choose from
-const line = computed(() => lines.value.find((l) => l.line === selectedLine.value) ?? null);
+// The line this page times on: the manual line for a discipline timed by hand, otherwise the one chosen in this browser.
+// None is chosen for the user: until they choose one, the page only shows the lines to choose from
+const line = computed(() =>
+  manual.value ? (lines.value.find((l) => l.manual) ?? null) : (gateLines.value.find((l) => l.line === selectedLine.value) ?? null),
+);
 const startBlocked = computed(() => (line.value ? notReadyReason(line.value) : null));
 // A chosen line removed from config.yaml is let go, back to the choice of a line: the page never moves to another line
 // by itself
 watch([line, linesLoaded], ([current, loaded]) => {
-  if (!current && loaded && selectedLine.value) selectLine('');
+  if (!current && loaded && selectedLine.value && !manual.value) selectLine('');
 });
 const run = computed<RunState>(() => line.value?.run ?? { status: 'idle' });
 const results = ref<RunResult[]>([]);
@@ -306,6 +317,57 @@ function voidRun(action: 'invalidate' | 'disqualify'): void {
   postRun(action);
 }
 
+// The manual line is started and finished with the space bar, while a participant is ready or running on it. The
+// press is sent at once: the backend timestamps it on arrival, and makes it the start or the finish
+const keyboardLine = computed(() => (line.value?.manual ? line.value.line : null));
+// Whether the last space bar press was taken for the run: its release is then taken too
+let spaceTaken = false;
+
+const isSpace = (event: KeyboardEvent) => event.code === 'Space' || event.key === ' ';
+
+/** Whether typing a space in this element is expected (a text field), so the press is left to it. */
+function isTextField(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
+  return target instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit', 'reset'].includes(target.type);
+}
+
+function onKeyDown(event: KeyboardEvent): void {
+  const name = keyboardLine.value;
+  if (!name || !isSpace(event) || run.value.status === 'idle' || isTextField(event.target)) return;
+  // Neither clicks a focused button nor scrolls the page
+  event.preventDefault();
+  spaceTaken = true;
+  if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+  pressKey(name);
+}
+
+// A focused button is clicked when the space bar is released: not when its press was taken for the run
+function onKeyUp(event: KeyboardEvent): void {
+  if (!isSpace(event) || !spaceTaken) return;
+  spaceTaken = false;
+  event.preventDefault();
+}
+
+async function pressKey(name: string): Promise<void> {
+  try {
+    // The run is updated by the RUN_UPDATE message, in the order of the presses (two answers may come in any order)
+    await getJson<RunState>(`/api/lines/${encodeURIComponent(name)}/key`, { method: 'POST' });
+    loadError.value = null;
+  } catch (e) {
+    loadError.value = t('race.errors.key', { error: errorText(e) });
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown, true);
+  window.addEventListener('keyup', onKeyUp, true);
+});
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown, true);
+  window.removeEventListener('keyup', onKeyUp, true);
+});
+
 async function loadParticipants(): Promise<void> {
   const request = ++participantsRequest;
   if (!disciplineExists.value) {
@@ -324,6 +386,7 @@ async function loadParticipants(): Promise<void> {
     participants.value = list.participants;
     problems.value = list.problems;
     settings.value = list.settings;
+    settingsOf.value = disciplineKey();
     loadError.value = null;
     // The participant of a run in progress here, or else the one selected before a reload when still in the list
     const wanted = runIsHere() && run.value.status !== 'idle' ? run.value.participant : selected.value;
@@ -358,17 +421,17 @@ onMounted(reload);
   <main class="page">
     <p v-if="loadError || eventsError" class="alert error">{{ loadError ?? eventsError }}</p>
 
-    <i18n-t v-if="linesLoaded && lines.length === 0" keypath="race.noLine" tag="p" class="alert warn">
+    <i18n-t v-if="linesLoaded && settingsKnown && !manual && gateLines.length === 0" keypath="race.noLine" tag="p" class="alert warn">
       <template #config><RouterLink to="/config">{{ $t('pages.config') }}</RouterLink></template>
     </i18n-t>
-    <section v-else-if="linesLoaded && !line" class="line-choice" data-testid="line-choice">
+    <section v-else-if="linesLoaded && settingsKnown && !line" class="line-choice" data-testid="line-choice">
       <h2>{{ $t('race.chooseLine') }}</h2>
       <i18n-t v-if="readyLines.length === 0" keypath="race.noReadyLine" tag="p" class="alert warn">
         <template #config><RouterLink to="/config">{{ $t('pages.config') }}</RouterLink></template>
       </i18n-t>
       <div class="line-cards">
         <button
-          v-for="item in lines"
+          v-for="item in gateLines"
           :key="item.line"
           type="button"
           class="line-card"
@@ -386,7 +449,7 @@ onMounted(reload);
       </div>
     </section>
     <div v-else-if="line" class="line-bar">
-    <button type="button" class="secondary icon back" :title="$t('race.backToLines')" :aria-label="$t('race.backToLines')" @click="selectLine('')">
+    <button v-if="!manual" type="button" class="secondary icon back" :title="$t('race.backToLines')" :aria-label="$t('race.backToLines')" @click="selectLine('')">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
     </button>
     <p class="line-name" data-testid="current-line">
@@ -450,6 +513,7 @@ onMounted(reload);
     <RunPanel
       :closed="closedReason"
       :line="line?.line ?? null"
+      :keyboard="line?.manual ?? false"
       :start-blocked="startBlocked"
       :attempts="settings.attempts"
       :best="settings.best"

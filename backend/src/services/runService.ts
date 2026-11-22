@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Gate, LastResult, LineRun, RunResult, RunState, RunStatus } from '../types/messages.js';
-import { getLines, isLine, isLineEnabled, isLineReady, onLinesChange } from './lines.js';
+import { getLines, isLine, isLineEnabled, isLineReady, isManualLine, MANUAL_LINE, onLinesChange } from './lines.js';
 import { broadcastToUI } from '../websocket/wsServer.js';
 import { createLogger } from '../utils/logger.js';
 import { isUsbScanInProgress, waitForUsbScan } from './hardware/usbHid.js';
@@ -70,7 +70,7 @@ onLinesChange(() => {
 export function getLineRuns(): LineRun[] {
     return getLines().map((line) => {
         const { run, lastResult } = stateOf(line);
-        return { line, enabled: isLineEnabled(line), ready: isLineReady(line), run, lastResult };
+        return { line, enabled: isLineEnabled(line), ready: isLineReady(line), manual: isManualLine(line), run, lastResult };
     });
 }
 
@@ -104,6 +104,13 @@ export async function prepareRun(line: string, event: string, discipline: string
     const { settings } = await loadDisciplineSettings(dir);
     const closed = closedReason(settings);
     if (closed) return `${event} / ${discipline} is closed: ${closed}.`;
+    // The disciplines timed by hand run on the manual line, and only them
+    if (settings.trigger === 'keyboard' && !isManualLine(line)) {
+        return `${event} / ${discipline} is timed by hand: its runs are on the line "${MANUAL_LINE}".`;
+    }
+    if (settings.trigger === 'gates' && isManualLine(line)) {
+        return `${event} / ${discipline} is timed by the gates: the line "${MANUAL_LINE}" is for the disciplines timed by hand.`;
+    }
     const { attempts } = settings;
     if (attempts !== null) {
         const used = ((await loadResults(event, discipline)) ?? []).filter(

@@ -58,8 +58,11 @@ export interface LineRun {
   line: string;
   // Whether the line is enabled in config.yaml: a disabled line is listed, but never ready
   enabled: boolean;
-  // Whether the line is enabled and the app listens to the devices of its start and finish
+  // Whether the line is enabled and the app listens to the devices of its start and finish (always for the manual line)
   ready: boolean;
+  // Whether it is the manual line, "Manuel": the line of the disciplines timed by hand, with the space bar of the race
+  // page. Missing from older computers
+  manual?: boolean;
   run: RunState;
   lastResult: LastResult | null;
 }
@@ -339,6 +342,9 @@ export interface DisciplineSettings {
   rounding: 'truncate' | 'nearest' | 'up';
   // How many of the last runs of a line the race page shows (0: none)
   recentRuns: number;
+  // What starts and finishes the runs: the gates of the line chosen on the race page, or the space bar (keyboard:
+  // timed by hand, on the manual line of the computer)
+  trigger: 'gates' | 'keyboard';
 }
 
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';

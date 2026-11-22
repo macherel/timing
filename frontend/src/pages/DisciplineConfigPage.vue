@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import type { DisciplineFile, ParticipantsResponse } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
-import DisciplineSettingsForm from '../components/discipline/DisciplineSettingsForm.vue';
+import DisciplineSettingsForm, { type SettingsSection } from '../components/discipline/DisciplineSettingsForm.vue';
 import ParticipantFiles from '../components/discipline/ParticipantFiles.vue';
 import ResultFiles from '../components/discipline/ResultFiles.vue';
 import PageTabs from '../components/PageTabs.vue';
@@ -12,29 +12,42 @@ import { discipline, disciplineExists, eventName, eventsLoaded, leaveSettings, l
 
 /**
  * The settings page of a discipline (/<event>/<discipline>/config), hidden while the administration is locked, in
- * three tabs, each with its URL:
- * - settings (…/config): attempts, period, access, best time, precision. Saving or cancelling goes back to the page
- *   of the discipline it came from, as the gear beside the title does; leaving another way with unsaved changes asks
- *   first. Switching tabs keeps them;
+ * five tabs, each with its URL. The first three are the sections of one form, saved together:
+ * - settings (…/config): the basic settings, what triggers the runs, attempts and best time;
+ * - advanced (…/config/advanced): precision and rounding of the times, last runs shown;
+ * - lock (…/config/lock): period and access.
+ *   Saving or cancelling goes back to the page of the discipline it came from, as the gear beside the title does;
+ *   leaving another way with unsaved changes asks first. Switching tabs keeps them;
  * - participants (…/config/participants): its participant files, to download, replace or add;
  * - results (…/config/results): its results file and their UDA export, to download.
  */
-const TABS = ['settings', 'participants', 'results'] as const;
+const TABS = ['settings', 'advanced', 'lock', 'participants', 'results'] as const;
 type Tab = (typeof TABS)[number];
+// The tabs of the settings form, and its section on each
+const SECTIONS: Partial<Record<Tab, SettingsSection>> = { settings: 'basic', advanced: 'advanced', lock: 'lock' };
 
 const { t } = useI18n();
 const route = useRoute();
-const tab = computed<Tab>(() => (route.params.tab === 'participants' || route.params.tab === 'results' ? route.params.tab : 'settings'));
+const router = useRouter();
+const tab = computed<Tab>(() => TABS.find((name) => name !== 'settings' && name === route.params.tab) ?? 'settings');
+const section = computed(() => SECTIONS[tab.value] ?? null);
 const tabs = computed(() =>
   TABS.map((name) => ({
     key: name,
     label: t(`disciplineConfig.tabs.${name}`),
-    to: {
-      name: 'disciplineConfig',
-      params: { event: eventName.value, discipline: discipline.value, ...(name === 'settings' ? {} : { tab: name }) },
-    },
+    to: tabRoute(name),
   })),
 );
+
+function tabRoute(name: Tab) {
+  return { name: 'disciplineConfig', params: { event: eventName.value, discipline: discipline.value, ...(name === 'settings' ? {} : { tab: name }) } };
+}
+
+/** Shows the tab of a section of the settings form, e.g. the one of an invalid field. */
+function showSection(wanted: SettingsSection): void {
+  const name = TABS.find((candidate) => SECTIONS[candidate] === wanted);
+  if (name) router.replace(tabRoute(name));
+}
 
 const form = ref<InstanceType<typeof DisciplineSettingsForm> | null>(null);
 // Cancel leaves without asking: the changes are dropped on purpose
@@ -112,16 +125,18 @@ if (!eventsLoaded.value) loadEvents();
       <PageTabs :tabs="tabs" :current="tab" :label="$t('disciplineConfig.tabsLabel')" />
 
       <!-- Kept while another tab is shown, so its changes are not lost -->
-      <section v-show="tab === 'settings'" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" class="card">
+      <section v-show="section" :id="`panel-${tab}`" role="tabpanel" :aria-labelledby="`tab-${tab}`" class="card">
         <DisciplineSettingsForm
           ref="form"
           :key="`${eventName}\n${discipline}`"
           :event="eventName"
           :discipline="discipline"
+          :section="section ?? 'basic'"
           @done="onDone"
+          @show-section="showSection"
         />
       </section>
-      <section v-if="tab !== 'settings'" :id="`panel-${tab}`" role="tabpanel" :aria-labelledby="`tab-${tab}`" class="card">
+      <section v-if="!section" :id="`panel-${tab}`" role="tabpanel" :aria-labelledby="`tab-${tab}`" class="card">
         <p v-if="filesError" class="alert error">{{ filesError }}</p>
         <ParticipantFiles
           v-if="tab === 'participants'"

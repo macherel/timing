@@ -1,7 +1,7 @@
 import fs from 'fs';
 import express, { Router, Request, Response } from 'express';
 import { getHardwareStatus, reloadDevicesConfig } from '../services/hardwareService.js';
-import { getLines, isLine, isLineEnabled, isLineReady, SIMULATE_GATES } from '../services/lines.js';
+import { getLines, isLine, isLineEnabled, isLineReady, isManualLine, MANUAL_LINE, SIMULATE_GATES } from '../services/lines.js';
 import {
     CONFIG_PATH,
     GATES,
@@ -159,7 +159,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         res.status(422).json({ problems });
         return;
     }
-    const { attempts, start, end, access, best, precision, rounding, recentRuns } = req.body.settings;
+    const { attempts, start, end, access, best, precision, rounding, recentRuns, trigger } = req.body.settings;
     await saveDisciplineSettings(dir, {
         attempts,
         start: start ? toDateTime(start, 'start') : null,
@@ -169,6 +169,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         precision: precision ?? DEFAULT_SETTINGS.precision,
         rounding: rounding ?? DEFAULT_SETTINGS.rounding,
         recentRuns: recentRuns ?? DEFAULT_SETTINGS.recentRuns,
+        trigger: trigger ?? DEFAULT_SETTINGS.trigger,
     });
     // The best result of each participant and its time may have changed (shortest or longest, precision, rounding)
     await writeUdaResults(event, discipline);
@@ -308,6 +309,21 @@ for (const [action, status] of [['disqualify', 'dq'], ['invalidate', 'invalid']]
         res.json(getRunState(target.line));
     });
 }
+
+// Race page of the manual line (disciplines timed by hand): the space bar was pressed. It is the start crossing of the
+// participant who is ready, or the finish crossing of the run in progress. Timestamped on arrival, before anything else
+router.post('/lines/:line/key', (req: Request, res: Response) => {
+    const instant = Temporal.Now.instant();
+    const target = lineRun(req, res);
+    if (!target) return;
+    if (!isManualLine(target.line)) {
+        res.status(409).json({ problems: [`Only the line "${MANUAL_LINE}" is started and finished with the keyboard.`] });
+        return;
+    }
+    const gate = getRunState(target.line)?.status === 'running' ? 'finish' : 'start';
+    handleCrossing(target.line, gate, 'Keyboard', instant);
+    res.json(getRunState(target.line));
+});
 
 // Race page: abandons the ready or running run of a line, nothing is saved
 router.post('/lines/:line/cancel', (req: Request, res: Response) => {

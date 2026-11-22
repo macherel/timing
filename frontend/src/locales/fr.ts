@@ -83,6 +83,13 @@ const fr: Messages = {
   },
 
   settings: {
+    trigger: {
+      legend: 'Déclenchement',
+      gates: 'Cellules',
+      gatesHint: 'Les cellules de départ et d’arrivée de la ligne choisie sur la page de course déclenchent le chronomètre.',
+      keyboard: 'Manuel (touche Espace)',
+      keyboardHint: 'Chronométrage à la main, sur la ligne « Manuel » de chaque ordinateur : la touche Espace donne le départ, puis l’arrivée.',
+    },
     access: {
       auto: 'Auto',
       autoHint: 'Ouverte pendant la période ci-dessus',
@@ -150,7 +157,9 @@ const fr: Messages = {
   disciplineConfig: {
     tabsLabel: 'Parties des réglages de la discipline',
     tabs: {
-      settings: 'Réglages',
+      settings: 'Réglages de base',
+      advanced: 'Réglages avancés',
+      lock: 'Verrouillage',
       participants: 'Participants',
       results: 'Résultats',
     },
@@ -197,6 +206,7 @@ const fr: Messages = {
       cancel: 'Impossible d’annuler le passage : {error}',
       invalidate: 'Impossible d’invalider le passage : {error}',
       disqualify: 'Impossible de disqualifier le participant : {error}',
+      key: 'Impossible d’enregistrer l’appui sur Espace : {error}',
     },
     confirmCancel: 'Annuler ce passage ? Son temps ne sera pas enregistré.',
     confirmDisqualify: 'Disqualifier {bib} {name} ? Le passage se termine maintenant et est enregistré comme disqualifié (DQ).',
@@ -236,6 +246,9 @@ const fr: Messages = {
     attempt: 'Essai {n}',
     attemptOf: 'Essai {n} sur {total}',
     waitingStart: 'En attente du départ…',
+    spaceKey: 'Espace',
+    pressToStart: 'Appuyez sur {key} pour donner le départ.',
+    pressToFinish: 'Appuyez sur {key} à l’arrivée.',
     cancelRun: 'Annuler le passage',
     cancelRunTitle: 'Abandonner le passage, rien n’est enregistré',
     invalidate: 'Invalider',

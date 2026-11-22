@@ -3,6 +3,7 @@ import path from 'path';
 import yaml from 'yaml';
 import { createLogger, errorMessage } from '../utils/logger.js';
 import { WORK_DIR } from '../utils/workDir.js';
+import { MANUAL_LINE } from './lines.js';
 
 /**
  * Events, disciplines and participants, read from the working directory:
@@ -96,6 +97,9 @@ export interface DisciplineSettings {
     rounding: Rounding;
     // How many of the last runs of a line the race page shows (0: none)
     recentRuns: number;
+    // What starts and finishes the runs: the gates of the lines of config.yaml, or the space bar of the race page
+    // (keyboard: timed by hand, on the manual line of each computer)
+    trigger: Trigger;
 }
 
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';
@@ -106,6 +110,9 @@ export const ROUNDING_VALUES: Rounding[] = ['truncate', 'nearest', 'up'];
 
 export type Best = 'shortest' | 'longest';
 export const BEST_VALUES: Best[] = ['shortest', 'longest'];
+
+export type Trigger = 'gates' | 'keyboard';
+export const TRIGGER_VALUES: Trigger[] = ['gates', 'keyboard'];
 
 export type Access = 'auto' | 'open' | 'locked';
 export const ACCESS_VALUES: Access[] = ['auto', 'open', 'locked'];
@@ -119,6 +126,7 @@ export const DEFAULT_SETTINGS: DisciplineSettings = {
     precision: 'hundredth',
     rounding: 'up',
     recentRuns: 3,
+    trigger: 'gates',
 };
 
 /**
@@ -446,6 +454,9 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
         } else if (key === 'rounding') {
             if (ROUNDING_VALUES.includes(value as Rounding)) settings.rounding = value as Rounding;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: rounding must be truncate, nearest or up (times are rounded up)`);
+        } else if (key === 'trigger') {
+            if (TRIGGER_VALUES.includes(value as Trigger)) settings.trigger = value as Trigger;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: trigger must be gates or keyboard (the runs are timed by the gates)`);
         } else if (key === 'recentRuns') {
             if (Number.isInteger(value) && (value as number) >= 0) settings.recentRuns = value as number;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: recentRuns must be a whole number from 0 (the last 3 runs are shown)`);
@@ -537,6 +548,7 @@ export function validateDisciplineSettings(settings: any): string[] {
         precision = DEFAULT_SETTINGS.precision,
         rounding = DEFAULT_SETTINGS.rounding,
         recentRuns = DEFAULT_SETTINGS.recentRuns,
+        trigger = DEFAULT_SETTINGS.trigger,
     } = settings;
     const problems: string[] = [];
     if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
@@ -553,6 +565,7 @@ export function validateDisciplineSettings(settings: any): string[] {
     if (!PRECISION_VALUES.includes(precision)) problems.push('precision must be second, tenth, hundredth or thousandth');
     if (!ROUNDING_VALUES.includes(rounding)) problems.push('rounding must be truncate, nearest or up');
     if (!(Number.isInteger(recentRuns) && recentRuns >= 0)) problems.push('recentRuns must be a whole number from 0');
+    if (!TRIGGER_VALUES.includes(trigger)) problems.push('trigger must be gates or keyboard');
     return problems;
 }
 
@@ -566,7 +579,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, ...rest } = parsed;
+            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, trigger: _trigger, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -598,6 +611,10 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         '',
         '# How many of the last runs of a line the race page shows (0: none). 3 when not set.',
         `recentRuns: ${settings.recentRuns}`,
+        '',
+        '# What starts and finishes the runs: gates (the start and finish gates of a line) or keyboard (timed by hand,',
+        `# with the space bar of the race page, on the line "${MANUAL_LINE}" of each computer)`,
+        `trigger: ${settings.trigger}`,
     ];
     if (Object.keys(others).length > 0) lines.push('', '# Other settings', yaml.stringify(others).trimEnd());
     await fs.promises.writeFile(file, `${lines.join('\n')}\n`, 'utf8');

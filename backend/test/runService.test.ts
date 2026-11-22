@@ -168,7 +168,8 @@ describe('several lines', () => {
     it('drop the run of a line removed from the configuration', async () => {
         await runs.prepareRun(OTHER_LINE, 'CFM26', '100m', LEA);
         (await import('../src/services/lines.js')).setConfiguredLines([LINE].map(asLine));
-        expect(runs.getLineRuns()).toEqual([{ line: LINE, enabled: true, ready: false, run: { status: 'idle' }, lastResult: null }]);
+        expect(runs.getLineRuns()[0]).toEqual({ line: LINE, enabled: true, ready: false, manual: false, run: { status: 'idle' }, lastResult: null });
+        expect(runs.getLineRuns().map((l) => l.line)).toEqual([LINE, 'Manuel']);
         expect(runs.isAnyRunActive()).toBe(false);
     });
 });
@@ -431,7 +432,7 @@ describe('line readiness', () => {
     it('is ready once the app listens to the devices of its start and finish', async () => {
         const lines = await import('../src/services/lines.js');
         lines.setConfiguredLines([{ name: LINE, enabled: true, start: 'Start cell', finish: 'Finish cell' }]);
-        const ready = () => runs.getLineRuns().map((l) => l.ready);
+        const ready = () => runs.getLineRuns().filter((l) => !l.manual).map((l) => l.ready);
         expect(ready()).toEqual([false]);
         lines.setListeningDevices(['Start cell']);
         expect(ready()).toEqual([false]);
@@ -448,6 +449,8 @@ describe('line readiness', () => {
         expect(runs.getLineRuns().map(({ line, enabled, ready }) => ({ line, enabled, ready }))).toEqual([
             { line: LINE, enabled: true, ready: true },
             { line: OTHER_LINE, enabled: false, ready: false },
+            // The manual line has no device: always ready
+            { line: 'Manuel', enabled: true, ready: true },
         ]);
     });
 });

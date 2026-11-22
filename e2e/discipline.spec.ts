@@ -8,7 +8,7 @@ test.beforeEach(async ({ request }) => {
 
 test('replaces the participant files of a discipline that has several, but adds none', async ({ page }) => {
   await page.goto('/CFM26/100m/config');
-  await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Basic settings' })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('tab', { name: 'Participants' }).click();
   await expect(page).toHaveURL(/\/CFM26\/100m\/config\/participants$/);
   const panel = page.getByRole('tabpanel');
@@ -70,10 +70,13 @@ test('downloads the results of a discipline, and keeps the settings changed in a
   await row.getByRole('link', { name: 'Download' }).click();
   expect((await download).suggestedFilename()).toBe('CFM26-100m-results.csv');
 
-  // A change of the settings tab stays while another tab is shown
-  await page.getByRole('tab', { name: 'Settings' }).click();
+  // A change of the settings stays while another tab is shown
+  await page.getByRole('tab', { name: 'Advanced settings' }).click();
+  await expect(page).toHaveURL(/\/CFM26\/100m\/config\/advanced$/);
   await page.getByText('Thousandth', { exact: true }).click();
   await page.getByRole('tab', { name: 'Results' }).click();
-  await page.getByRole('tab', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'Basic settings' }).click();
+  await expect(page.getByText('Thousandth', { exact: true })).toBeHidden();
+  await page.getByRole('tab', { name: 'Advanced settings' }).click();
   await expect(page.getByRole('radio', { name: 'Thousandth' })).toBeChecked();
 });
