@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, type RouteLocationRaw } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router';
 import type { DisciplineFile, ParticipantsResponse } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import DisciplineSettingsForm from '../components/discipline/DisciplineSettingsForm.vue';
 import ParticipantFiles from '../components/discipline/ParticipantFiles.vue';
 import ResultFiles from '../components/discipline/ResultFiles.vue';
+import PageTabs from '../components/PageTabs.vue';
 import { discipline, disciplineExists, eventName, eventsLoaded, leaveSettings, loadEvents } from '../selection';
 
 /**
@@ -24,10 +25,16 @@ type Tab = (typeof TABS)[number];
 const { t } = useI18n();
 const route = useRoute();
 const tab = computed<Tab>(() => (route.params.tab === 'participants' || route.params.tab === 'results' ? route.params.tab : 'settings'));
-const tabRoute = (name: Tab): RouteLocationRaw => ({
-  name: 'disciplineConfig',
-  params: { event: eventName.value, discipline: discipline.value, ...(name === 'settings' ? {} : { tab: name }) },
-});
+const tabs = computed(() =>
+  TABS.map((name) => ({
+    key: name,
+    label: t(`disciplineConfig.tabs.${name}`),
+    to: {
+      name: 'disciplineConfig',
+      params: { event: eventName.value, discipline: discipline.value, ...(name === 'settings' ? {} : { tab: name }) },
+    },
+  })),
+);
 
 const form = ref<InstanceType<typeof DisciplineSettingsForm> | null>(null);
 // Cancel leaves without asking: the changes are dropped on purpose
@@ -102,22 +109,7 @@ if (!eventsLoaded.value) loadEvents();
       <RouterLink to="/" class="button">{{ $t('common.choose') }}</RouterLink>
     </div>
     <template v-else-if="disciplineExists">
-      <nav class="tabs" role="tablist" :aria-label="$t('disciplineConfig.tabsLabel')">
-        <RouterLink
-          v-for="name in TABS"
-          :id="`tab-${name}`"
-          :key="name"
-          :to="tabRoute(name)"
-          replace
-          role="tab"
-          class="tab"
-          :class="{ current: tab === name }"
-          :aria-selected="tab === name"
-          :aria-controls="`panel-${name}`"
-        >
-          {{ $t(`disciplineConfig.tabs.${name}`) }}
-        </RouterLink>
-      </nav>
+      <PageTabs :tabs="tabs" :current="tab" :label="$t('disciplineConfig.tabsLabel')" />
 
       <!-- Kept while another tab is shown, so its changes are not lost -->
       <section v-show="tab === 'settings'" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" class="card">
@@ -156,33 +148,6 @@ if (!eventsLoaded.value) loadEvents();
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-}
-/* Tabs: a line of links, the current one underlined, above the card of its panel */
-.tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: -1px;
-  overflow-x: auto;
-}
-.tab {
-  padding: 8px 16px;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  color: var(--text-muted);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.tab:hover,
-.tab:focus-visible {
-  color: var(--text-h);
-  outline: none;
-}
-.tab.current {
-  color: var(--text-h);
-  font-weight: 600;
-  background: var(--surface);
-  border-color: var(--border);
 }
 .card {
   border-top-left-radius: 0;

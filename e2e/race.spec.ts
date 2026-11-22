@@ -206,7 +206,7 @@ test('opens a disabled line to see its results, but starts no run on it', async 
   const page = await (await browser.newContext()).newPage();
   await page.goto('/CFM26/100m/race');
   const choice = page.getByTestId('line-choice');
-  const disabled = 'No new start on this line: it is disabled on the Hardware configuration page. Its results can still be changed.';
+  const disabled = 'No new start on this line: it is disabled on the Configuration page. Its results can still be changed.';
   await expect(choice.getByRole('button', { name: /^Off/ })).toHaveAttribute('title', disabled);
   await choice.getByRole('button', { name: /^Off/ }).click();
   await expect(page.getByTestId('start-blocked')).toHaveText(disabled);

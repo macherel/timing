@@ -7,10 +7,14 @@ test.describe('configuration page', () => {
   test('creates config.yaml with a line on a device, after the problems are fixed', async ({ page }) => {
     await page.goto('/config');
     await expect(page.getByText('does not exist yet: saving creates it')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Lines' })).toHaveAttribute('aria-selected', 'true');
 
+    await page.getByRole('tab', { name: 'Devices' }).click();
+    await expect(page).toHaveURL(/\/config\/devices$/);
     await page.getByRole('button', { name: '+ Add device' }).click();
-    // A new device has no IDs yet: the backend lists the problem on the device
+    // A new device has no IDs yet: the backend lists the problem on the device, counted on its tab
     await expect(page.getByText('vendorId and productId must be integers')).toBeVisible();
+    await expect(page.getByRole('tab', { name: /^Devices/ })).toContainText('1');
     await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
 
     await page.getByLabel('Device name').fill('Receiver');
@@ -19,6 +23,7 @@ test.describe('configuration page', () => {
     await expect(page.getByText('✔ valid')).toBeVisible();
 
     // A new line uses the only device for its start and finish; its buttons are still to set
+    await page.getByRole('tab', { name: 'Lines' }).click();
     await page.getByRole('button', { name: '+ Add line' }).click();
     await expect(page.getByText('Start: byteIndex, mask and value must be integers')).toBeVisible();
     for (const [gate, mask] of [['Start', '0x01'], ['Finish', '0x02']]) {
@@ -30,6 +35,7 @@ test.describe('configuration page', () => {
     }
     await page.getByRole('group', { name: 'Finish' }).getByLabel('Crossing on').selectOption('release');
     await expect(page.getByText('✔ valid')).toBeVisible();
+    await page.getByRole('tab', { name: 'Devices' }).click();
     await expect(page.getByText('Used by: Line 1')).toBeVisible();
 
     await page.getByRole('button', { name: 'Save' }).click();
@@ -49,10 +55,12 @@ test.describe('configuration page', () => {
         'devices: [{ name: "G", vendorId: 1, productId: 1 }]',
       ].join('\n'),
     });
-    await page.goto('/config');
+    await page.goto('/config/devices');
     await page.getByLabel('Device name').fill('Gate');
+    await page.getByRole('tab', { name: 'Lines' }).click();
     await expect(page.getByRole('group', { name: 'Start' }).getByLabel('Device')).toContainText('Gate');
     await expect(page.getByText('✔ valid')).toBeVisible();
+    await page.getByRole('tab', { name: 'Devices' }).click();
 
     page.once('dialog', (dialog) => {
       expect(dialog.message()).toBe('Remove device "Gate"? It is used by: North. Their start or finish will have no device.');
@@ -66,6 +74,7 @@ test.describe('configuration page', () => {
     writeFiles({ 'config.yaml': 'devices: []\n' });
     await page.goto('/config');
     await expect(page.getByText('No line yet')).toBeVisible();
+    await page.getByRole('tab', { name: 'Network' }).click();
     await page.getByLabel('Port of the app').fill('70000');
     await expect(page.getByText('port must be a whole number from 1 to 65535')).toBeVisible();
     await page.getByLabel('Port of the app').fill('8080');
@@ -89,9 +98,13 @@ test.describe('configuration page', () => {
 
   test('asks before leaving with unsaved changes', async ({ page }) => {
     writeFiles({ 'config.yaml': 'devices: []\n' });
-    await page.goto('/config');
+    await page.goto('/config/network');
     await page.getByLabel('Port of the app').fill('8080');
     await expect(page.getByText('unsaved changes')).toBeVisible();
+    // Another tab keeps them, without asking
+    await page.getByRole('tab', { name: 'Access' }).click();
+    await page.getByRole('tab', { name: 'Network' }).click();
+    await expect(page.getByLabel('Port of the app')).toHaveValue('8080');
 
     page.once('dialog', (dialog) => {
       expect(dialog.message()).toBe('You have unsaved changes. Leave this page anyway?');
@@ -99,12 +112,12 @@ test.describe('configuration page', () => {
     });
     await page.getByRole('button', { name: /Timing/ }).click();
     await page.getByRole('menuitem', { name: 'Diagnostics' }).click();
-    await expect(page).toHaveURL(/\/config$/);
+    await expect(page).toHaveURL(/\/config\/network$/);
   });
 });
 
 test('the administration password hides the administration until it is typed', async ({ page }) => {
-  await page.goto('/config');
+  await page.goto('/config/access');
   await page.getByTestId('admin-password').fill('s3cret');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Saved. The app applies the new configuration within a second.')).toBeVisible();

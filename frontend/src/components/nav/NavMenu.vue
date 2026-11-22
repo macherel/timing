@@ -26,7 +26,7 @@ const groups = computed(() => {
   const race = [{ to: live ? '/?open=live' : '/', page: 'choice', current: route.path === '/' }];
   const admin = router.options.routes
     .filter((r) => r.meta?.section === 'admin' && r.meta.page)
-    .map((r) => ({ to: r.path, page: r.meta!.page!, current: route.path === r.path }));
+    .map((r) => ({ to: { name: r.name }, page: r.meta!.page!, current: route.name === r.name }));
   return SECTIONS.filter((key) => key !== 'admin' || !adminLocked.value)
     .map((key) => ({ key, items: key === 'race' ? race : admin }))
     .filter((group) => group.items.length > 0);

@@ -39,7 +39,8 @@ const configState = computed(() => {
 });
 // Opens the configuration page with a new device pre-filled with these IDs
 const addLink = computed(() => ({
-  path: '/config',
+  name: 'config',
+  params: { tab: 'devices' },
   query: { add: `${first.value.vendorId}:${first.value.productId}`, name: productName.value },
 }));
 // Windows and macOS keep mice and keyboards to themselves
@@ -55,7 +56,7 @@ const osOwnedUnreadable = computed(() => props.platform !== 'linux');
       </span>
       <span v-else class="badge">{{ configState === 'unused' ? $t('interfaces.unused') : $t('hid.notConfigured') }}</span>
       <RouterLink v-if="configState === 'none'" :to="addLink" class="add-link">{{ $t('unconfigured.add') }}</RouterLink>
-      <RouterLink v-else to="/config" class="add-link">{{ $t('diagnostics.editConfig') }}</RouterLink>
+      <RouterLink v-else to="/config/devices" class="add-link">{{ $t('diagnostics.editConfig') }}</RouterLink>
     </header>
 
     <dl class="facts">

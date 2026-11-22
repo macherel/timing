@@ -24,7 +24,7 @@ const fr: Messages = {
     disciplineConfig: 'Réglages de la discipline',
     live: 'Direct',
     diagnostics: 'Diagnostic',
-    config: 'Configuration matérielle',
+    config: 'Configuration',
   },
 
   nav: {
@@ -177,6 +177,10 @@ const fr: Messages = {
     udaLabel: 'Meilleur résultat de chaque participant, pour l’UDA',
   },
 
+  tabs: {
+    problems: '{n} problème | {n} problèmes',
+  },
+
   race: {
     reason: {
       notStarted: 'sa période commence le {date}',
@@ -210,10 +214,10 @@ const fr: Messages = {
     noParticipant: 'Aucun participant dans {event} / {discipline} : ajoutez dans son dossier des fichiers CSV avec des lignes {format}.',
     problems: '{n} problème dans les fichiers de {discipline} | {n} problèmes dans les fichiers de {discipline}',
     noLine: 'Aucune ligne n’est configurée sur cet ordinateur : ajoutez-en une sur la page {config} pour chronométrer.',
-    lineNotReady: 'Pas de nouveau départ possible sur cette ligne : l’appareil du départ ou de l’arrivée n’est pas branché ou pas écouté (voir la page Configuration matérielle). Ses résultats restent modifiables.',
+    lineNotReady: 'Pas de nouveau départ possible sur cette ligne : l’appareil du départ ou de l’arrivée n’est pas branché ou pas écouté (voir la page Configuration). Ses résultats restent modifiables.',
     noReadyLine: 'Aucune ligne n’est prête : les appareils du départ et de l’arrivée doivent être branchés. Leur état est sur la page {config}.',
     chooseLine: 'Sur quelle ligne chronométrez-vous ?',
-    lineDisabled: 'Pas de nouveau départ possible sur cette ligne : elle est désactivée sur la page Configuration matérielle. Ses résultats restent modifiables.',
+    lineDisabled: 'Pas de nouveau départ possible sur cette ligne : elle est désactivée sur la page Configuration. Ses résultats restent modifiables.',
     backToLines: 'Retour au choix de la ligne',
     lineState: {
       idle: 'Libre',
@@ -289,6 +293,13 @@ const fr: Messages = {
   },
 
   config: {
+    tabsLabel: 'Parties de la configuration',
+    tabs: {
+      lines: 'Lignes',
+      devices: 'Appareils',
+      network: 'Réseau',
+      access: 'Accès',
+    },
     confirmDiscard: 'Abandonner vos modifications non enregistrées et recharger le fichier ?',
     confirmStartOver: 'Repartir d’un formulaire vide ? L’enregistrement remplacera le config.yaml actuel.',
     confirmLeave: 'Vous avez des modifications non enregistrées. Quitter la page quand même ?',
@@ -329,11 +340,10 @@ const fr: Messages = {
       hint: 'Appliqué quelques secondes après l’enregistrement, sans redémarrage.',
     },
     password: {
-      title: 'Mot de passe d’administration',
       label: 'Mot de passe',
       show: 'Afficher',
       hide: 'Masquer',
-      hint: 'S’il est défini, les pages Diagnostic et Configuration matérielle et les réglages des disciplines sont masqués jusqu’à ce qu’il soit saisi avec le cadenas en haut à droite. Vide : pas de verrouillage. Il est enregistré en clair dans config.yaml.',
+      hint: 'S’il est défini, les pages Diagnostic et Configuration et les réglages des disciplines sont masqués jusqu’à ce qu’il soit saisi avec le cadenas en haut à droite. Vide : pas de verrouillage. Il est enregistré en clair dans config.yaml.',
     },
     discovery: {
       title: 'Interface par défaut',
@@ -348,7 +358,6 @@ const fr: Messages = {
     defaultLineName: 'Ligne {n}',
     confirmRemoveLine: 'Supprimer la ligne « {name} » ?',
     confirmRemoveUsed: 'Supprimer l’appareil « {name} » ? Il est utilisé par : {lines}. Leur départ ou leur arrivée n’aura plus d’appareil.',
-    lines: 'Lignes',
     noLine: 'Aucune ligne pour l’instant : ajoutez-en une pour chronométrer sur cet ordinateur.',
     linesReady: 'lignes prêtes : {ready}/{total}',
     linesHint:

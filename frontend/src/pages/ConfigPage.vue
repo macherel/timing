@@ -25,6 +25,7 @@ import {
 import DeviceEditor from '../components/config/DeviceEditor.vue';
 import LineEditor from '../components/config/LineEditor.vue';
 import ToastMessage from '../components/ToastMessage.vue';
+import PageTabs from '../components/PageTabs.vue';
 import { checkLock, unlockAdmin } from '../adminLock';
 
 // Delay between the last change and the server-side validation
@@ -298,8 +299,23 @@ watch(hardwareStatus, checkDetection);
 const route = useRoute();
 const router = useRouter();
 
+// Tabs, each with its URL: /config (lines), /config/devices, /config/network, /config/access. The form stays whole
+// across them: one save writes every tab
+const TABS = ['lines', 'devices', 'network', 'access'] as const;
+type Tab = (typeof TABS)[number];
+const tab = computed<Tab>(() => (TABS.find((name) => name !== 'lines' && name === route.params.tab) ?? 'lines'));
+const problemCount = (byIndex: Map<number, string[]>) => (validating.value ? 0 : [...byIndex.values()].reduce((sum, list) => sum + list.length, 0));
+const tabs = computed(() =>
+  TABS.map((name) => ({
+    key: name,
+    label: t(`config.tabs.${name}`),
+    to: { name: 'config', params: name === 'lines' ? {} : { tab: name } },
+    count: name === 'lines' ? problemCount(groupedProblems.value.byLine) : name === 'devices' ? problemCount(groupedProblems.value.byDevice) : 0,
+  })),
+);
+
 /**
- * "Add to configuration" on the Diagnostics page opens /config?add=<vid>:<pid>&name=<product>:
+ * "Add to configuration" on the Diagnostics page opens /config/devices?add=<vid>:<pid>&name=<product>:
  * adds a device with those IDs, left unsaved for the user to complete.
  */
 function addDeviceFromLink(): void {
@@ -446,116 +462,119 @@ onUnmounted(() => {
           <li v-for="problem in groupedProblems.general" :key="problem">{{ problem }}</li>
         </ul>
 
-        <section>
-          <h2>{{ $t('config.lines') }}</h2>
-          <p v-if="form.lines.length === 0" class="muted">{{ $t('config.noLine') }}</p>
-          <p v-else class="muted small">{{ $t('config.linesHint') }}</p>
-          <LineEditor
-            v-for="(line, index) in form.lines"
-            :key="line.key"
-            v-model="form.lines[index]"
-            :index="index"
-            :count="form.lines.length"
-            :problems="validating ? [] : (groupedProblems.byLine.get(index) ?? [])"
-            :devices="form.devices"
-            :status="lineStatuses.get(line.key) ?? null"
-            :detecting="detection?.lineKey === line.key ? detection.gate : null"
-            :detect-message="detection?.lineKey === line.key ? detection.message : null"
-            @remove="removeLine(index)"
-            @move="moveLine(index, $event)"
-            @detect="startDetection(line.key, $event)"
-            @stop-detect="stopDetection"
-          />
-          <button type="button" class="secondary" @click="addLine">{{ $t('config.addLine') }}</button>
+        <PageTabs :tabs="tabs" :current="tab" :label="$t('config.tabsLabel')" />
+        <!-- Every panel stays in the page: the form is saved as a whole -->
+        <section v-show="tab === 'lines'" id="panel-lines" role="tabpanel" aria-labelledby="tab-lines" class="card panel">
+          <section>
+            <p v-if="form.lines.length === 0" class="muted">{{ $t('config.noLine') }}</p>
+            <p v-else class="muted small">{{ $t('config.linesHint') }}</p>
+            <LineEditor
+              v-for="(line, index) in form.lines"
+              :key="line.key"
+              v-model="form.lines[index]"
+              :index="index"
+              :count="form.lines.length"
+              :problems="validating ? [] : (groupedProblems.byLine.get(index) ?? [])"
+              :devices="form.devices"
+              :status="lineStatuses.get(line.key) ?? null"
+              :detecting="detection?.lineKey === line.key ? detection.gate : null"
+              :detect-message="detection?.lineKey === line.key ? detection.message : null"
+              @remove="removeLine(index)"
+              @move="moveLine(index, $event)"
+              @detect="startDetection(line.key, $event)"
+              @stop-detect="stopDetection"
+            />
+            <button type="button" class="secondary" @click="addLine">{{ $t('config.addLine') }}</button>
+          </section>
         </section>
-
-        <section>
-          <h2>{{ $t('config.devices') }}</h2>
-          <p v-if="form.devices.length === 0" class="muted">{{ $t('config.noDevice') }}</p>
-          <p v-else class="muted small">{{ $t('config.devicesHint') }}</p>
-          <DeviceEditor
-            v-for="(device, index) in form.devices"
-            :key="device.key"
-            v-model="form.devices[index]"
-            :index="index"
-            :count="form.devices.length"
-            :problems="validating ? [] : (groupedProblems.byDevice.get(index) ?? [])"
-            :connected-models="connectedModels"
-            :used-by="linesUsing(device)"
-            @remove="removeDevice(index)"
-            @move="moveDevice(index, $event)"
-          />
-          <button type="button" class="secondary" @click="addDevice">{{ $t('config.addDevice') }}</button>
+        <section v-show="tab === 'devices'" id="panel-devices" role="tabpanel" aria-labelledby="tab-devices" class="card panel">
+          <section>
+            <h2>{{ $t('config.devices') }}</h2>
+            <p v-if="form.devices.length === 0" class="muted">{{ $t('config.noDevice') }}</p>
+            <p v-else class="muted small">{{ $t('config.devicesHint') }}</p>
+            <DeviceEditor
+              v-for="(device, index) in form.devices"
+              :key="device.key"
+              v-model="form.devices[index]"
+              :index="index"
+              :count="form.devices.length"
+              :problems="validating ? [] : (groupedProblems.byDevice.get(index) ?? [])"
+              :connected-models="connectedModels"
+              :used-by="linesUsing(device)"
+              @remove="removeDevice(index)"
+              @move="moveDevice(index, $event)"
+            />
+            <button type="button" class="secondary" @click="addDevice">{{ $t('config.addDevice') }}</button>
+          </section>
+          <section>
+            <h2>{{ $t('config.discovery.title') }}</h2>
+            <label class="switch">
+              <input v-model="form.useDiscoveryFilter" type="checkbox" />
+              {{ $t('config.discovery.enable') }}
+            </label>
+            <div v-if="form.useDiscoveryFilter" class="row">
+              <label class="field">
+                <span>{{ $t('hid.usagePage') }}</span>
+                <input v-model="form.discoveryUsagePage" type="text" inputmode="numeric" class="short" />
+              </label>
+              <label class="field">
+                <span>{{ $t('hid.usage') }}</span>
+                <input v-model="form.discoveryUsage" type="text" inputmode="numeric" class="short" />
+              </label>
+              <span class="muted small">{{ $t('config.discovery.hint') }}</span>
+            </div>
+          </section>
         </section>
-
-        <section>
-          <h2>{{ $t('config.port.title') }}</h2>
-          <div class="row">
-            <label class="field">
-              <span>{{ $t('config.port.label') }}</span>
-              <input v-model="form.port" type="text" inputmode="numeric" class="short" placeholder="3001" />
+        <section v-show="tab === 'network'" id="panel-network" role="tabpanel" aria-labelledby="tab-network" class="card panel">
+          <section>
+            <h2>{{ $t('config.port.title') }}</h2>
+            <div class="row">
+              <label class="field">
+                <span>{{ $t('config.port.label') }}</span>
+                <input v-model="form.port" type="text" inputmode="numeric" class="short" placeholder="3001" />
+              </label>
+              <span class="muted small">{{ $t('config.port.hint') }}</span>
+            </div>
+          </section>
+          <section>
+            <h2>{{ $t('config.sync.title') }}</h2>
+            <label class="switch">
+              <input v-model="form.useSync" type="checkbox" />
+              {{ $t('config.sync.enable') }}
             </label>
-            <span class="muted small">{{ $t('config.port.hint') }}</span>
-          </div>
+            <div v-if="form.useSync" class="row">
+              <label class="field">
+                <span>{{ $t('config.sync.key') }}</span>
+                <input v-model="form.syncKey" type="text" :placeholder="$t('config.sync.keyPlaceholder')" />
+              </label>
+              <label class="field">
+                <span>{{ $t('config.sync.name') }}</span>
+                <input v-model="form.syncName" type="text" :placeholder="$t('config.sync.namePlaceholder')" />
+              </label>
+              <span class="muted small">{{ $t('config.sync.hint') }}</span>
+            </div>
+          </section>
         </section>
-
-        <section>
-          <h2>{{ $t('config.sync.title') }}</h2>
-          <label class="switch">
-            <input v-model="form.useSync" type="checkbox" />
-            {{ $t('config.sync.enable') }}
-          </label>
-          <div v-if="form.useSync" class="row">
-            <label class="field">
-              <span>{{ $t('config.sync.key') }}</span>
-              <input v-model="form.syncKey" type="text" :placeholder="$t('config.sync.keyPlaceholder')" />
-            </label>
-            <label class="field">
-              <span>{{ $t('config.sync.name') }}</span>
-              <input v-model="form.syncName" type="text" :placeholder="$t('config.sync.namePlaceholder')" />
-            </label>
-            <span class="muted small">{{ $t('config.sync.hint') }}</span>
-          </div>
-        </section>
-
-        <section>
-          <h2>{{ $t('config.password.title') }}</h2>
-          <div class="row">
-            <label class="field">
-              <span>{{ $t('config.password.label') }}</span>
-              <span class="password">
-                <input
-                  v-model="form.adminPassword"
-                  :type="showPassword ? 'text' : 'password'"
-                  autocomplete="new-password"
-                  data-testid="admin-password"
-                />
-                <button type="button" class="secondary inline" :aria-pressed="showPassword" @click="showPassword = !showPassword">
-                  {{ showPassword ? $t('config.password.hide') : $t('config.password.show') }}
-                </button>
-              </span>
-            </label>
-            <span class="muted small">{{ $t('config.password.hint') }}</span>
-          </div>
-        </section>
-
-        <section>
-          <h2>{{ $t('config.discovery.title') }}</h2>
-          <label class="switch">
-            <input v-model="form.useDiscoveryFilter" type="checkbox" />
-            {{ $t('config.discovery.enable') }}
-          </label>
-          <div v-if="form.useDiscoveryFilter" class="row">
-            <label class="field">
-              <span>{{ $t('hid.usagePage') }}</span>
-              <input v-model="form.discoveryUsagePage" type="text" inputmode="numeric" class="short" />
-            </label>
-            <label class="field">
-              <span>{{ $t('hid.usage') }}</span>
-              <input v-model="form.discoveryUsage" type="text" inputmode="numeric" class="short" />
-            </label>
-            <span class="muted small">{{ $t('config.discovery.hint') }}</span>
-          </div>
+        <section v-show="tab === 'access'" id="panel-access" role="tabpanel" aria-labelledby="tab-access" class="card panel">
+          <section>
+            <div class="row">
+              <label class="field">
+                <span>{{ $t('config.password.label') }}</span>
+                <span class="password">
+                  <input
+                    v-model="form.adminPassword"
+                    :type="showPassword ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    data-testid="admin-password"
+                  />
+                  <button type="button" class="secondary inline" :aria-pressed="showPassword" @click="showPassword = !showPassword">
+                    {{ showPassword ? $t('config.password.hide') : $t('config.password.show') }}
+                  </button>
+                </span>
+              </label>
+              <span class="muted small">{{ $t('config.password.hint') }}</span>
+            </div>
+          </section>
         </section>
 
       </template>
@@ -565,6 +584,16 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* The panel of the current tab, joined to it */
+.panel {
+  border-top-left-radius: 0;
+}
+.panel > section + section {
+  margin-top: 24px;
+}
+.panel h2 {
+  margin-top: 0;
+}
 .page-header {
   display: flex;
   align-items: center;

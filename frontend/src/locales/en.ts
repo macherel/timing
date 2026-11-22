@@ -28,7 +28,7 @@ export default {
     disciplineConfig: 'Discipline settings',
     live: 'Live',
     diagnostics: 'Diagnostics',
-    config: 'Hardware configuration',
+    config: 'Configuration',
   },
 
   nav: {
@@ -183,6 +183,10 @@ export default {
     udaLabel: 'Best result of each participant, for the UDA',
   },
 
+  tabs: {
+    problems: '{n} problem | {n} problems',
+  },
+
   race: {
     // Why a discipline is closed (or would be): completes "is closed: …" and "is open although …"
     reason: {
@@ -219,10 +223,10 @@ export default {
     problems: '{n} problem in the files of {discipline} | {n} problems in the files of {discipline}',
     // {config} is a link to the configuration page
     noLine: 'No line is configured on this computer: add one on the {config} page to time runs.',
-    lineNotReady: 'No new start on this line: the start or finish device is not plugged in or not listened to (see the Hardware configuration page). Its results can still be changed.',
+    lineNotReady: 'No new start on this line: the start or finish device is not plugged in or not listened to (see the Configuration page). Its results can still be changed.',
     noReadyLine: 'No line is ready: the start and finish devices must be plugged in. Their state is on the {config} page.',
     chooseLine: 'Which line do you time on?',
-    lineDisabled: 'No new start on this line: it is disabled on the Hardware configuration page. Its results can still be changed.',
+    lineDisabled: 'No new start on this line: it is disabled on the Configuration page. Its results can still be changed.',
     backToLines: 'Back to the choice of a line',
     lineState: {
       idle: 'Free',
@@ -298,6 +302,13 @@ export default {
   },
 
   config: {
+    tabsLabel: 'Parts of the configuration',
+    tabs: {
+      lines: 'Lines',
+      devices: 'Devices',
+      network: 'Network',
+      access: 'Access',
+    },
     confirmDiscard: 'Discard your unsaved changes and reload the file?',
     confirmStartOver: 'Start from an empty form? Saving will replace the current config.yaml.',
     confirmLeave: 'You have unsaved changes. Leave this page anyway?',
@@ -337,11 +348,10 @@ export default {
       hint: 'Applied a few seconds after saving, no restart needed.',
     },
     password: {
-      title: 'Administration password',
       label: 'Password',
       show: 'Show',
       hide: 'Hide',
-      hint: 'When set, the Diagnostics and Hardware configuration pages and the discipline settings are hidden until it is typed with the padlock at the top right. Empty: no lock. It is saved as plain text in config.yaml.',
+      hint: 'When set, the Diagnostics and Configuration pages and the discipline settings are hidden until it is typed with the padlock at the top right. Empty: no lock. It is saved as plain text in config.yaml.',
     },
     discovery: {
       title: 'Default interface',
@@ -356,7 +366,6 @@ export default {
     defaultLineName: 'Line {n}',
     confirmRemoveLine: 'Remove line "{name}"?',
     confirmRemoveUsed: 'Remove device "{name}"? It is used by: {lines}. Their start or finish will have no device.',
-    lines: 'Lines',
     noLine: 'No line yet: add one to time runs on this computer.',
     linesReady: 'lines ready: {ready}/{total}',
     linesHint:

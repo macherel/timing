@@ -54,8 +54,9 @@ export const router = createRouter({
     // Links from before the discipline was in the path
     { path: '/race', redirect: (to) => fromOldLink(to, 'race') },
     { path: '/live', redirect: (to) => fromOldLink(to, 'live') },
-    { path: '/diagnostics', component: DiagnosticsPage, meta: { page: 'diagnostics', section: 'admin' } },
-    { path: '/config', component: ConfigPage, meta: { page: 'config', section: 'admin' } },
+    // Its tabs: /config (lines), /config/devices, /config/network, /config/access
+    { path: '/config/:tab(devices|network|access)?', name: 'config', component: ConfigPage, meta: { page: 'config', section: 'admin' } },
+    { path: '/diagnostics', name: 'diagnostics', component: DiagnosticsPage, meta: { page: 'diagnostics', section: 'admin' } },
     { path: '/:unknown(.*)*', redirect: '/' },
   ],
 });

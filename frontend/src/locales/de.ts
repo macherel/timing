@@ -24,7 +24,7 @@ const de: Messages = {
     disciplineConfig: 'Disziplin-Einstellungen',
     live: 'Live',
     diagnostics: 'Diagnose',
-    config: 'Hardware-Konfiguration',
+    config: 'Konfiguration',
   },
 
   nav: {
@@ -178,6 +178,10 @@ const de: Messages = {
     udaLabel: 'Bestes Ergebnis jedes Teilnehmers, für die UDA',
   },
 
+  tabs: {
+    problems: '{n} Problem | {n} Probleme',
+  },
+
   race: {
     // Nebensätze (Verb am Ende): ergänzen „geschlossen, weil …“ und „geöffnet, obwohl …“
     reason: {
@@ -214,10 +218,10 @@ const de: Messages = {
       'Keine Teilnehmer in {event} / {discipline}: lege CSV-Dateien mit Zeilen im Format {format} in ihren Ordner.',
     problems: '{n} Problem in den Dateien von {discipline} | {n} Probleme in den Dateien von {discipline}',
     noLine: 'Auf diesem Computer ist keine Bahn konfiguriert: fügen Sie auf der Seite {config} eine hinzu, um zu zeitmessen.',
-    lineNotReady: 'Kein neuer Start auf dieser Bahn: das Gerät von Start oder Ziel ist nicht angeschlossen oder wird nicht abgehört (siehe Seite Hardware-Konfiguration). Ihre Ergebnisse können weiterhin geändert werden.',
+    lineNotReady: 'Kein neuer Start auf dieser Bahn: das Gerät von Start oder Ziel ist nicht angeschlossen oder wird nicht abgehört (siehe Seite Konfiguration). Ihre Ergebnisse können weiterhin geändert werden.',
     noReadyLine: 'Keine Bahn ist bereit: die Geräte von Start und Ziel müssen angeschlossen sein. Ihr Zustand steht auf der Seite {config}.',
     chooseLine: 'Auf welcher Bahn messen Sie die Zeit?',
-    lineDisabled: 'Kein neuer Start auf dieser Bahn: sie ist auf der Seite Hardware-Konfiguration deaktiviert. Ihre Ergebnisse können weiterhin geändert werden.',
+    lineDisabled: 'Kein neuer Start auf dieser Bahn: sie ist auf der Seite Konfiguration deaktiviert. Ihre Ergebnisse können weiterhin geändert werden.',
     backToLines: 'Zurück zur Auswahl der Bahn',
     lineState: {
       idle: 'Frei',
@@ -293,6 +297,13 @@ const de: Messages = {
   },
 
   config: {
+    tabsLabel: 'Teile der Konfiguration',
+    tabs: {
+      lines: 'Bahnen',
+      devices: 'Geräte',
+      network: 'Netzwerk',
+      access: 'Zugang',
+    },
     confirmDiscard: 'Ungespeicherte Änderungen verwerfen und die Datei neu laden?',
     confirmStartOver: 'Mit einem leeren Formular beginnen? Beim Speichern wird die aktuelle config.yaml ersetzt.',
     confirmLeave: 'Es gibt ungespeicherte Änderungen. Diese Seite trotzdem verlassen?',
@@ -334,11 +345,10 @@ const de: Messages = {
       hint: 'Wird wenige Sekunden nach dem Speichern übernommen, ohne Neustart.',
     },
     password: {
-      title: 'Administrationspasswort',
       label: 'Passwort',
       show: 'Anzeigen',
       hide: 'Verbergen',
-      hint: 'Wenn gesetzt, sind die Seiten Diagnose und Hardware-Konfiguration sowie die Disziplineinstellungen verborgen, bis es über das Schloss oben rechts eingegeben wird. Leer: keine Sperre. Es wird im Klartext in config.yaml gespeichert.',
+      hint: 'Wenn gesetzt, sind die Seiten Diagnose und Konfiguration sowie die Disziplineinstellungen verborgen, bis es über das Schloss oben rechts eingegeben wird. Leer: keine Sperre. Es wird im Klartext in config.yaml gespeichert.',
     },
     discovery: {
       title: 'Standardschnittstelle',
@@ -353,7 +363,6 @@ const de: Messages = {
     defaultLineName: 'Bahn {n}',
     confirmRemoveLine: 'Bahn „{name}“ entfernen?',
     confirmRemoveUsed: 'Gerät „{name}“ entfernen? Es wird verwendet von: {lines}. Ihr Start oder Ziel hat dann kein Gerät mehr.',
-    lines: 'Bahnen',
     noLine: 'Noch keine Bahn: fügen Sie eine hinzu, um auf diesem Computer zu zeitmessen.',
     linesReady: 'Bahnen bereit: {ready}/{total}',
     linesHint:
