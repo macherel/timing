@@ -129,7 +129,7 @@ describe('RunPanel', () => {
     expect(readyButton(wrapper).attributes('title')).toBe('Closed: its results are locked');
   });
 
-  it('waits for the start, then offers cancel, invalidate and disqualify while running', async () => {
+  it('waits for the start, then offers invalidate and disqualify while running, but not cancel', async () => {
     const ready = mountPanel({ run: { status: 'ready', event: 'CFM26', discipline: '100m', participant: HUGO } });
     expect(ready.text()).toContain('Waiting for the start…');
 
@@ -137,7 +137,8 @@ describe('RunPanel', () => {
       run: { status: 'running', event: 'CFM26', discipline: '100m', participant: HUGO, startedAt: new Date().toISOString() },
     });
     expect(running.find('[role="timer"]').exists()).toBe(true);
-    for (const [label, event] of [['Cancel run', 'cancel'], ['Invalidate', 'invalidate'], ['Disqualify', 'disqualify']]) {
+    expect(running.findAll('button').map((button) => button.text())).toEqual(['Invalidate', 'Disqualify']);
+    for (const [label, event] of [['Invalidate', 'invalidate'], ['Disqualify', 'disqualify']]) {
       await running.findAll('button').find((button) => button.text() === label)!.trigger('click');
       expect(running.emitted(event), event).toHaveLength(1);
     }

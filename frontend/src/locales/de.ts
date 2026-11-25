@@ -249,7 +249,6 @@ const de: Messages = {
       disqualify: 'Der Teilnehmer kann nicht disqualifiziert werden: {error}',
       key: 'Der Tastendruck kann nicht erfasst werden: {error}',
     },
-    confirmCancel: 'Diesen Lauf abbrechen? Seine Zeit wird nicht gespeichert.',
     confirmDisqualify:
       '{bib} {name} disqualifizieren? Der Lauf endet sofort und wird als disqualifiziert (DQ) gespeichert.',
     confirmInvalidate:
@@ -311,8 +310,6 @@ const de: Messages = {
     waitingStart: 'Warten auf den Start…',
     pressToStart: 'Drücke {key} für den Start.',
     pressToFinish: 'Drücke {key} im Ziel.',
-    cancelRun: 'Lauf abbrechen',
-    cancelRunTitle: 'Lauf aufgeben, nichts wird gespeichert',
     invalidate: 'Für ungültig erklären',
     invalidateTitle: 'Lauf sofort beenden und als ungültig speichern (nicht die Schuld des Teilnehmers)',
     disqualify: 'Disqualifizieren',

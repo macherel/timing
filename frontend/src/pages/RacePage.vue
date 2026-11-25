@@ -93,7 +93,7 @@ const linesLoaded = ref(false);
 // The name of this computer, as written with each result beside its line
 const computer = ref<string | null>(null);
 // A line can start runs when it is enabled and the app listens to its start and finish devices. Any line can be chosen
-// though, to edit its results, or to cancel a run in progress after a device is unplugged
+// though, to edit its results, or to invalidate a run in progress after a device is unplugged
 // The lines of config.yaml, to choose from for a discipline timed by the gates (the manual line is not one of them)
 const gateLines = computed(() => lines.value.filter((item) => !item.manual));
 const readyLines = computed(() => gateLines.value.filter((item) => item.ready));
@@ -306,8 +306,8 @@ async function postRun(action: 'ready' | 'cancel' | 'invalidate' | 'disqualify')
   }
 }
 
+// Only a participant ready to start: a run started ends invalidated or disqualified
 function cancel(): void {
-  if (run.value.status === 'running' && !confirm(t('race.confirmCancel'))) return;
   postRun('cancel');
 }
 

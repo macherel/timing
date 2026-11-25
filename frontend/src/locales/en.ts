@@ -254,7 +254,6 @@ export default {
       disqualify: 'Cannot disqualify the participant: {error}',
       key: 'Cannot record the press on the key: {error}',
     },
-    confirmCancel: 'Cancel this run? Its time will not be saved.',
     confirmDisqualify: 'Disqualify {bib} {name}? The run ends now and is saved as disqualified (DQ).',
     confirmInvalidate:
       'Invalidate this run of {bib} {name}? The run ends now and is saved as invalid (not a disqualification).',
@@ -316,8 +315,6 @@ export default {
     waitingStart: 'Waiting for the start…',
     pressToStart: 'Press {key} to start.',
     pressToFinish: 'Press {key} at the finish.',
-    cancelRun: 'Cancel run',
-    cancelRunTitle: 'Abandon the run, nothing is saved',
     invalidate: 'Invalidate',
     invalidateTitle: "End the run now and save it as invalid (not the participant's fault)",
     disqualify: 'Disqualify',

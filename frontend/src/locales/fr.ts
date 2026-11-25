@@ -247,7 +247,6 @@ const fr: Messages = {
       disqualify: 'Impossible de disqualifier le participant : {error}',
       key: 'Impossible d’enregistrer l’appui sur la touche : {error}',
     },
-    confirmCancel: 'Annuler ce passage ? Son temps ne sera pas enregistré.',
     confirmDisqualify: 'Disqualifier {bib} {name} ? Le passage se termine maintenant et est enregistré comme disqualifié (DQ).',
     confirmInvalidate:
       'Invalider ce passage de {bib} {name} ? Le passage se termine maintenant et est enregistré comme invalide (ce n’est pas une disqualification).',
@@ -307,8 +306,6 @@ const fr: Messages = {
     waitingStart: 'En attente du départ…',
     pressToStart: 'Appuyez sur {key} pour donner le départ.',
     pressToFinish: 'Appuyez sur {key} à l’arrivée.',
-    cancelRun: 'Annuler le passage',
-    cancelRunTitle: 'Abandonner le passage, rien n’est enregistré',
     invalidate: 'Invalider',
     invalidateTitle: 'Terminer le passage maintenant et l’enregistrer comme invalide (pas la faute du participant)',
     disqualify: 'Disqualifier',

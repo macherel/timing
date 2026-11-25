@@ -71,19 +71,6 @@ test('times runs on two lines at once, each from its own gates', async ({ page, 
   await expect(recent).toContainText('Hugo Guérin');
 });
 
-test('cancels a run without saving it, after a confirmation', async ({ page, request }) => {
-  await page.goto('/CFM26/100m/race');
-  await chooseLine(page);
-  await pickParticipant(page, '7', '7 Hugo Guérin');
-  await startRun(page, request);
-
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Cancel run' }).click();
-  await expect(page.getByRole('button', { name: 'Ready to start' })).toBeEnabled();
-  await expect(page.getByText('No run yet.')).toBeVisible();
-  expect(readFile('CFM26/100m/CFM26-100m-results.csv')).toBeNull();
-});
-
 test('disqualifies a running participant, then turns the run into an invalid one that gives the attempt back', async ({ page, request }) => {
   writeFiles({ 'CFM26/100m/config.yaml': 'attempts: 1\n' });
   await page.goto('/CFM26/100m/race');
@@ -267,7 +254,7 @@ test('times a discipline by hand with its trigger key, on the manual line', asyn
 
   // A focused button is not clicked by the key during the run: the press finishes the run
   page.on('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('button', { name: 'Cancel run' }).focus();
+  await page.getByRole('button', { name: 'Invalidate' }).focus();
   await page.keyboard.press('Enter');
   const row = page.locator('.results tbody tr');
   await expect(row).toHaveCount(1);

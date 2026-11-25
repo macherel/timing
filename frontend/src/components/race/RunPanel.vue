@@ -107,9 +107,6 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
         <i18n-t v-if="keyLabel" keypath="run.pressToFinish" tag="span" class="key-hint" data-testid="key-hint">
           <template #key><kbd>{{ keyLabel }}</kbd></template>
         </i18n-t>
-        <button type="button" class="secondary" :disabled="busy" :title="$t('run.cancelRunTitle')" @click="$emit('cancel')">
-          {{ $t('run.cancelRun') }}
-        </button>
         <button type="button" class="warn" :disabled="busy" :title="$t('run.invalidateTitle')" @click="$emit('invalidate')">
           {{ $t('run.invalidate') }}
         </button>
