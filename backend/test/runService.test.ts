@@ -351,15 +351,15 @@ describe('UDA export', () => {
         await vi.waitFor(() => expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('7,,0,12,35\r\n12,DNF,0,0,0\r\n'));
     });
 
-    it('uses the precision and rounding of the discipline, in hundredths at most', () => {
+    it('uses the precision and rounding of the discipline, the fraction of a second in its unit', () => {
         const rows = [{ bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:12.3449Z', status: 'OK', computer: '', line: '', updated: '' }];
         const uda = (precision: Precision, rounding: Rounding) => runs.udaResults(rows, ['7'], { best: 'shortest', precision, rounding });
         expect(uda('second', 'up')).toBe('7,,0,13,0\r\n');
-        expect(uda('tenth', 'nearest')).toBe('7,,0,12,30\r\n');
+        expect(uda('tenth', 'nearest')).toBe('7,,0,12,3\r\n');
         expect(uda('hundredth', 'truncate')).toBe('7,,0,12,34\r\n');
-        // From the exact time, not from the time in thousandths (12.345, which would give 12.35)
-        expect(uda('thousandth', 'nearest')).toBe('7,,0,12,34\r\n');
-        expect(uda('thousandth', 'up')).toBe('7,,0,12,35\r\n');
+        expect(uda('thousandth', 'truncate')).toBe('7,,0,12,344\r\n');
+        expect(uda('thousandth', 'nearest')).toBe('7,,0,12,345\r\n');
+        expect(uda('thousandth', 'up')).toBe('7,,0,12,345\r\n');
     });
 });
 

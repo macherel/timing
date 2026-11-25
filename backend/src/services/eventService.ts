@@ -469,7 +469,7 @@ export function participantCells(row: string[], columns: ParticipantColumns): Pa
 }
 
 /**
- * Whether CSV rows are results in the UDA import format (bib,status,minutes,seconds,hundredths, no header, see
+ * Whether CSV rows are results in the UDA import format (bib,status,minutes,seconds,fraction, no header, see
  * udaResults in runService.ts), not participants.
  */
 function isUdaResults(rows: string[][]): boolean {

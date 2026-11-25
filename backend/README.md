@@ -320,7 +320,7 @@ ID,LastName,FirstName,Country,Gender,Age Group
 
 - The separator is detected from the first line: semicolon (French Excel), comma or tab. Quoted cells (`"Dupont, Jean"`) are supported.
 - The first line is skipped when its bib is not a number (header row).
-- `<event>-<discipline>-results.csv` and `<event>-<discipline>-uda-results.csv` are not participant lists, nor is any file in the UDA results format (`bib,status,minutes,seconds,hundredths` lines, see below), whatever its name.
+- `<event>-<discipline>-results.csv` and `<event>-<discipline>-uda-results.csv` are not participant lists, nor is any file in the UDA results format (`bib,status,minutes,seconds,fraction` lines, see below), whatever its name.
 - UTF-8 (with or without BOM) and Windows-1252 (Excel on Windows) are both read correctly.
 - Rows with a bib that is not a number, without a name, or with a bib already used in the discipline are skipped and listed on the race page.
 - Files are read on every request: click _↻ Reload lists_ in the event menu of the title ("CFM26 · 100m ▾") after adding or editing them.
@@ -402,7 +402,7 @@ On the race page, choose the line (one tab per line when the computer has severa
   98,,1,13,23
   ```
 
-  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and hundredths. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (the shortest, or the longest with `best: longest`; `98,,1,13,23` is 1:13.23), the time measured with the `precision` and `rounding` of the discipline (the UDA has no thousandths: with `precision: thousandth`, the exact time is brought to the hundredth with the same rounding). Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `<event>-<discipline>-results.csv`.
+  The columns are the bib, the status (empty, `DQ` or `DNF`), then minutes, seconds and the fraction of a second in the unit of the discipline's `precision`: tenths, hundredths (the default) or thousandths, `0` in seconds. Every participant of the discipline is listed (and any other bib with runs). Each participant's best `OK` run is written (the shortest, or the longest with `best: longest`; `98,,1,13,23` is 1:13.23), the time measured with the `precision` and `rounding` of the discipline: `98,,1,13,2` in tenths, `98,,1,13,234` in thousandths). Without an `OK` run, the participant is `DQ` when they have a `DQ` run, else `DNF` (only `INVALID` runs, or none), with a zero time. The file is not synced: each computer writes it from its own merged `<event>-<discipline>-results.csv`.
 
 
 ## 🔄 Syncing Several Computers

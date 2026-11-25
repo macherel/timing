@@ -344,7 +344,7 @@ describe('discipline settings', () => {
         const { status, body } = await call('PUT', '/events/CFM26/100m/settings', { settings: { precision: 'tenth', rounding: 'truncate' } });
         expect(status).toBe(200);
         expect(body.settings).toMatchObject({ precision: 'tenth', rounding: 'truncate' });
-        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('7,,0,10,30\r\n12,DNF,0,0,0\r\n');
+        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('7,,0,10,3\r\n12,DNF,0,0,0\r\n');
         expect((await call('GET', '/events/CFM26/100m/results')).body.results[0].timeMs).toBe(10300);
     });
 

@@ -362,20 +362,20 @@ async function writeAtomically(file: string, content: string): Promise<void> {
 /**
  * Results in the import format of the UDA (Unicycling Data Application): one line per participant (of the list, and
  * any other bib with runs), sorted by bib, without header, comma separated, CRLF line ends:
- *   bib,,minutes,seconds,hundredths   best OK run (shortest time, or longest for a slow race), e.g. "98,,1,13,23"
- *                                     for 1:13.23
- *   bib,DQ,0,0,0                      no OK run, at least one DQ
- *   bib,DNF,0,0,0                     no valid run: only INVALID runs, or none
- * The time is measured with the precision and rounding of the discipline; the UDA has no thousandths, so a time in
- * thousandths is brought to the hundredth with the same rounding, from the exact time.
+ *   bib,,minutes,seconds,fraction   best OK run (shortest time, or longest for a slow race), e.g. "98,,1,13,23"
+ *                                   for 1:13.23
+ *   bib,DQ,0,0,0                    no OK run, at least one DQ
+ *   bib,DNF,0,0,0                   no valid run: only INVALID runs, or none
+ * The time is measured with the precision and rounding of the discipline, and the fraction of a second is in its unit:
+ * tenths, hundredths or thousandths (0 in seconds), e.g. "98,,1,13,2" for 1:13.2 in tenths, "98,,1,13,234" for
+ * 1:13.234 in thousandths.
  */
 export function udaResults(
     rows: Row[],
     bibs: string[],
     settings: Pick<DisciplineSettings, 'best' | 'precision' | 'rounding'> = DEFAULT_SETTINGS
 ): string {
-    const { best, rounding } = settings;
-    const precision = settings.precision === 'thousandth' ? 'hundredth' : settings.precision;
+    const { best, precision, rounding } = settings;
     const bestOf = new Map<string, RunResult | null>(bibs.map((bib) => [bib, null]));
     for (const result of rows.map((row) => toResult(row, { precision, rounding }))) {
         if (!result || result.status === 'invalid') {
@@ -390,13 +390,17 @@ export function udaResults(
         .map(([bib, result]) => {
             if (!result) return `${bib},DNF,0,0,0\r\n`;
             if (result.status === 'dq' || result.timeMs === null) return `${bib},DQ,0,0,0\r\n`;
-            const hundredths = Math.round(result.timeMs / 10);
-            const minutes = Math.floor(hundredths / 6000);
-            const seconds = Math.floor(hundredths / 100) % 60;
-            return `${bib},,${minutes},${seconds},${hundredths % 100}\r\n`;
+            const perSecond = UNITS_PER_SECOND[precision];
+            const units = Math.round((result.timeMs * perSecond) / 1000);
+            const minutes = Math.floor(units / (60 * perSecond));
+            const seconds = Math.floor(units / perSecond) % 60;
+            return `${bib},,${minutes},${seconds},${units % perSecond}\r\n`;
         })
         .join('');
 }
+
+// Units of a precision in a second: the fraction of the UDA export is in this unit
+const UNITS_PER_SECOND: Record<Precision, number> = { second: 1, tenth: 10, hundredth: 100, thousandth: 1000 };
 
 /** An OK run beats a DQ; between OK runs, the shorter time wins (the longer one for a slow race). */
 function isBetter(result: RunResult, than: RunResult, best: DisciplineSettings['best']): boolean {
