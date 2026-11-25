@@ -115,7 +115,9 @@ onUnmounted(() => clearInterval(clockTimer));
 const elapsed = (instance: LiveInstance, startedAt: string) => now.value + instance.clockOffsetMs - parseInstant(startedAt);
 
 // Ranking: best valid time of each participant, then the participants with runs but no valid time
-const categoryOf = computed(() => new Map(participants.value.map((p) => [p.bib, p.file])));
+const categoryOf = computed(() => new Map(participants.value.map((p) => [p.bib, p.category])));
+// The category column is shown only when a participant has one
+const hasCategories = computed(() => participants.value.some((p) => p.category !== ''));
 const recentRuns = computed(() => {
   const keys = new Set<string>();
   for (const line of instances.value.flatMap((instance) => instance.lines)) {
@@ -283,7 +285,7 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
               <th class="rank">#</th>
               <th>{{ $t('live.bib') }}</th>
               <th>{{ $t('live.name') }}</th>
-              <th>{{ $t('live.category') }}</th>
+              <th v-if="hasCategories">{{ $t('live.category') }}</th>
               <th class="time">{{ $t('live.bestTime') }}</th>
               <th class="runs">{{ $t('live.runs') }}</th>
             </tr>
@@ -293,7 +295,7 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
               <td class="rank">{{ rankOf(index) ?? '–' }}</td>
               <td class="mono">{{ entry.bib }}</td>
               <td class="name">{{ entry.name }}</td>
-              <td class="muted">{{ categoryOf.get(entry.bib) ?? '' }}</td>
+              <td v-if="hasCategories" class="muted">{{ categoryOf.get(entry.bib) ?? '' }}</td>
               <td class="time mono">{{ entry.best === null ? '—' : showTime(entry.best) }}</td>
               <td class="runs muted">{{ entry.runs }}</td>
             </tr>

@@ -1011,11 +1011,11 @@ components:
 
     Participant:
       type: object
-      required: [bib, name, file]
+      required: [bib, name, category]
       properties:
         bib: { type: string, pattern: '^\d+$', examples: ['7'] }
         name: { type: string, examples: [Hugo Guérin] }
-        file: { type: string, description: 'Category: the Age Group column of the CSV file, or else its file name without extension', examples: [Sénior M] }
+        category: { type: string, description: 'The Age Group column of the CSV file, empty when it has none or the cell is empty', examples: [Sénior M] }
 
     ParticipantList:
       type: object

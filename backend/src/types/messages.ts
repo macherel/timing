@@ -15,7 +15,7 @@ export interface RaceUpdateMessage {
 export interface RunParticipant {
     bib: string;
     name: string;
-    file: string;
+    category: string;
 }
 
 /**

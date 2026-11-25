@@ -252,7 +252,7 @@ export interface EventSummary {
 export interface Participant {
     bib: string;
     name: string;
-    file: string; // Category: the Age Group column when the file has one, else the CSV file name without extension
+    category: string; // The Age Group column, empty when the file has none or the cell is empty
 }
 
 export interface ParticipantList {
@@ -410,7 +410,7 @@ export async function readParticipants(dir: string): Promise<ParticipantList> {
                 problems.push(`${where}: bib ${bib} is already used in ${fileOfBib.get(bib)}`);
             } else {
                 fileOfBib.set(bib, fileName);
-                participants.push({ bib, name, file: cell(columns.category) || path.parse(fileName).name });
+                participants.push({ bib, name, category: cell(columns.category) });
             }
         });
     }

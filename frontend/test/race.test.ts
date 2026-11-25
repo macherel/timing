@@ -61,10 +61,10 @@ describe('discipline period date-times', () => {
 
 describe('searchParticipants', () => {
   const people: Participant[] = [
-    { bib: '1', name: 'Hugo Guérin', file: 'men' },
-    { bib: '12', name: 'Éloïse Dupont', file: 'women' },
-    { bib: '21', name: 'Jean-Luc Martin', file: 'men' },
-    { bib: '120', name: 'Léa Dupuis', file: 'women' },
+    { bib: '1', name: 'Hugo Guérin', category: '' },
+    { bib: '12', name: 'Éloïse Dupont', category: '' },
+    { bib: '21', name: 'Jean-Luc Martin', category: '' },
+    { bib: '120', name: 'Léa Dupuis', category: '' },
   ];
   const bibs = (query: string, limit = 10) => searchParticipants(people, query, limit).map((p) => p.bib);
 

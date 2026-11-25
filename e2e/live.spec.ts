@@ -78,9 +78,29 @@ test('ranks by best valid time, invalid runs left out and disqualified runs with
   const rows = live.locator('.ranking tbody tr');
   await expect(rows).toHaveCount(3);
   const cells = async (index: number) => (await rows.nth(index).locator('td').allTextContents()).map((text) => text.trim());
-  expect(await cells(0)).toEqual(['1', '12', 'Léa Martin', 'women', '10.25', '1']);
-  expect(await cells(1)).toEqual(['2', '7', 'Hugo Guérin', 'men', '11.50', '2']);
-  expect(await cells(2)).toEqual(['–', '21', 'Jean-Luc Martin', 'men', '—', '1']);
+  expect(await cells(0)).toEqual(['1', '12', 'Léa Martin', '10.25', '1']);
+  expect(await cells(1)).toEqual(['2', '7', 'Hugo Guérin', '11.50', '2']);
+  expect(await cells(2)).toEqual(['–', '21', 'Jean-Luc Martin', '—', '1']);
+  // No participant has a category: no category column
+  await expect(live.getByRole('columnheader', { name: 'Category' })).toHaveCount(0);
+});
+
+test('shows the category column when a participant has one', async ({ page }) => {
+  writeFiles({
+    'CFM26/100m/men.csv': 'Dossard;Nom;Age Group\n7;Hugo Guérin;Sénior M\n',
+    'CFM26/100m/CFM26-100m-results.csv': [
+      RESULTS_HEADER,
+      '7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:12.000Z;OK;2026-11-05T10:00:12Z',
+      '12;Léa Martin;2026-11-05T10:01:00Z;2026-11-05T10:01:10.250Z;OK;2026-11-05T10:01:10Z',
+    ].join('\n'),
+  });
+  const { live } = await openPages(page);
+  const rows = live.locator('.ranking tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(live.locator('.ranking th').nth(3)).toHaveText('Category');
+  // A participant without category gets an empty cell
+  await expect(rows.nth(0).locator('td').nth(3)).toHaveText('');
+  await expect(rows.nth(1).locator('td').nth(3)).toHaveText('Sénior M');
 });
 
 test('updates the ranking at each finish, also for a participant who runs again', async ({ page, request }) => {

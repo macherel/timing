@@ -100,7 +100,7 @@ describe('events and disciplines', () => {
 });
 
 describe('loadParticipants', () => {
-    it('merges the CSV files of a discipline, sorted by bib, with the file name as category', async () => {
+    it('merges the CSV files of a discipline, sorted by bib, with no category when they have no Age Group column', async () => {
         writeFiles({
             'CFM26/100m/women.csv': 'bib;name\n12;Léa Martin\n3;Emma Petit\n',
             'CFM26/100m/men.csv': 'Dossard;Nom\n7;Hugo Guérin\n',
@@ -108,9 +108,9 @@ describe('loadParticipants', () => {
         });
         const list = await loadParticipants('CFM26', '100m');
         expect(list?.participants).toEqual([
-            { bib: '3', name: 'Emma Petit', file: 'women' },
-            { bib: '7', name: 'Hugo Guérin', file: 'men' },
-            { bib: '12', name: 'Léa Martin', file: 'women' },
+            { bib: '3', name: 'Emma Petit', category: '' },
+            { bib: '7', name: 'Hugo Guérin', category: '' },
+            { bib: '12', name: 'Léa Martin', category: '' },
         ]);
         expect(list?.problems).toEqual([]);
     });
@@ -129,9 +129,9 @@ describe('loadParticipants', () => {
         });
         const list = await loadParticipants('E', 'D');
         expect(list?.participants).toEqual([
-            { bib: '1', name: 'Ninon Vasseur', file: 'Super Vétéran M' },
-            { bib: '5', name: 'Rosalie', file: 'other' },
-            { bib: '187', name: 'Ophélie Tessier', file: 'competitors' },
+            { bib: '1', name: 'Ninon Vasseur', category: 'Super Vétéran M' },
+            { bib: '5', name: 'Rosalie', category: '' },
+            { bib: '187', name: 'Ophélie Tessier', category: '' },
         ]);
         expect(list?.problems).toEqual([]);
     });
@@ -169,7 +169,7 @@ describe('loadParticipants', () => {
             'E/D/b.csv': '1;Duplicate in another file',
         });
         const list = await loadParticipants('E', 'D');
-        expect(list?.participants).toEqual([{ bib: '1', name: 'Ann', file: 'a' }]);
+        expect(list?.participants).toEqual([{ bib: '1', name: 'Ann', category: '' }]);
         expect(list?.problems).toEqual([
             'a.csv, line 3: bib "x" is not a number',
             'a.csv, line 4: bib 2 has no name',

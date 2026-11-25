@@ -89,7 +89,7 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
       <div>
         <div class="name">{{ participant.name }}</div>
         <div class="muted">
-          {{ participant.file }} · <span :class="{ 'no-attempt': noAttemptLeft && !isThisRun }">{{ attemptLabel }}</span>
+          <template v-if="participant.category">{{ participant.category }} · </template><span :class="{ 'no-attempt': noAttemptLeft && !isThisRun }">{{ attemptLabel }}</span>
         </div>
       </div>
     </div>

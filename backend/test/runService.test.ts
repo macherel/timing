@@ -8,8 +8,8 @@ import { minutesFromNow, readFile, resetWorkDir, workDir, writeFiles } from './h
 
 type RunService = typeof import('../src/services/runService.js');
 
-const HUGO = { bib: '7', name: 'Hugo Guérin', file: 'men' };
-const LEA = { bib: '12', name: 'Léa Martin', file: 'women' };
+const HUGO = { bib: '7', name: 'Hugo Guérin', category: '' };
+const LEA = { bib: '12', name: 'Léa Martin', category: '' };
 const RESULTS = 'CFM26/100m/CFM26-100m-results.csv';
 const HEADER = 'bib;name;start;finish;status;computer;line;updated';
 
@@ -299,7 +299,7 @@ describe('results file', () => {
 
     it('quotes names that contain the separator', async () => {
         writeFiles({ 'CFM26/100m/men.csv': '7;"Dupont; Jean"\n' });
-        await timeRun({ bib: '7', name: 'Dupont; Jean', file: 'men' });
+        await timeRun({ bib: '7', name: 'Dupont; Jean', category: '' });
         expect(readFile(RESULTS)).toContain('7;"Dupont; Jean";');
         expect((await runs.loadResults('CFM26', '100m'))![0].name).toBe('Dupont; Jean');
     });

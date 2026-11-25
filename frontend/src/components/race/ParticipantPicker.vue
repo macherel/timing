@@ -115,7 +115,7 @@ defineExpose({ focus: () => input.value?.focus() });
       >
         <span class="bib mono">{{ participant.bib }}</span>
         <span class="name">{{ participant.name }}</span>
-        <span class="file muted">{{ participant.file }}</span>
+        <span v-if="participant.category" class="category muted">{{ participant.category }}</span>
         <span v-if="finished?.has(participant.bib)" class="badge done" :title="$t('picker.allUsed')">{{ $t('picker.done') }}</span>
       </li>
       <li v-if="suggestions.length === 0" class="empty muted">{{ $t('picker.noMatch', { query: query.trim() }) }}</li>
@@ -188,7 +188,7 @@ defineExpose({ focus: () => input.value?.focus() });
 .badge.done {
   font-size: 0.75em;
 }
-.file {
+.category {
   font-size: 0.85em;
 }
 </style>

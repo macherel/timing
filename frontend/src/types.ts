@@ -329,8 +329,8 @@ export interface EventsResponse {
 export interface Participant {
   bib: string;
   name: string;
-  // CSV file name without extension, e.g. the category
-  file: string;
+  // The Age Group column of the CSV file, empty when it has none or the cell is empty
+  category: string;
 }
 
 /** GET /api/events/:event/:discipline/participants */

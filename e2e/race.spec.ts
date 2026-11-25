@@ -16,7 +16,7 @@ test('times a run from the start to the finish gate and saves it', async ({ page
   await page.goto('/CFM26/100m/race');
   await chooseLine(page);
   await pickParticipant(page, 'hug', '7 Hugo Guérin');
-  await expect(page.getByText('men · Attempt 1')).toBeVisible();
+  await expect(page.getByText('Attempt 1', { exact: true })).toBeVisible();
 
   await getReady(page);
   // The participant cannot change during a run
@@ -29,7 +29,7 @@ test('times a run from the start to the finish gate and saves it', async ({ page
   const row = page.locator('.results tbody tr');
   await expect(row).toHaveCount(1);
   await expect(row.locator('td').nth(1)).toHaveText(/^\d+\.\d{2}$/);
-  await expect(page.getByText('men · Attempt 2')).toBeVisible();
+  await expect(page.getByText('Attempt 2', { exact: true })).toBeVisible();
   await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;/);
 });
 
@@ -104,7 +104,7 @@ test('disqualifies a running participant, then turns the run into an invalid one
   // An invalid run is not the participant's fault: it does not use the attempt
   await status.selectOption('invalid');
   await expect(status).toHaveValue('invalid');
-  await expect(page.getByText('women · Attempt 1 of 1')).toBeVisible();
+  await expect(page.getByText('Attempt 1 of 1', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Ready to start' })).toBeEnabled();
   await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n12;Léa Martin;.+;;INVALID;/);
 });

@@ -7,8 +7,8 @@ import { setLocale } from '../src/i18n';
 import type { Participant, Precision, RunResult, RunState } from '../src/types';
 import { mountWithI18n } from './mount';
 
-const HUGO: Participant = { bib: '7', name: 'Hugo Guérin', file: 'men' };
-const LEA: Participant = { bib: '12', name: 'Léa Martin', file: 'women' };
+const HUGO: Participant = { bib: '7', name: 'Hugo Guérin', category: 'Sénior M' };
+const LEA: Participant = { bib: '12', name: 'Léa Martin', category: '' };
 
 describe('ParticipantPicker', () => {
   function mountPicker(props: { finished?: Set<string>; disabled?: boolean } = {}) {
@@ -29,10 +29,10 @@ describe('ParticipantPicker', () => {
     const wrapper = mountPicker();
     const input = wrapper.find('input');
     await input.trigger('focus');
-    expect(suggestions(wrapper)).toEqual(['7 Hugo Guérin men', '12 Léa Martin women']);
+    expect(suggestions(wrapper)).toEqual(['7 Hugo Guérin Sénior M', '12 Léa Martin']);
 
     await input.setValue('lea');
-    expect(suggestions(wrapper)).toEqual(['12 Léa Martin women']);
+    expect(suggestions(wrapper)).toEqual(['12 Léa Martin']);
 
     await input.setValue('zzz');
     expect(wrapper.find('.empty').text()).toBe('No participant matches “zzz”');
@@ -100,10 +100,17 @@ describe('RunPanel', () => {
 
   it('offers "Ready to start" for the next attempt', async () => {
     const wrapper = mountPanel({ attempts: 3, results: [result({})] });
-    expect(wrapper.text()).toContain('Attempt 2 of 3');
+    expect(wrapper.text()).toContain('Sénior M · Attempt 2 of 3');
     expect(readyButton(wrapper).attributes('disabled')).toBeUndefined();
     await readyButton(wrapper).trigger('click');
     expect(wrapper.emitted('ready')).toHaveLength(1);
+  });
+
+  it('shows no category when the participant has none', () => {
+    const wrapper = mountWithI18n(RunPanel, {
+      props: { participant: LEA, line: 'Line 1', run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth' },
+    });
+    expect(wrapper.find('.who .muted').text()).toBe('Attempt 1');
   });
 
   it('does not count invalid runs as attempts, and stops when none is left', () => {
