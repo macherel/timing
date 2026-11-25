@@ -361,6 +361,24 @@ export interface DisciplineSettings {
 
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';
 
+/** A name column of a participant file: one name, or the first and/or last name. */
+export type NameField = 'name' | 'firstName' | 'lastName';
+
+/** GET /api/events/:event/:discipline/participants/editable: the participants as written in their files. */
+export interface EditableParticipants {
+  // The participant files, each with its name columns
+  files: { name: string; nameFields: NameField[] }[];
+  participants: EditableParticipant[];
+}
+
+export interface EditableParticipant extends Participant {
+  file: string;
+  // The name cells as written in the file (empty for the columns it does not have)
+  fields: Record<NameField, string>;
+  // Has runs, or is ready or running on a line: keeps their bib and cannot be removed
+  timed: boolean;
+}
+
 export interface ParticipantsResponse {
   participants: Participant[];
   settings: DisciplineSettings;

@@ -171,7 +171,7 @@ const fr: Messages = {
   },
 
   files: {
-    participantsHint: 'Les participants sont lus dans les fichiers CSV ci-dessous (dossard;nom, ou un export UDA). Remplacez un fichier pour les mettre à jour.',
+    participantsHint: 'Les participants sont lus dans les fichiers CSV ci-dessous (dossard;nom, ou un export UDA). Remplacez un fichier pour les mettre à jour, ou modifiez-les dans la liste des participants ci-dessous.',
     count: 'Aucun participant au total. | 1 participant au total. | {n} participants au total.',
     noParticipantFile: 'Aucun fichier de participants pour l’instant : le fichier envoyé est enregistré sous {name}.',
     noResult: 'Aucun résultat pour l’instant : les fichiers sont écrits au premier passage.',
@@ -200,6 +200,29 @@ const fr: Messages = {
     noBackupFile: 'Sauvegarde vide.',
     backupOf: 'Résultats du {date}',
     backupParticipantsLabel: 'Participants de ces résultats',
+  },
+
+  participantEditor: {
+    title: 'Liste des participants',
+    hint: 'Ajoutez, modifiez ou supprimez des participants : leur fichier est réécrit et les résultats sont gardés.',
+    search: 'Rechercher un dossard ou un nom',
+    add: '+ Ajouter un participant',
+    addSave: 'Ajouter',
+    edit: 'Modifier',
+    remove: 'Supprimer',
+    bib: 'Dossard',
+    name: 'Nom',
+    firstName: 'Prénom',
+    lastName: 'Nom de famille',
+    category: 'Catégorie',
+    file: 'Fichier',
+    none: 'Aucun participant pour l’instant.',
+    timed: 'Ce participant a des passages : il garde son dossard et ne peut pas être supprimé.',
+    confirmRemove: 'Supprimer {bib} {name} de {file} ?',
+    added: '{bib} {name} ajouté.',
+    saved: '{bib} {name} enregistré.',
+    removed: '{bib} {name} supprimé.',
+    error: 'Modification impossible : {error}',
   },
 
   tabs: {

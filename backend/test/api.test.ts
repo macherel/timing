@@ -207,6 +207,100 @@ describe('files of a discipline', () => {
     });
 });
 
+describe('participants changed by hand', () => {
+    const P = '/events/CFM26/100m/participants';
+    const RESULTS = 'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:12Z;OK;2026-11-05T10:00:12Z\n';
+
+    it('lists the participants as written in their files, with the name columns of each file', async () => {
+        writeFiles({
+            'CFM26/100m/uda.csv': 'ID,LastName,FirstName,Age Group\r\n21,MARTIN,jean-luc,Sénior M\r\n',
+            'CFM26/100m/CFM26-100m-results.csv': RESULTS,
+        });
+        const { status, body } = await call('GET', `${P}/editable`);
+        expect(status).toBe(200);
+        expect(body.files).toEqual([
+            { name: 'men.csv', nameFields: ['name'] },
+            { name: 'uda.csv', nameFields: ['firstName', 'lastName'] },
+        ]);
+        expect(body.participants).toEqual([
+            { bib: '7', name: 'Hugo Guérin', category: '', file: 'men.csv', fields: { name: 'Hugo Guérin', firstName: '', lastName: '' }, timed: true },
+            { bib: '12', name: 'Léa Martin', category: '', file: 'men.csv', fields: { name: 'Léa Martin', firstName: '', lastName: '' }, timed: false },
+            { bib: '21', name: 'Jean-Luc Martin', category: 'Sénior M', file: 'uda.csv', fields: { name: '', firstName: 'jean-luc', lastName: 'MARTIN' }, timed: false },
+        ]);
+        expect((await call('GET', '/events/CFM26/nope/participants/editable')).status).toBe(404);
+    });
+
+    it('adds, changes and removes a participant in its file, keeping the results', async () => {
+        writeFiles({ 'CFM26/100m/CFM26-100m-results.csv': RESULTS });
+        const added = await call('POST', P, { bib: '3', fields: { name: 'Emma; "Mimi" Petit' }, category: '' });
+        expect(added.status).toBe(201);
+        expect(added.body.participants.map((p: any) => p.bib)).toEqual(['3', '7', '12']);
+        expect(readFile('CFM26/100m/men.csv')).toBe('bib;name\n7;Hugo Guérin\n12;Léa Martin\n3;"Emma; ""Mimi"" Petit"\n');
+
+        expect((await call('PUT', `${P}/12`, { bib: '13', fields: { name: 'Léa Martin-Dupont' } })).status).toBe(200);
+        expect((await call('DELETE', `${P}/3`)).status).toBe(200);
+        expect(readFile('CFM26/100m/men.csv')).toBe('bib;name\n7;Hugo Guérin\n13;Léa Martin-Dupont\n');
+        expect(readFile('CFM26/100m/CFM26-100m-results.csv')).toBe(RESULTS);
+        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toContain('7,');
+    });
+
+    it('keeps the bib of a participant with runs, who cannot be removed, but changes their name', async () => {
+        writeFiles({ 'CFM26/100m/CFM26-100m-results.csv': RESULTS });
+        expect(await call('PUT', `${P}/7`, { bib: '8', fields: { name: 'Hugo' } })).toEqual({ status: 409, body: { problems: ['Bib 7 has runs: it cannot change.'] } });
+        expect(await call('DELETE', `${P}/7`)).toEqual({ status: 409, body: { problems: ['Bib 7 has runs: it cannot be removed.'] } });
+        expect((await call('PUT', `${P}/7`, { bib: '7', fields: { name: 'Hugo Guérin-Roy' }, category: '' })).status).toBe(200);
+        expect(readFile('CFM26/100m/men.csv')).toBe('bib;name\n7;Hugo Guérin-Roy\n12;Léa Martin\n');
+    });
+
+    it('keeps the bib of a participant ready on a line', async () => {
+        expect((await call('POST', '/lines/Line%201/ready', { event: 'CFM26', discipline: '100m', bib: '12' })).status).toBe(200);
+        expect((await call('DELETE', `${P}/12`)).status).toBe(409);
+    });
+
+    it('refuses a bib already used or not a number, a participant without name, and unknown ones', async () => {
+        expect(await call('POST', P, { bib: '12', fields: { name: 'X' } })).toEqual({ status: 409, body: { problems: ['Bib 12 is already used.'] } });
+        expect((await call('PUT', `${P}/7`, { bib: '12', fields: { name: 'X' } })).status).toBe(409);
+        expect((await call('POST', P, { bib: 'A1', fields: { name: 'X' } })).status).toBe(422);
+        expect(await call('POST', P, { bib: '30', fields: { name: ' ' } })).toEqual({ status: 422, body: { problems: ['The participant has no name.'] } });
+        expect((await call('POST', P, { bib: '30', fields: { name: 'X' }, file: 'nope.csv' })).status).toBe(404);
+        expect((await call('PUT', `${P}/99`, { bib: '99', fields: { name: 'X' } })).status).toBe(404);
+        expect((await call('DELETE', `${P}/99`)).status).toBe(404);
+        expect((await call('POST', P, { bib: '30', fields: 'X' })).status).toBe(400);
+        expect(readFile('CFM26/100m/men.csv')).toBe('bib;name\n7;Hugo Guérin\n12;Léa Martin\n');
+    });
+
+    it('writes the first and last names of a UDA export, with its separator and line endings', async () => {
+        writeFiles({ 'CFM26/100m/uda.csv': 'ID,LastName,FirstName,Country,Age Group\r\n21,MARTIN,jean-luc,France,Sénior M\r\n' });
+        await call('POST', P, { bib: '22', fields: { firstName: 'Ann', lastName: 'Roy' }, category: 'Junior F', file: 'uda.csv' });
+        await call('PUT', `${P}/21`, { bib: '21', fields: { firstName: 'Jean-Luc', lastName: 'MARTIN' }, category: 'Expert M' });
+        expect(readFile('CFM26/100m/uda.csv')).toBe('ID,LastName,FirstName,Country,Age Group\r\n21,MARTIN,Jean-Luc,France,Expert M\r\n22,Roy,Ann,,Junior F\r\n');
+    });
+
+    it('adds a category column, and a header to a file without one', async () => {
+        writeFiles({ 'CFM26/100m/men.csv': '7;Hugo Guérin;x\n' });
+        await call('POST', P, { bib: '12', fields: { name: 'Léa Martin' }, category: 'Sénior F' });
+        expect(readFile('CFM26/100m/men.csv')).toBe('Bib;Name;;Category\n7;Hugo Guérin;x\n12;Léa Martin;;Sénior F\n');
+        expect((await call('GET', '/events/CFM26/100m/participants')).body.participants).toEqual([
+            { bib: '7', name: 'Hugo Guérin', category: '' },
+            { bib: '12', name: 'Léa Martin', category: 'Sénior F' },
+        ]);
+    });
+
+    it('keeps a Windows-1252 file so, and makes it UTF-8 with a BOM for a character it cannot hold', async () => {
+        writeFiles({ 'CFM26/100m/men.csv': Buffer.from('bib;name\r\n7;Éloïse Vernier\r\n', 'latin1') });
+        await call('POST', P, { bib: '8', fields: { name: 'Zoé Œuvray' } });
+        expect(fs.readFileSync(path.join(workDir(), 'CFM26/100m/men.csv'))).toEqual(Buffer.from('bib;name\r\n7;Éloïse Vernier\r\n8;Zoé \x8Cuvray\r\n', 'latin1'));
+        await call('POST', P, { bib: '9', fields: { name: 'Ōta' } });
+        expect(readFile('CFM26/100m/men.csv')).toBe('\uFEFFbib;name\r\n7;Éloïse Vernier\r\n8;Zoé Œuvray\r\n9;Ōta\r\n');
+    });
+
+    it('creates the competitors file of a discipline without participants', async () => {
+        writeFiles({ 'CFM26/200m/config.yaml': 'access: auto\n' });
+        expect((await call('POST', '/events/CFM26/200m/participants', { bib: '1', fields: { name: 'Ann' }, category: 'Open' })).status).toBe(201);
+        expect(readFile('CFM26/200m/CFM26-200m-competitors.csv')).toBe('Bib;Name;Category\r\n1;Ann;Open\r\n');
+    });
+});
+
 describe('discipline settings', () => {
     it('saves valid settings and returns them as read back from config.yaml', async () => {
         const settings = { attempts: 3, start: '2026-11-05T08:00+01:00', end: null, access: 'open' };

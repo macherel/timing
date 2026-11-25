@@ -369,38 +369,74 @@ export async function loadParticipants(event: string, discipline: string): Promi
 
 /** Participants from the CSV files of a discipline folder, sorted by bib (see loadParticipants). */
 export async function readParticipants(dir: string): Promise<ParticipantList> {
-    const files = (await fs.promises.readdir(dir, { withFileTypes: true }))
+    const { settings, problems } = await loadDisciplineSettings(dir);
+    const read = await readParticipantFiles(dir);
+    const participants = read.entries.map(({ bib, name, category }) => ({ bib, name, category }));
+    return { participants, settings, problems: [...problems, ...read.problems] };
+}
+
+/** A participant CSV file of a discipline folder, as read (see readParticipantFiles). */
+export interface ParticipantFile {
+    name: string;
+    // The text was valid UTF-8 (else Windows-1252), and started with a BOM
+    utf8: boolean;
+    bom: boolean;
+    text: string;
+    rows: string[][];
+    columns: ParticipantColumns;
+    // The columns were found by their name in the first row; else they are bib;name
+    recognized: boolean;
+    // The first row is a header: its bib is not a number
+    header: boolean;
+}
+
+/** A participant, with the file and the row (index in its rows) it comes from. */
+export interface ParticipantEntry extends Participant {
+    file: string;
+    row: number;
+}
+
+/**
+ * The participant files of a discipline folder by name (UDA results files left out), with the participants they
+ * list sorted by bib, and the rows skipped and why. A bib is the participant of its first valid row.
+ */
+export async function readParticipantFiles(dir: string): Promise<{ files: ParticipantFile[]; entries: ParticipantEntry[]; problems: string[] }> {
+    const names = (await fs.promises.readdir(dir, { withFileTypes: true }))
         .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === '.csv')
         .filter((entry) => !isResultsFileName(path.basename(path.dirname(dir)), path.basename(dir), entry.name))
         .map((entry) => entry.name)
         .sort(byName);
 
-    const participants: Participant[] = [];
-    const { settings, problems } = await loadDisciplineSettings(dir);
+    const files: ParticipantFile[] = [];
+    const entries: ParticipantEntry[] = [];
+    const problems: string[] = [];
     const fileOfBib = new Map<string, string>();
 
-    for (const fileName of files) {
-        let rows: string[][];
+    for (const fileName of names) {
+        let file: ParticipantFile;
         try {
-            rows = parseCsv(decode(await fs.promises.readFile(path.join(dir, fileName))));
+            const buffer = await fs.promises.readFile(path.join(dir, fileName));
+            const { text, utf8 } = decode(buffer);
+            const rows = parseCsv(text);
+            const { columns, recognized } = participantColumns(rows[0] ?? []);
+            const bom = buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
+            file = { name: fileName, utf8, bom, text, rows, columns, recognized, header: false };
         } catch (error) {
             problems.push(`${fileName}: cannot be read (${errorMessage(error)})`);
             continue;
         }
 
-        if (isUdaResults(rows)) continue;
-        const columns = participantColumns(rows[0] ?? []);
-        rows.forEach((row, index) => {
-            const cells = row.map((cell) => cell.trim());
-            const cell = (column: number | null) => (column === null ? '' : (cells[column] ?? ''));
-            const bib = cell(columns.bib);
-            const name = [titleCase(cell(columns.firstName)), titleCase(cell(columns.lastName)), cell(columns.name)]
-                .filter((part) => part !== '')
-                .join(' ');
+        if (isUdaResults(file.rows)) continue;
+        files.push(file);
+        file.rows.forEach((row, index) => {
+            const { bib, name, category } = participantCells(row, file.columns);
             const where = `${fileName}, line ${index + 1}`;
             if (bib === '' && name === '') return;
             // Header row: first line whose bib is not a number
-            if (index === 0 && !/^\d+$/.test(bib)) return;
+            if (index === 0 && !/^\d+$/.test(bib)) {
+                file.header = true;
+                return;
+            }
 
             if (!/^\d+$/.test(bib)) {
                 problems.push(`${where}: bib "${bib}" is not a number`);
@@ -410,13 +446,26 @@ export async function readParticipants(dir: string): Promise<ParticipantList> {
                 problems.push(`${where}: bib ${bib} is already used in ${fileOfBib.get(bib)}`);
             } else {
                 fileOfBib.set(bib, fileName);
-                participants.push({ bib, name, category: cell(columns.category) });
+                entries.push({ bib, name, category, file: fileName, row: index });
             }
         });
     }
 
-    participants.sort((a, b) => Number(a.bib) - Number(b.bib));
-    return { participants, settings, problems };
+    entries.sort((a, b) => Number(a.bib) - Number(b.bib));
+    return { files, entries, problems };
+}
+
+/**
+ * The bib, name and category of a row, trimmed. The name is "first name last name" (see titleCase), or the name
+ * column as it is.
+ */
+export function participantCells(row: string[], columns: ParticipantColumns): Participant {
+    const cells = row.map((cell) => cell.trim());
+    const cell = (column: number | null) => (column === null ? '' : (cells[column] ?? ''));
+    const name = [titleCase(cell(columns.firstName)), titleCase(cell(columns.lastName)), cell(columns.name)]
+        .filter((part) => part !== '')
+        .join(' ');
+    return { bib: cell(columns.bib), name, category: cell(columns.category) };
 }
 
 /**
@@ -442,7 +491,7 @@ const HEADER_ALIASES = {
     lastName: ['lastname', 'surname', 'nomdefamille'],
     category: ['agegroup', 'category', 'categorie'],
 };
-type ParticipantColumns = Record<keyof typeof HEADER_ALIASES, number | null>;
+export type ParticipantColumns = Record<keyof typeof HEADER_ALIASES, number | null>;
 
 const headerKey = (cell: string) =>
     cell.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s_-]/g, '').toLowerCase();
@@ -458,9 +507,8 @@ export function titleCase(text: string): string {
 /**
  * Where the participant columns are, from the first row of a file. Without a bib column and a name (name, or first
  * and/or last name) in that row, it is not a recognised header: bib in the first column, name in the second.
- * The name is "first name last name" (see titleCase), or the name column as it is.
  */
-function participantColumns(firstRow: string[]): ParticipantColumns {
+function participantColumns(firstRow: string[]): { columns: ParticipantColumns; recognized: boolean } {
     const keys = firstRow.map(headerKey);
     const find = (aliases: string[]) => {
         const index = keys.findIndex((key) => aliases.includes(key));
@@ -471,8 +519,8 @@ function participantColumns(firstRow: string[]): ParticipantColumns {
     ) as ParticipantColumns;
     if (found.firstName !== null || found.lastName !== null) found.name = null;
     const hasName = found.name !== null || found.firstName !== null || found.lastName !== null;
-    if (found.bib !== null && hasName) return found;
-    return { bib: 0, name: 1, firstName: null, lastName: null, category: null };
+    if (found.bib !== null && hasName) return { columns: found, recognized: true };
+    return { columns: { bib: 0, name: 1, firstName: null, lastName: null, category: null }, recognized: false };
 }
 
 /**
@@ -542,12 +590,19 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
 }
 
 /** UTF-8 (with or without BOM), or Windows-1252 as saved by Excel on Windows when the file is not valid UTF-8. */
-function decode(buffer: Buffer): string {
+function decode(buffer: Buffer): { text: string; utf8: boolean } {
     try {
-        return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+        return { text: new TextDecoder('utf-8', { fatal: true }).decode(buffer), utf8: true };
     } catch {
-        return new TextDecoder('windows-1252').decode(buffer);
+        return { text: new TextDecoder('windows-1252').decode(buffer), utf8: false };
     }
+}
+
+/** The separator of CSV text: the most frequent one on its first line, among semicolon, comma and tab. */
+export function csvSeparator(text: string): string {
+    const firstLine = text.split(/\r?\n/, 1)[0];
+    const count = (separator: string) => firstLine.split(separator).length;
+    return [';', ',', '\t'].reduce((best, candidate) => (count(candidate) > count(best) ? candidate : best));
 }
 
 /**
@@ -555,9 +610,7 @@ function decode(buffer: Buffer): string {
  * first line. Quoted cells may contain separators, line breaks and doubled quotes.
  */
 export function parseCsv(text: string): string[][] {
-    const firstLine = text.split(/\r?\n/, 1)[0];
-    const count = (separator: string) => firstLine.split(separator).length;
-    const separator = [';', ',', '\t'].reduce((best, candidate) => (count(candidate) > count(best) ? candidate : best));
+    const separator = csvSeparator(text);
 
     const rows: string[][] = [];
     let row: string[] = [];

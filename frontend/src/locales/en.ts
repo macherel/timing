@@ -177,7 +177,7 @@ export default {
   },
 
   files: {
-    participantsHint: 'The participants are read from the CSV files below (bib;name, or a UDA export). Replace a file to update them.',
+    participantsHint: 'The participants are read from the CSV files below (bib;name, or a UDA export). Replace a file to update them, or change them in the participant list below.',
     count: 'No participant in all. | 1 participant in all. | {n} participants in all.',
     noParticipantFile: 'No participant file yet: the file sent is saved as {name}.',
     noResult: 'No result yet: the files are written at the first run.',
@@ -206,6 +206,29 @@ export default {
     noBackupFile: 'Empty backup.',
     backupOf: 'Results of {date}',
     backupParticipantsLabel: 'Participants of these results',
+  },
+
+  participantEditor: {
+    title: 'Participant list',
+    hint: 'Add, change or remove participants: their file is rewritten and the results are kept.',
+    search: 'Search a bib or a name',
+    add: '+ Add a participant',
+    addSave: 'Add',
+    edit: 'Edit',
+    remove: 'Remove',
+    bib: 'Bib',
+    name: 'Name',
+    firstName: 'First name',
+    lastName: 'Last name',
+    category: 'Category',
+    file: 'File',
+    none: 'No participant yet.',
+    timed: 'This participant has runs: they keep their bib and cannot be removed.',
+    confirmRemove: 'Remove {bib} {name} from {file}?',
+    added: '{bib} {name} added.',
+    saved: '{bib} {name} saved.',
+    removed: '{bib} {name} removed.',
+    error: 'Cannot change the participants: {error}',
   },
 
   tabs: {

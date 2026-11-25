@@ -172,7 +172,7 @@ const de: Messages = {
   },
 
   files: {
-    participantsHint: 'Die Teilnehmer werden aus den CSV-Dateien unten gelesen (Startnummer;Name, oder ein UDA-Export). Ersetze eine Datei, um sie zu aktualisieren.',
+    participantsHint: 'Die Teilnehmer werden aus den CSV-Dateien unten gelesen (Startnummer;Name, oder ein UDA-Export). Ersetze eine Datei, um sie zu aktualisieren, oder ändere sie in der Teilnehmerliste unten.',
     count: 'Insgesamt kein Teilnehmer. | Insgesamt 1 Teilnehmer. | Insgesamt {n} Teilnehmer.',
     noParticipantFile: 'Noch keine Teilnehmerdatei: die gesendete Datei wird als {name} gespeichert.',
     noResult: 'Noch kein Ergebnis: die Dateien werden beim ersten Lauf geschrieben.',
@@ -201,6 +201,29 @@ const de: Messages = {
     noBackupFile: 'Leere Sicherung.',
     backupOf: 'Ergebnisse vom {date}',
     backupParticipantsLabel: 'Teilnehmer dieser Ergebnisse',
+  },
+
+  participantEditor: {
+    title: 'Teilnehmerliste',
+    hint: 'Füge Teilnehmer hinzu, ändere oder entferne sie: ihre Datei wird neu geschrieben, die Ergebnisse bleiben erhalten.',
+    search: 'Startnummer oder Name suchen',
+    add: '+ Teilnehmer hinzufügen',
+    addSave: 'Hinzufügen',
+    edit: 'Bearbeiten',
+    remove: 'Entfernen',
+    bib: 'Startnummer',
+    name: 'Name',
+    firstName: 'Vorname',
+    lastName: 'Nachname',
+    category: 'Kategorie',
+    file: 'Datei',
+    none: 'Noch kein Teilnehmer.',
+    timed: 'Dieser Teilnehmer hat Läufe: er behält seine Startnummer und kann nicht entfernt werden.',
+    confirmRemove: '{bib} {name} aus {file} entfernen?',
+    added: '{bib} {name} hinzugefügt.',
+    saved: '{bib} {name} gespeichert.',
+    removed: '{bib} {name} entfernt.',
+    error: 'Teilnehmer können nicht geändert werden: {error}',
   },
 
   tabs: {

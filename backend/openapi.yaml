@@ -185,6 +185,123 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ParticipantList' }
         '404': { $ref: '#/components/responses/UnknownDiscipline' }
+    post:
+      tags: [Events]
+      summary: Adds a participant by hand
+      description: |
+        Adds a row to a participant file of the discipline: the one named in `file`, else its first one. A discipline
+        without participant file gets `<event>-<discipline>-competitors.csv`, with a `Bib;Name;Category` header. The
+        file keeps its other columns, separator, line endings and encoding (Windows-1252 becomes UTF-8 with a BOM when
+        it cannot hold a character); a category in a file without category column adds one. The results are kept. The
+        UDA export is written again, the sync copies the file, and pages get a `SYNC_UPDATE` message.
+      operationId: addParticipant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ParticipantInput'
+                - type: object
+                  properties:
+                    file: { type: string, description: A participant file of the discipline, examples: [men.csv] }
+      responses:
+        '201':
+          description: Added; the participants as the editor shows them
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EditableParticipants' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Unknown event, discipline or file
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '409':
+          description: The bib is already used
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '422': { $ref: '#/components/responses/Invalid' }
+
+  /events/{event}/{discipline}/participants/editable:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+    get:
+      tags: [Events]
+      summary: Participants of a discipline as written in their files, to change them by hand
+      operationId: getEditableParticipants
+      responses:
+        '200':
+          description: The participant files, and the participants sorted by bib
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EditableParticipants' }
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
+
+  /events/{event}/{discipline}/participants/{bib}:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+      - name: bib
+        in: path
+        required: true
+        description: Bib of a participant of the discipline
+        schema: { type: string, pattern: '^\d+$', examples: ['7'] }
+    put:
+      tags: [Events]
+      summary: Changes a participant by hand
+      description: |
+        Rewrites the row of the participant in its file (see `POST /events/{event}/{discipline}/participants`). A
+        participant with runs, or ready or running on a line, keeps their bib (409).
+      operationId: updateParticipant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ParticipantInput' }
+      responses:
+        '200':
+          description: Changed; the participants as the editor shows them
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EditableParticipants' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Unknown event, discipline or participant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '409':
+          description: The new bib is already used, or the participant has runs and the bib changes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '422': { $ref: '#/components/responses/Invalid' }
+    delete:
+      tags: [Events]
+      summary: Removes a participant by hand
+      description: |
+        Removes the row of the participant from its file (see `POST /events/{event}/{discipline}/participants`). A
+        participant with runs, or ready or running on a line, cannot be removed (409).
+      operationId: removeParticipant
+      responses:
+        '200':
+          description: Removed; the participants as the editor shows them
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EditableParticipants' }
+        '404':
+          description: Unknown event, discipline or participant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+        '409':
+          description: The participant has runs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
 
   /events/{event}/{discipline}/settings:
     parameters:
@@ -1016,6 +1133,57 @@ components:
         bib: { type: string, pattern: '^\d+$', examples: ['7'] }
         name: { type: string, examples: [Hugo Guérin] }
         category: { type: string, description: 'The Age Group column of the CSV file, empty when it has none or the cell is empty', examples: [Sénior M] }
+
+    NameFields:
+      type: object
+      description: The name cells of a participant, by name field of their file
+      properties:
+        name: { type: string, examples: [Hugo Guérin] }
+        firstName: { type: string, examples: [Hugo] }
+        lastName: { type: string, examples: [GUÉRIN] }
+
+    ParticipantInput:
+      type: object
+      required: [bib, fields]
+      properties:
+        bib: { type: string, pattern: '^\d+$', examples: ['7'] }
+        fields:
+          $ref: '#/components/schemas/NameFields'
+          description: The name fields of the file (others are ignored); they must give a name
+        category: { type: string, description: Empty for none, examples: [Sénior M] }
+
+    EditableParticipants:
+      type: object
+      required: [files, participants]
+      properties:
+        files:
+          type: array
+          items:
+            type: object
+            required: [name, nameFields]
+            properties:
+              name: { type: string, examples: [competitors.csv] }
+              nameFields:
+                type: array
+                description: The name columns of the file
+                items: { type: string, enum: [name, firstName, lastName] }
+                examples: [[firstName, lastName]]
+        participants:
+          type: array
+          items:
+            type: object
+            required: [bib, name, category, file, fields, timed]
+            properties:
+              bib: { type: string, pattern: '^\d+$', examples: ['7'] }
+              name: { type: string, description: As shown on the race page, examples: [Hugo Guérin] }
+              category: { type: string, examples: [Sénior M] }
+              file: { type: string, examples: [competitors.csv] }
+              fields:
+                $ref: '#/components/schemas/NameFields'
+                description: The name cells as written in the file (empty for the fields it does not have)
+              timed:
+                type: boolean
+                description: The participant has runs, or is ready or running on a line, so keeps their bib
 
     ParticipantList:
       type: object

@@ -32,6 +32,65 @@ test('replaces the participant files of a discipline that has several, but adds 
   expect((await download).suggestedFilename()).toBe('men.csv');
 });
 
+test('adds, changes and removes participants by hand, keeping the results', async ({ page }) => {
+  writeFiles({
+    'CFM26/100m/CFM26-100m-results.csv':
+      'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:12Z;OK;2026-11-05T10:00:12Z\n',
+  });
+  await page.goto('/CFM26/100m/config/data');
+  const list = page.getByRole('region', { name: 'Participant list' });
+  const row = (name: RegExp) => list.getByRole('row', { name });
+  // Folded at first
+  await expect(list.getByRole('button', { name: '+ Add a participant' })).toBeHidden();
+  await list.getByText('Participant list').click();
+  await expect(list.locator('tbody tr')).toHaveCount(3);
+
+  // Added to the file chosen, with a category: the file gets a category column
+  await list.getByRole('button', { name: '+ Add a participant' }).click();
+  await list.getByLabel('Bib', { exact: true }).fill('30');
+  await list.getByLabel('Name', { exact: true }).fill('Zoé Petit');
+  await list.getByLabel('Category', { exact: true }).fill('Junior F');
+  await list.getByLabel('File', { exact: true }).selectOption('women.csv');
+  await list.getByLabel('Category', { exact: true }).press('Enter');
+  await expect(page.getByRole('status')).toHaveText('30 Zoé Petit added.');
+  await expect(row(/Zoé Petit/)).toContainText('Junior F');
+  expect(readFile('CFM26/100m/women.csv')).toBe('bib;name;Category\n12;Léa Martin\n30;Zoé Petit;Junior F\n');
+  await expect(page.getByRole('region', { name: 'Participants' })).toContainText('4 participants in all.');
+
+  // A participant with runs keeps their bib and cannot be removed, but their name can change
+  await expect(row(/Hugo Guérin/).getByRole('button', { name: 'Remove' })).toBeDisabled();
+  await row(/Hugo Guérin/).getByRole('button', { name: 'Edit' }).click();
+  await expect(list.getByLabel('Bib', { exact: true })).toBeDisabled();
+  await list.getByLabel('Name', { exact: true }).fill('Hugo Guérin-Roy');
+  await list.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('status')).toHaveText('7 Hugo Guérin-Roy saved.');
+  expect(readFile('CFM26/100m/men.csv')).toBe('bib;name\n7;Hugo Guérin-Roy\n21;Jean-Luc Martin\n');
+
+  // Escape cancels a change
+  await row(/Jean-Luc Martin/).getByRole('button', { name: 'Edit' }).click();
+  await list.getByLabel('Name', { exact: true }).fill('Nobody');
+  await list.getByLabel('Name', { exact: true }).press('Escape');
+  await expect(row(/Jean-Luc Martin/)).toBeVisible();
+
+  // A bib already used is refused
+  await row(/Jean-Luc Martin/).getByRole('button', { name: 'Edit' }).click();
+  await list.getByLabel('Bib', { exact: true }).fill('12');
+  await list.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('alert')).toHaveText('Cannot change the participants: Bib 12 is already used.');
+  await list.getByRole('button', { name: 'Cancel' }).click();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await row(/Jean-Luc Martin/).getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByRole('status')).toHaveText('21 Jean-Luc Martin removed.');
+  await expect(list.locator('tbody tr')).toHaveCount(3);
+
+  await list.getByPlaceholder('Search a bib or a name').fill('zoe');
+  await expect(list.locator('tbody tr')).toHaveCount(1);
+
+  // The results are kept
+  expect(readFile('CFM26/100m/CFM26-100m-results.csv')).toContain('7;Hugo Guérin;');
+});
+
 test('saves the first participant file of a discipline as <event>-<discipline>-competitors.csv, then replaces it', async ({ page }) => {
   writeFiles({ 'CFM26/200m/config.yaml': 'access: auto\n' });
   // The address of the former participants tab opens the data tab

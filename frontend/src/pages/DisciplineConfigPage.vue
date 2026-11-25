@@ -2,10 +2,11 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
-import type { Backup, DisciplineFile, ParticipantsResponse } from '../types';
+import type { Backup, DisciplineFile, EditableParticipants, ParticipantsResponse } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import DisciplineSettingsForm, { type SettingsSection } from '../components/discipline/DisciplineSettingsForm.vue';
 import ParticipantFiles from '../components/discipline/ParticipantFiles.vue';
+import ParticipantEditor from '../components/discipline/ParticipantEditor.vue';
 import ResultFiles from '../components/discipline/ResultFiles.vue';
 import BackupFiles from '../components/discipline/BackupFiles.vue';
 import PageTabs from '../components/PageTabs.vue';
@@ -19,7 +20,7 @@ import { discipline, disciplineExists, eventName, eventsLoaded, leaveSettings, l
  * - lock (…/config/lock): period and access.
  *   Saving or cancelling goes back to the page of the discipline it came from, as the gear beside the title does;
  *   leaving another way with unsaved changes asks first. Switching tabs keeps them;
- * - data (…/config/data): its participant files, to download, replace or add; its results file and their UDA export,
+ * - data (…/config/data): its participant files, to download, replace or add, and its participants, to change by hand (folded at first); its results file and their UDA export,
  *   to download; and the backups of its results made when its participants changed, to download.
  */
 const TABS = ['settings', 'advanced', 'lock', 'data'] as const;
@@ -75,6 +76,7 @@ const files = ref<DisciplineFile[]>([]);
 const backups = ref<Backup[]>([]);
 const count = ref<number | null>(null);
 const problems = ref<string[]>([]);
+const editable = ref<EditableParticipants | null>(null);
 const filesError = ref<string | null>(null);
 let filesRequest = 0;
 
@@ -82,12 +84,15 @@ async function loadFiles(): Promise<void> {
   const request = ++filesRequest;
   const base = `/api/events/${encodeURIComponent(eventName.value)}/${encodeURIComponent(discipline.value)}`;
   try {
-    const [filesResponse, participantsResponse] = await Promise.all([fetch(`${base}/files`), fetch(`${base}/participants`)]);
-    if (!filesResponse.ok) throw new Error(`HTTP ${filesResponse.status}`);
-    if (!participantsResponse.ok) throw new Error(`HTTP ${participantsResponse.status}`);
+    const responses = await Promise.all([fetch(`${base}/files`), fetch(`${base}/participants`), fetch(`${base}/participants/editable`)]);
+    const failed = responses.find((response) => !response.ok);
+    if (failed) throw new Error(`HTTP ${failed.status}`);
+    const [filesResponse, participantsResponse, editableResponse] = responses;
     const list: { files: DisciplineFile[]; backups: Backup[] } = await filesResponse.json();
     const participants: ParticipantsResponse = await participantsResponse.json();
+    const editableList: EditableParticipants = await editableResponse.json();
     if (request !== filesRequest) return;
+    editable.value = editableList;
     files.value = list.files;
     backups.value = list.backups;
     count.value = participants.participants.length;
@@ -145,6 +150,15 @@ if (!eventsLoaded.value) loadEvents();
           <h3 id="data-participants">{{ $t('files.sections.participants') }}</h3>
           <ParticipantFiles :event="eventName" :discipline="discipline" :files="files" :count="count" :problems="problems" @changed="loadFiles" />
         </section>
+        <section aria-labelledby="data-participant-list">
+          <!-- Folded at first: the list can be long -->
+          <details class="participant-list">
+            <summary>
+              <h3 id="data-participant-list">{{ $t('participantEditor.title') }}</h3>
+            </summary>
+            <ParticipantEditor :event="eventName" :discipline="discipline" :list="editable" @changed="loadFiles" />
+          </details>
+        </section>
         <section aria-labelledby="data-results">
           <h3 id="data-results">{{ $t('files.sections.results') }}</h3>
           <ResultFiles :event="eventName" :discipline="discipline" :files="files" />
@@ -159,6 +173,12 @@ if (!eventsLoaded.value) loadEvents();
 </template>
 
 <style scoped>
+.participant-list summary {
+  cursor: pointer;
+}
+.participant-list summary h3 {
+  display: inline;
+}
 .settings-page {
   max-width: 760px;
 }

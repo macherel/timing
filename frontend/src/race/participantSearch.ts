@@ -25,11 +25,11 @@ function wordCost(word: string, bib: string, name: string): number | null {
  * Every word of the query must match: "12 dup" finds bib 12x whose name contains a word starting with "dup".
  * An empty query returns the complete list (sorted by bib, not limited), to browse it.
  */
-export function searchParticipants(participants: Participant[], query: string, limit: number): Participant[] {
+export function searchParticipants<T extends Participant>(participants: T[], query: string, limit: number): T[] {
   const words = normalize(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return participants;
 
-  const matches: { participant: Participant; cost: number }[] = [];
+  const matches: { participant: T; cost: number }[] = [];
   for (const participant of participants) {
     const name = normalize(participant.name);
     let cost = 0;

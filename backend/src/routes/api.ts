@@ -55,6 +55,14 @@ import { notifyLocalChange } from '../utils/localChanges.js';
 import { computerName } from '../utils/computerName.js';
 import { lockState, unlock } from '../services/adminLock.js';
 import {
+    addParticipant,
+    loadEditableParticipants,
+    ParticipantEditError,
+    removeParticipant,
+    updateParticipant,
+    type ParticipantInput,
+} from '../services/participantEdits.js';
+import {
     buildManifest,
     getLive,
     getSyncStatus,
@@ -136,6 +144,75 @@ router.get('/events/:event/:discipline/participants', async (req: Request, res: 
         return;
     }
     res.json(list);
+});
+
+// Settings page of a discipline: its participants as written in their files, to change them by hand
+router.get('/events/:event/:discipline/participants/editable', async (req: Request, res: Response) => {
+    const list = await loadEditableParticipants(String(req.params.event), String(req.params.discipline));
+    if (!list) {
+        res.status(404).json({ problems: ['Unknown event or discipline.'] });
+        return;
+    }
+    res.json(list);
+});
+
+/** The participant of a request body, or null when a field is missing or wrong. */
+function participantInput(body: any): ParticipantInput | null {
+    const bib = typeof body?.bib === 'number' ? String(body.bib) : body?.bib;
+    const fields = body?.fields ?? {};
+    const category = body?.category ?? '';
+    if (typeof bib !== 'string' || typeof category !== 'string' || typeof fields !== 'object' || Array.isArray(fields)) return null;
+    if (!['name', 'firstName', 'lastName'].every((field) => fields[field] === undefined || typeof fields[field] === 'string')) return null;
+    return { bib: bib.trim(), fields, category };
+}
+
+/**
+ * Makes a change to the participants of a discipline, then sends them back as the editor shows them. The results are
+ * kept; the UDA export is written again (it lists the participants), the sync copies the file, and pages get a
+ * SYNC_UPDATE message.
+ */
+async function changeParticipants(req: Request, res: Response, status: 200 | 201, change: () => Promise<void>): Promise<void> {
+    const event = String(req.params.event);
+    const discipline = String(req.params.discipline);
+    try {
+        await change();
+    } catch (error) {
+        if (!(error instanceof ParticipantEditError)) throw error;
+        res.status(error.status).json({ problems: [error.message] });
+        return;
+    }
+    await writeUdaResults(event, discipline);
+    broadcastToUI({ type: 'SYNC_UPDATE', event, discipline });
+    notifyLocalChange(event, discipline);
+    res.status(status).json(await loadEditableParticipants(event, discipline));
+}
+
+// Settings page of a discipline: adds a participant by hand, to the file named (else the first one)
+router.post('/events/:event/:discipline/participants', async (req: Request, res: Response) => {
+    const input = participantInput(req.body);
+    const file = req.body?.file;
+    if (!input || (file !== undefined && typeof file !== 'string')) {
+        res.status(400).json({ problems: ['bib, fields, category and file must be strings (fields: name, firstName, lastName).'] });
+        return;
+    }
+    await changeParticipants(req, res, 201, () => addParticipant(String(req.params.event), String(req.params.discipline), input, file));
+});
+
+// Settings page of a discipline: changes a participant by hand
+router.put('/events/:event/:discipline/participants/:bib', async (req: Request, res: Response) => {
+    const input = participantInput(req.body);
+    if (!input) {
+        res.status(400).json({ problems: ['bib, fields and category must be strings (fields: name, firstName, lastName).'] });
+        return;
+    }
+    await changeParticipants(req, res, 200, () =>
+        updateParticipant(String(req.params.event), String(req.params.discipline), String(req.params.bib), input),
+    );
+});
+
+// Settings page of a discipline: removes a participant by hand
+router.delete('/events/:event/:discipline/participants/:bib', async (req: Request, res: Response) => {
+    await changeParticipants(req, res, 200, () => removeParticipant(String(req.params.event), String(req.params.discipline), String(req.params.bib)));
 });
 
 // Race page: the settings of a discipline, from its config.yaml, with the problems found in it
