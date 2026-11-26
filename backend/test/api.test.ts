@@ -472,7 +472,7 @@ describe('a run timed by hand', () => {
     it('only runs on the manual line, which only runs the disciplines timed by hand', async () => {
         const onGates = await ready('Line 1');
         expect(onGates.status).toBe(409);
-        expect(onGates.body.problems[0]).toMatch(/timed by hand: its runs are on the line "Manuel"/);
+        expect(onGates.body.problems[0]).toMatch(/timed by hand: its runs are on a manual line \("Manuel"\)/);
 
         writeFiles({ 'CFM26/100m/config.yaml': 'trigger: gates\n' });
         expect((await ready('Manuel')).status).toBe(409);
@@ -481,6 +481,28 @@ describe('a run timed by hand', () => {
     it('refuses a key press on another line, or an unknown one', async () => {
         expect((await press('Line 1')).status).toBe(409);
         expect((await press('Nope')).status).toBe(404);
+        expect((await press('Manuel 1')).status).toBe(404);
+        expect((await press('Manuel 10')).status).toBe(404);
+    });
+
+    it('runs several participants at once on the manual lines of the tabs, listed once used', async () => {
+        const lineNames = async () => ((await call('GET', '/lines')).body.lines as { line: string }[]).map((line) => line.line);
+        expect(await lineNames()).not.toContain('Manuel 2');
+        expect((await ready('Manuel')).body.status).toBe('ready');
+        const other = await call('POST', `/lines/${encodeURIComponent('Manuel 2')}/ready`, { event: 'CFM26', discipline: '100m', bib: '12' });
+        expect(other.body.status).toBe('ready');
+        expect((await lineNames()).slice(-2)).toEqual(['Manuel', 'Manuel 2']);
+        // The same participant cannot be on two lines
+        expect((await call('POST', `/lines/${encodeURIComponent('Manuel 3')}/ready`, { event: 'CFM26', discipline: '100m', bib: '7' })).status).toBe(409);
+
+        expect((await press('Manuel')).body.status).toBe('running');
+        expect((await press('Manuel 2')).body.status).toBe('running');
+        expect((await press('Manuel 2')).body).toEqual({ status: 'idle' });
+        expect((await press('Manuel')).body).toEqual({ status: 'idle' });
+        const results = await waitForResults(2);
+        expect(results.map((result) => [result.bib, result.line])).toEqual(expect.arrayContaining([['12', 'Manuel 2'], ['7', 'Manuel']]));
+        // Still listed with its last result
+        expect(await lineNames()).toContain('Manuel 2');
     });
 });
 

@@ -133,7 +133,7 @@ function renameLegacyResults(dir: string): void {
 /** Settings of a discipline, from its config.yaml. Every setting is optional. */
 export interface DisciplineSettings {
     // What a run measures: a time, between the start and finish crossings, or a distance, typed by the operator on the
-    // race page (on the manual line of each computer, the longest distance is the best)
+    // race page (on a manual line, one per tab, the longest distance is the best)
     measure: Measure;
     attempts: number | null; // Runs allowed per participant (invalid runs do not count); the best result is among the first ones only. null: unlimited
     // For a distance: runs allowed at one same distance (invalid runs do not count). A participant who used them all at
@@ -739,8 +739,8 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     const lines = [
         '# Settings of this discipline, also edited from the race page (saving from the page does not keep comments)',
         '',
-        '# What a run measures: time (between the start and finish) or distance (typed on the race page, on the line',
-        `# "${MANUAL_LINE}" of each computer, the longest is the best)`,
+        '# What a run measures: time (between the start and finish) or distance (typed on the race page, on a manual',
+        `# line "${MANUAL_LINE}", "${MANUAL_LINE} 2"…, one per tab, the longest is the best)`,
         `measure: ${settings.measure}`,
         '',
         '# Runs allowed per participant (invalid runs do not count). The best result is among the first ones only (a run',
@@ -774,7 +774,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         `recentRuns: ${settings.recentRuns}`,
         '',
         '# What starts and finishes the runs: gates (the start and finish gates of a line) or keyboard (timed by hand,',
-        `# with the space bar of the race page, on the line "${MANUAL_LINE}" of each computer)`,
+        `# with the space bar of the race page, on a manual line "${MANUAL_LINE}", "${MANUAL_LINE} 2"…, one per tab)`,
         `trigger: ${settings.trigger}`,
         '# The key that starts and finishes the runs timed by hand: the code of a key of the browser (Space, Enter, KeyA…)',
         `triggerKey: ${settings.triggerKey}`,

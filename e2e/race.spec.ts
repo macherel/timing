@@ -221,7 +221,7 @@ test('times a discipline by hand with its trigger key, on the manual line', asyn
   await expect(page.getByRole('radio', { name: 'Gates' })).toBeChecked();
   await expect(page.getByTestId('trigger-key')).toHaveCount(0);
   await page.getByText('Manual (keyboard)', { exact: true }).click();
-  await expect(page.getByTestId('trigger-hint')).toContainText('on the line “Manuel” of each computer');
+  await expect(page.getByTestId('trigger-hint')).toContainText('on a manual line (“Manuel”, “Manuel 2”…, one per tab)');
   // The space bar by default, changed by pressing the new key: any key, Tab too
   await expect(page.getByTestId('trigger-key')).toHaveText('Space');
   await page.getByRole('button', { name: 'Change the key' }).click();
@@ -299,6 +299,37 @@ test('measures a distance typed by the operator, then validated or not, on the m
   await page.goto('/CFM26/100m/live');
   await expect(page.locator('.ranking th.time')).toHaveText('Best distance');
   await expect(page.locator('.ranking tbody tr').first().locator('td.time')).toHaveText('345 cm');
+});
+
+test('gives each tab its own manual line, so several participants run at once on one computer', async ({ page, context }) => {
+  writeFiles({ 'CFM26/100m/config.yaml': 'measure: distance\n' });
+  await page.goto('/CFM26/100m/race');
+  await expect(page.getByTestId('current-line')).toHaveText('Manuel');
+  const other = await context.newPage();
+  await other.goto('/CFM26/100m/race');
+  await expect(other.getByTestId('current-line')).toHaveText('Manuel 2');
+
+  // Both ready at once, each in its tab
+  await pickParticipant(page, 'hug', '7 Hugo Guérin');
+  await page.getByTestId('distance-input').fill('345');
+  await page.getByTestId('distance-input').press('Enter');
+  await pickParticipant(other, 'lea', '12 Léa Martin');
+  await other.getByTestId('distance-input').fill('290');
+  await other.getByTestId('distance-input').press('Enter');
+  await expect(page.getByTestId('distance-to-validate')).toHaveText('345 cm');
+  await expect(other.getByTestId('distance-to-validate')).toHaveText('290 cm');
+
+  await other.getByRole('button', { name: 'Validate', exact: true }).click();
+  await page.getByRole('button', { name: 'Validate', exact: true }).click();
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n12;Léa Martin;[^;]+;[^;]+;290;OK;[^;]*;Manuel 2;/);
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;[^;]+;[^;]+;345;OK;[^;]*;Manuel;/);
+  // Each tab lists the last runs of its line
+  await expect(other.getByTestId('recent-runs').locator('tbody tr')).toHaveCount(1);
+  await expect(other.getByTestId('recent-runs')).toContainText('Léa Martin');
+
+  // A reload keeps the line of the tab
+  await other.reload();
+  await expect(other.getByTestId('current-line')).toHaveText('Manuel 2');
 });
 
 test('closes the discipline settings with the gear, asking first when changes are not saved', async ({ page }) => {

@@ -89,14 +89,14 @@ const de: Messages = {
       time: 'Zeit',
       timeHint: 'Die Zeit zwischen Start und Ziel wird gemessen.',
       distance: 'Weite',
-      distanceHint: 'Der Bediener gibt die Weite in Zentimetern auf der Rennseite ein, auf der Bahn „Manuel“ jedes Computers, und gibt dann an, ob sie gültig ist. Die größte Weite ist die beste.',
+      distanceHint: 'Der Bediener gibt die Weite in Zentimetern auf der Rennseite ein, auf einer manuellen Bahn („Manuel“, „Manuel 2“…, eine pro Tab), und gibt dann an, ob sie gültig ist. Die größte Weite ist die beste.',
     },
     trigger: {
       legend: 'Auslösung',
       gates: 'Lichtschranken',
       gatesHint: 'Die Start- und Ziellichtschranken der auf der Rennseite gewählten Bahn starten und stoppen die Uhr.',
       keyboard: 'Manuell (Tastatur)',
-      keyboardHint: 'Zeitmessung von Hand, auf der Bahn „Manuel“ jedes Computers: die unten gewählte Taste gibt den Start, dann das Ziel.',
+      keyboardHint: 'Zeitmessung von Hand, auf einer manuellen Bahn („Manuel“, „Manuel 2“…, eine pro Tab): die unten gewählte Taste gibt den Start, dann das Ziel.',
     },
     triggerKey: {
       label: 'Auslösetaste',

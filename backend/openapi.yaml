@@ -1049,7 +1049,7 @@ components:
       name: line
       in: path
       required: true
-      description: Name of a line of this computer (URL-encoded)
+      description: Name of a line of this computer (URL-encoded), or of a manual line ("Manuel", "Manuel 2"… "Manuel 9")
       schema: { type: string, examples: [Line 1] }
 
   responses:
@@ -1461,9 +1461,10 @@ components:
         manual:
           type: boolean
           description: |
-            Whether it is the manual line, "Manuel", listed after the lines of config.yaml on every computer: the line
-            of the disciplines timed by hand, started and finished with the space bar of the race page (see
-            `POST /lines/{line}/key`)
+            Whether it is a manual line, listed after the lines of config.yaml on every computer: a line of the
+            disciplines timed by hand, started and finished with the space bar of the race page (see
+            `POST /lines/{line}/key`), and of those that measure a distance. Each tab of the race page uses its own,
+            "Manuel", then "Manuel 2" up to "Manuel 9": "Manuel" is always listed, the others once a run used them
         run: { $ref: '#/components/schemas/RunState' }
         lastResult:
           description: The last run ended on the line, shown until the next participant is ready on it. null for none

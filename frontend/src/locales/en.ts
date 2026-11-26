@@ -92,14 +92,14 @@ export default {
       time: 'Time',
       timeHint: 'The time between the start and the finish is measured.',
       distance: 'Distance',
-      distanceHint: 'The operator types the distance in centimetres on the race page, on the line “Manuel” of each computer, then says whether it is valid. The longest distance is the best.',
+      distanceHint: 'The operator types the distance in centimetres on the race page, on a manual line (“Manuel”, “Manuel 2”…, one per tab), then says whether it is valid. The longest distance is the best.',
     },
     trigger: {
       legend: 'Trigger',
       gates: 'Gates',
       gatesHint: 'The start and finish gates of the line chosen on the race page start and stop the clock.',
       keyboard: 'Manual (keyboard)',
-      keyboardHint: 'Timed by hand, on the line “Manuel” of each computer: the key chosen below gives the start, then the finish.',
+      keyboardHint: 'Timed by hand, on a manual line (“Manuel”, “Manuel 2”…, one per tab): the key chosen below gives the start, then the finish.',
     },
     triggerKey: {
       label: 'Trigger key',

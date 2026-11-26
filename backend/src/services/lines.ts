@@ -3,9 +3,11 @@
  * A line is ready when it is enabled and the app listens to the devices of its start and its finish, so that both
  * crossings can be recorded. A disabled line is still listed, so the race page can show it, but it is never ready.
  *
- * Every computer also has the manual line, after those of config.yaml: the line of the disciplines timed by hand, whose
- * runs are started and finished with the space bar of the race page. It has no device, so it is always ready, and
- * there is only one, as there is one keyboard.
+ * Every computer also has manual lines, after those of config.yaml: the lines of the disciplines timed by hand, whose
+ * runs are started and finished with the space bar of the race page, and of those that measure a distance. They have
+ * no device, so they are always ready. Each tab of the race page takes its own ("Manuel", then "Manuel 2", "Manuel 3"…,
+ * see the frontend's manualLine), so several participants can run at once on one computer. "Manuel" is always
+ * listed, the others once a run used them (see runService's getLineRuns).
  *
  * With simulated gates (TIMING_SIMULATE_GATES=1, for the end-to-end tests and for training without hardware) and no
  * line in config.yaml, two simulated lines are used, so the app can be tried without configuring anything.
@@ -15,8 +17,16 @@
 // TIMING_SIMULATE_GATES=1, so it cannot fire during a real race.
 export const SIMULATE_GATES = process.env.TIMING_SIMULATE_GATES === '1';
 export const SIMULATED_LINES = ['Line 1', 'Line 2'];
-// Name of the manual line, written in the line column of its results. No line of config.yaml can have it
+// Name of the first manual line, written in the line column of its results. No line of config.yaml can have the name
+// of a manual line
 export const MANUAL_LINE = 'Manuel';
+// How many manual lines a computer can have at most: as many tabs of the race page timing at once
+export const MAX_MANUAL_LINES = 9;
+
+/** The name of the nth manual line (from 1): "Manuel", "Manuel 2"… */
+export function manualLineName(n: number): string {
+    return n === 1 ? MANUAL_LINE : `${MANUAL_LINE} ${n}`;
+}
 
 /** A line and the devices of its start and finish. */
 export interface LineDevices {
@@ -38,13 +48,16 @@ export function getLines(): string[] {
     return [...lines, MANUAL_LINE];
 }
 
-/** Whether a line is the manual line, started and finished with the space bar of the race page. */
+/** Whether a line is a manual line, started and finished with the space bar of the race page. */
 export function isManualLine(name: string): boolean {
-    return name === MANUAL_LINE;
+    if (name === MANUAL_LINE) return true;
+    const n = name.startsWith(`${MANUAL_LINE} `) ? Number(name.slice(MANUAL_LINE.length + 1)) : NaN;
+    return Number.isInteger(n) && n >= 2 && n <= MAX_MANUAL_LINES && name === manualLineName(n);
 }
 
+/** Whether a line exists: a line of config.yaml, or any manual line, listed or not yet. */
 export function isLine(name: unknown): name is string {
-    return typeof name === 'string' && getLines().includes(name);
+    return typeof name === 'string' && (getLines().includes(name) || isManualLine(name));
 }
 
 /** Whether a line is enabled in config.yaml (the simulated lines are). */

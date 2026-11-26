@@ -88,14 +88,14 @@ const fr: Messages = {
       time: 'Temps',
       timeHint: 'Le temps entre le départ et l’arrivée est chronométré.',
       distance: 'Distance',
-      distanceHint: 'L’opérateur saisit la distance en centimètres sur la page de course, sur la ligne « Manuel » de chaque ordinateur, puis indique si elle est validée. La plus longue distance est la meilleure.',
+      distanceHint: 'L’opérateur saisit la distance en centimètres sur la page de course, sur une ligne manuelle (« Manuel », « Manuel 2 »…, une par onglet), puis indique si elle est validée. La plus longue distance est la meilleure.',
     },
     trigger: {
       legend: 'Déclenchement',
       gates: 'Cellules',
       gatesHint: 'Les cellules de départ et d’arrivée de la ligne choisie sur la page de course déclenchent le chronomètre.',
       keyboard: 'Manuel (clavier)',
-      keyboardHint: 'Chronométrage à la main, sur la ligne « Manuel » de chaque ordinateur : la touche choisie ci-dessous donne le départ, puis l’arrivée.',
+      keyboardHint: 'Chronométrage à la main, sur une ligne manuelle (« Manuel », « Manuel 2 »…, une par onglet) : la touche choisie ci-dessous donne le départ, puis l’arrivée.',
     },
     triggerKey: {
       label: 'Touche de déclenchement',

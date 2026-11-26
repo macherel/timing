@@ -3,7 +3,7 @@ import path from 'path';
 import yaml from 'yaml';
 import { createLogger, errorMessage } from '../../utils/logger.js';
 import { workDirPath } from '../../utils/workDir.js';
-import { MANUAL_LINE } from '../lines.js';
+import { isManualLine } from '../lines.js';
 
 const log = createLogger('Config');
 
@@ -338,7 +338,7 @@ export function validateDevicesConfig(config: any): string[] {
         problems.push(...validateLine(line, `lines[${i}]`, deviceNames));
         if (typeof line?.name === 'string') {
             if (lineNames.has(line.name)) problems.push(`lines[${i}].name "${line.name}" is used twice (it must be unique)`);
-            if (line.name === MANUAL_LINE) problems.push(`lines[${i}].name "${MANUAL_LINE}" is the name of the manual line (the disciplines timed by hand)`);
+            if (isManualLine(line.name)) problems.push(`lines[${i}].name "${line.name}" is the name of a manual line (the disciplines timed by hand)`);
             lineNames.add(line.name);
         }
     });

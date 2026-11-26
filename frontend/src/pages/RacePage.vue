@@ -16,6 +16,7 @@ import type {
 import { useRaceSocket } from '../composables/useRaceSocket';
 import ParticipantPicker from '../components/race/ParticipantPicker.vue';
 import { countsAsAttempt, eliminatedAt, recentRunsOf, sameRun } from '../race/results';
+import { claimManualLine, manualLine } from '../race/manualLine';
 import RunPanel from '../components/race/RunPanel.vue';
 import RecentRuns from '../components/race/RecentRuns.vue';
 import { showDateTime } from '../race/dateTime';
@@ -107,10 +108,19 @@ const notReadyReason = (item: LineRun) =>
   item.ready ? null : item.enabled ? t('race.lineNotReady') : t('race.lineDisabled');
 // Green: ready and free; orange or green: a participant is ready or running; red: no run can start
 const dotClass = (item: LineRun) => (item.run.status !== 'idle' ? item.run.status : item.ready ? 'idle' : 'unusable');
-// The line this page times on: the manual line for a discipline timed by hand, otherwise the one chosen in this browser.
-// None is chosen for the user: until they choose one, the page only shows the lines to choose from
+// The manual line of this tab (see manualLine), taken once the page times by hand or measures a distance. Not listed by
+// the backend until a run used it: idle until then
+watch(manual, (isManual) => isManual && claimManualLine(), { immediate: true });
+const manualLineRun = computed<LineRun | null>(() => {
+  const name = manualLine.value;
+  if (name === null || !linesLoaded.value) return null;
+  return lines.value.find((l) => l.line === name) ?? { line: name, enabled: true, ready: true, manual: true, run: { status: 'idle' }, lastResult: null };
+});
+// The line this page times on: the manual line of this tab for a discipline timed by hand or measuring a distance,
+// otherwise the one chosen in this tab. None is chosen for the user: until they choose one, the page only shows the
+// lines to choose from
 const line = computed(() =>
-  manual.value ? (lines.value.find((l) => l.manual) ?? null) : (gateLines.value.find((l) => l.line === selectedLine.value) ?? null),
+  manual.value ? manualLineRun.value : (gateLines.value.find((l) => l.line === selectedLine.value) ?? null),
 );
 const startBlocked = computed(() => (line.value ? notReadyReason(line.value) : null));
 // A chosen line removed from config.yaml is let go, back to the choice of a line: the page never moves to another line
@@ -215,7 +225,12 @@ async function loadLines(): Promise<void> {
 
 /** Sets the run of a line, as the backend reported it. */
 function setRun(name: string, next: RunState): void {
-  const entry = lines.value.find((l) => l.line === name);
+  let entry = lines.value.find((l) => l.line === name);
+  // The manual line of this tab, used for the first time: the list of the lines may come after
+  if (!entry && name === manualLine.value) {
+    lines.value.push({ line: name, enabled: true, ready: true, manual: true, run: next, lastResult: null });
+    entry = lines.value.at(-1);
+  }
   if (!entry) return;
   entry.run = next;
   if (entry === line.value) {

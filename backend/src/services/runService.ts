@@ -69,7 +69,7 @@ function stateOf(line: string): LineState {
 onLinesChange(() => {
     const lines = getLines();
     for (const [line, state] of lineStates) {
-        if (lines.includes(line)) continue;
+        if (lines.includes(line) || isManualLine(line)) continue;
         if (state.run.status !== 'idle') {
             log.warn(`Line "${line}" is no longer in config.yaml: the run of ${state.run.participant.bib} ${state.run.participant.name} is dropped.`);
         }
@@ -79,9 +79,21 @@ onLinesChange(() => {
     notifyActivityChange();
 });
 
-/** Every line with its run and last result, in the order of config.yaml. */
+/**
+ * The lines listed: those of config.yaml, then the manual lines, "Manuel" and the others that have a run or a last
+ * result (a tab of the race page uses a manual line before it is listed).
+ */
+function listedLines(): string[] {
+    const used = [...lineStates]
+        .filter(([line, state]) => line !== MANUAL_LINE && isManualLine(line) && (state.run.status !== 'idle' || state.lastResult !== null))
+        .map(([line]) => line)
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return [...getLines(), ...used];
+}
+
+/** Every line with its run and last result, in the order of config.yaml, then the manual lines. */
 export function getLineRuns(): LineRun[] {
-    return getLines().map((line) => {
+    return listedLines().map((line) => {
         const { run, lastResult } = stateOf(line);
         return { line, enabled: isLineEnabled(line), ready: isLineReady(line), manual: isManualLine(line), run, lastResult };
     });
@@ -98,9 +110,12 @@ export function isAnyRunActive(): boolean {
 }
 
 function setRun(line: string, next: RunState): void {
+    const listed = listedLines().includes(line);
     const state = stateOf(line);
     state.run = next;
     if (next.status === 'ready') state.lastResult = null;
+    // A manual line used, or left without run nor last result: the pages get the list of the lines
+    if (listed !== listedLines().includes(line)) broadcastToUI({ type: 'LINES_UPDATE', lines: getLineRuns() });
     broadcastToUI({ type: 'RUN_UPDATE', line, run: next });
     notifyActivityChange();
 }
@@ -131,13 +146,13 @@ export async function prepareRun(
     if (closed) return `${event} / ${discipline} is closed: ${closed}.`;
     // The disciplines timed by hand, and those measuring a distance, run on the manual line, and only them
     if (settings.measure === 'distance' && !isManualLine(line)) {
-        return `${event} / ${discipline} measures a distance: its runs are on the line "${MANUAL_LINE}".`;
+        return `${event} / ${discipline} measures a distance: its runs are on a manual line ("${MANUAL_LINE}").`;
     }
     if (settings.measure === 'time' && settings.trigger === 'keyboard' && !isManualLine(line)) {
-        return `${event} / ${discipline} is timed by hand: its runs are on the line "${MANUAL_LINE}".`;
+        return `${event} / ${discipline} is timed by hand: its runs are on a manual line ("${MANUAL_LINE}").`;
     }
     if (settings.measure === 'time' && settings.trigger === 'gates' && isManualLine(line)) {
-        return `${event} / ${discipline} is timed by the gates: the line "${MANUAL_LINE}" is for the disciplines timed by hand.`;
+        return `${event} / ${discipline} is timed by the gates: the manual lines ("${MANUAL_LINE}") are for the disciplines timed by hand and the distances.`;
     }
     let distanceCm: number | undefined;
     if (settings.measure === 'distance') {

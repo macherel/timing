@@ -429,7 +429,7 @@ router.post('/lines/:line/key', (req: Request, res: Response) => {
     const target = lineRun(req, res);
     if (!target) return;
     if (!isManualLine(target.line)) {
-        res.status(409).json({ problems: [`Only the line "${MANUAL_LINE}" is started and finished with the keyboard.`] });
+        res.status(409).json({ problems: [`Only the manual lines ("${MANUAL_LINE}") are started and finished with the keyboard.`] });
         return;
     }
     const gate = getRunState(target.line)?.status === 'running' ? 'finish' : 'start';
