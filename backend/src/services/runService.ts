@@ -110,14 +110,16 @@ const unknownLine = (line: string) => `Unknown line "${line}".`;
 /**
  * Announces that a participant is ready on a line: its next start crossing starts their run. In a discipline that
  * measures a distance, `distance` is the distance typed by the operator, in centimetres: the run then waits for the
- * operator to say whether it is valid (see validateRun and voidRun).
+ * operator to say whether it is valid (see validateRun and voidRun). `unlock` lets the participant change distance,
+ * exceptionally, without validating the one they started.
  */
 export async function prepareRun(
     line: string,
     event: string,
     discipline: string,
     participant: Participant,
-    distance?: unknown
+    distance?: unknown,
+    unlock = false
 ): Promise<string | null> {
     if (!isLine(line)) return unknownLine(line);
     if (stateOf(line).run.status === 'running') return `A run is in progress on ${line}. Cancel it first.`;
@@ -153,7 +155,7 @@ export async function prepareRun(
         const at = perDistance === null ? null : eliminatedAt(used, perDistance);
         if (at !== null) return `${participant.bib} ${participant.name} is eliminated: ${perDistance} attempt(s) at ${at} cm.`;
         const open = openDistance(used);
-        if (settings.measure === 'distance' && !settings.allowDistanceChange && open !== null && distanceCm !== open) {
+        if (settings.measure === 'distance' && !settings.allowDistanceChange && !unlock && open !== null && distanceCm !== open) {
             return `${participant.bib} ${participant.name} must validate ${open} cm before changing distance.`;
         }
     }

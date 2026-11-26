@@ -209,13 +209,28 @@ describe('RunPanel', () => {
     }
   });
 
-  it('keeps the distance started until it is validated, and tells when the participant is eliminated', () => {
+  it('keeps the distance started until it is validated, and tells when the participant is eliminated', async () => {
     const jump = (distanceCm: number, status: RunResult['status'], start: string) => result({ start, timeMs: null, distanceCm, status });
     const started = mountPanel({ measure: 'distance', line: 'Manuel', attemptsPerDistance: 3, results: [jump(345, 'dq', '2026-11-05T10:00:00Z')] });
     const input = started.find('[data-testid="distance-input"]');
     expect((input.element as HTMLInputElement).value).toBe('345');
     expect(input.attributes('readonly')).toBeDefined();
-    expect(started.find('[data-testid="started-distance"]').text()).toBe('Distance started: 345 cm, attempt 2 of 3');
+    expect(started.find('[data-testid="started-distance"]').text()).toBe('Attempt 2 of 3');
+    // Shown as locked
+    expect(started.find('[data-testid="distance-locked"]').exists()).toBe(true);
+    expect(input.classes()).toContain('locked');
+    expect(input.attributes('title')).toBe('Distance locked: it cannot be changed before it is validated');
+
+    // Unlocked by the operator, exceptionally: another distance, ready with the unlock
+    await started.find('[data-testid="distance-locked"]').trigger('click');
+    expect(input.attributes('readonly')).toBeUndefined();
+    await input.setValue('360');
+    await started.find('form.distance').trigger('submit');
+    expect(started.emitted('ready')).toEqual([[360, true]]);
+    // Locked again: back to the distance started
+    await started.find('[data-testid="distance-locked"]').trigger('click');
+    expect(input.attributes('readonly')).toBeDefined();
+    expect((input.element as HTMLInputElement).value).toBe('345');
     // One ready button only, the one of the distance
     expect(started.findAll('button.ready').map((button) => button.text())).toEqual(['Ready']);
 
@@ -224,6 +239,7 @@ describe('RunPanel', () => {
     expect(free.find('[data-testid="distance-input"]').attributes('readonly')).toBeUndefined();
     expect((free.find('[data-testid="distance-input"]').element as HTMLInputElement).value).toBe('');
     expect(free.find('[data-testid="started-distance"]').exists()).toBe(false);
+    expect(free.find('[data-testid="distance-locked"]').exists()).toBe(false);
 
     const out = mountPanel({
       measure: 'distance',

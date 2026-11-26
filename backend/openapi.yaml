@@ -580,6 +580,12 @@ paths:
                   description: |
                     In centimetres (e.g. 345 for 3.45 m), required for a discipline that measures a distance (ignored
                     otherwise)
+                unlock:
+                  type: boolean
+                  default: false
+                  description: |
+                    Exceptionally lets the participant change distance without validating the one they started
+                    (a distance discipline without allowDistanceChange)
             example: { event: CFM26, discipline: 100m, bib: '7' }
       responses:
         '200':

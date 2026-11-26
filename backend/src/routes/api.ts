@@ -380,14 +380,14 @@ router.post('/lines/:line/ready', async (req: Request, res: Response) => {
         res.status(409).json({ problems: [`${target.line} is not ready: it is disabled, or the app does not listen to the device of its start or finish.`] });
         return;
     }
-    const { event, discipline, bib, distance } = req.body ?? {};
+    const { event, discipline, bib, distance, unlock } = req.body ?? {};
     const list = typeof event === 'string' && typeof discipline === 'string' ? await loadParticipants(event, discipline) : null;
     const participant = list?.participants.find((p) => p.bib === String(bib));
     if (!participant) {
         res.status(404).json({ problems: ['Unknown event, discipline or participant.'] });
         return;
     }
-    const problem = await prepareRun(target.line, event, discipline, participant, distance);
+    const problem = await prepareRun(target.line, event, discipline, participant, distance, unlock === true);
     if (problem) {
         res.status(409).json({ problems: [problem] });
         return;

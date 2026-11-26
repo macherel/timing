@@ -466,6 +466,19 @@ describe('a distance', () => {
         expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 360)).toBeNull();
     });
 
+    it('lets the operator unlock the distance started, exceptionally, but not the elimination', async () => {
+        writeFiles({ [`${JUMP}/config.yaml`]: 'measure: distance\nattemptsPerDistance: 2\n' });
+        await measure(HUGO, 350, (line) => runs.voidRun(line, 'dq'));
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 360)).toMatch(/must validate 350 cm/);
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 360, true)).toBeNull();
+        expect(runs.voidRun(MANUAL, 'dq')).toBeNull();
+        await vi.waitFor(async () => expect((await runs.loadResults('CFM26', 'jump'))!.length).toBe(2));
+        // Held at 360 cm now
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 350)).toMatch(/must validate 360 cm/);
+        await measure(HUGO, 360, (line) => runs.voidRun(line, 'dq'));
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 400, true)).toMatch(/eliminated/);
+    });
+
     it('lets a participant change distance before validating when the settings allow it', async () => {
         writeFiles({ [`${JUMP}/config.yaml`]: 'measure: distance\nallowDistanceChange: true\n' });
         await measure(HUGO, 350, (line) => runs.voidRun(line, 'dq'));

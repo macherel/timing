@@ -294,12 +294,12 @@ const { send } = useRaceSocket({
 });
 watch([eventName, discipline, disciplineExists, selected, () => line.value?.line], sendViewing);
 
-async function postRun(action: 'ready' | 'validate' | 'cancel' | 'invalidate' | 'disqualify', distance?: number): Promise<void> {
+async function postRun(action: 'ready' | 'validate' | 'cancel' | 'invalidate' | 'disqualify', distance?: number, unlock = false): Promise<void> {
   const name = line.value?.line;
   if (!name) return;
   busy.value = true;
   try {
-    const body = action === 'ready' ? { event: eventName.value, discipline: discipline.value, bib: selected.value?.bib, distance } : {};
+    const body = action === 'ready' ? { event: eventName.value, discipline: discipline.value, bib: selected.value?.bib, distance, unlock } : {};
     const next = await getJson<RunState>(`/api/lines/${encodeURIComponent(name)}/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -564,7 +564,7 @@ onMounted(reload);
       :results="participantResults"
       :last-result="lastResult"
       :busy="busy"
-      @ready="(distance) => postRun('ready', distance)"
+      @ready="(distance, unlock) => postRun('ready', distance, unlock)"
       @validate="postRun('validate')"
       @cancel="cancel"
       @invalidate="voidRun('invalidate')"

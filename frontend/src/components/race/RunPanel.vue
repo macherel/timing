@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DisciplineSettings, Measure, Participant, RunResult, RunState, RunStatus } from '../../types';
 import { formatDuration, formatTime, formatValue, parseInstant } from '../../format';
@@ -42,7 +42,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   // With the distance typed, in centimetres, for a discipline that measures a distance
-  ready: [distance?: number];
+  ready: [distance?: number, unlock?: boolean];
   validate: [];
   cancel: [];
   invalidate: [];
@@ -89,6 +89,9 @@ const eliminated = computed(() => (isDistance.value ? eliminatedAt(props.results
 const noAttemptLeft = computed(() => (props.attempts !== null && usedAttempts.value >= props.attempts) || eliminated.value !== null);
 // The distance the participant started and did not validate yet: their next attempt is at it
 const startedDistance = computed(() => (isDistance.value && !props.allowDistanceChange ? openDistance(props.results) : null));
+// Unlocked by the operator, exceptionally: the participant may change distance without validating the one started
+const unlocked = ref(false);
+const locked = computed(() => startedDistance.value !== null && !unlocked.value);
 // Attempts failed at that distance since it was last validated
 const usedAtStarted = computed(() => (startedDistance.value === null ? 0 : failedAt(props.results, startedDistance.value)));
 // The attempt being run or about to be run, e.g. "Attempt 2 of 3"
@@ -121,6 +124,7 @@ const distanceField = ref<HTMLInputElement | null>(null);
 watch(
   [() => props.participant.bib, distanceToValidate, startedDistance],
   ([, waiting, started]) => {
+    unlocked.value = false;
     if (waiting === null) distanceInput.value = started ?? '';
   },
   { immediate: true },
@@ -136,7 +140,20 @@ function ready(): void {
     distanceField.value?.focus();
     return;
   }
-  emit('ready', distance);
+  if (startedDistance.value !== null && unlocked.value) emit('ready', distance, true);
+  else emit('ready', distance);
+}
+
+// Unlocks the distance started, to type another one, or locks it again on it
+async function toggleLock(): Promise<void> {
+  unlocked.value = !unlocked.value;
+  if (!unlocked.value) {
+    distanceInput.value = startedDistance.value ?? '';
+    return;
+  }
+  await nextTick();
+  distanceField.value?.focus();
+  distanceField.value?.select();
 }
 
 // The select shows the saved status until the change is saved (then the new result comes back), so a failed save
@@ -215,6 +232,23 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
           {{ showValue(valueOfResult(lastResult)!) }}
         </span>
         <form v-if="isDistance" class="distance" @submit.prevent="ready">
+          <button
+            v-if="startedDistance !== null"
+            type="button"
+            class="lock"
+            :class="{ unlocked }"
+            :disabled="readyBlocked"
+            :title="$t(unlocked ? 'run.lockDistance' : 'run.unlockDistance')"
+            :aria-label="$t(unlocked ? 'run.lockDistance' : 'run.unlockDistance')"
+            :aria-pressed="unlocked"
+            data-testid="distance-locked"
+            @click="toggleLock"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path :d="unlocked ? 'M8 11V7a4 4 0 0 1 7.5-2' : 'M8 11V7a4 4 0 0 1 8 0v4'" />
+            </svg>
+          </button>
           <input
             ref="distanceField"
             v-model="distanceInput"
@@ -226,8 +260,10 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
             max="99999"
             placeholder="0"
             :disabled="readyBlocked"
-            :readonly="startedDistance !== null"
-            :aria-label="$t('run.distanceInCentimetres')"
+            :readonly="locked"
+            :class="{ locked }"
+            :title="locked ? $t('run.distanceLocked') : undefined"
+            :aria-label="locked ? $t('run.distanceLocked') : $t('run.distanceInCentimetres')"
             data-testid="distance-input"
           />
           <span class="unit">cm</span>
@@ -239,8 +275,8 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
         <p v-if="isDistance && startedDistance !== null && !noAttemptLeft" class="started muted" data-testid="started-distance">
           {{
             attemptsPerDistance
-              ? $t('run.startedDistanceOf', { distance: showValue(startedDistance), n: usedAtStarted + 1, total: attemptsPerDistance })
-              : $t('run.startedDistance', { distance: showValue(startedDistance) })
+              ? $t('run.attemptOf', { n: usedAtStarted + 1, total: attemptsPerDistance })
+              : $t('run.attempt', { n: usedAtStarted + 1 })
           }}
         </p>
       </template>
@@ -394,6 +430,28 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
   flex-basis: 100%;
   margin: 0;
   text-align: right;
+}
+.distance input.locked {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.distance .lock {
+  display: inline-flex;
+  padding: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.distance .lock.unlocked svg {
+  stroke: var(--warn);
+}
+.distance .lock svg {
+  width: 1.4em;
+  height: 1.4em;
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 .distance .unit {
   font-size: 1.2em;
