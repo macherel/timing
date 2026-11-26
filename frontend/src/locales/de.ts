@@ -362,6 +362,12 @@ const de: Messages = {
   },
 
   recent: {
+    resize: 'Anzahl der angezeigten Läufe',
+    fewer: 'Einen Lauf weniger anzeigen (nur vorübergehend)',
+    more: 'Einen Lauf mehr anzeigen (nur vorübergehend)',
+    reset: 'Zurück zu den {n} Läufen der Disziplineinstellungen',
+    resetLabel: 'Einstellungen',
+    select: 'Diesen Teilnehmer auswählen',
     title: 'Letzter Lauf der Bahn | Letzte {n} Läufe der Bahn',
     none: 'Noch kein Lauf auf dieser Bahn.',
     bib: 'Startnummer',

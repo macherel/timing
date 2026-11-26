@@ -329,7 +329,32 @@ describe('RecentRuns', () => {
     expect(wrapper.find('h3').text()).toBe('Last 3 runs of the line');
   });
 
+  it('changes for now how many runs it shows, from its title', async () => {
+    setLocale('en');
+    const wrapper = mountWithI18n(RecentRuns, { props: { results: [], count: 3, settingsCount: 3, precision: 'hundredth' } });
+    expect(wrapper.find('[data-testid="recent-reset"]').exists()).toBe(false);
+    await wrapper.find('[data-testid="recent-more"]').trigger('click');
+    await wrapper.find('[data-testid="recent-fewer"]').trigger('click');
+    expect(wrapper.emitted('resize')).toEqual([[4], [2]]);
+    await wrapper.setProps({ count: 1 });
+    expect(wrapper.find('h3').text()).toBe('Last run of the line');
+    expect(wrapper.find('[data-testid="recent-fewer"]').attributes('disabled')).toBeDefined();
+    await wrapper.find('[data-testid="recent-reset"]').trigger('click');
+    expect(wrapper.emitted('resize')!.at(-1)).toEqual([3]);
+  });
+
   it('says when the line has no run yet', () => {
     expect(mountRecent([]).find('table').exists()).toBe(false);
+  });
+
+  it('selects a participant of the participant files by a click on their bib or name', async () => {
+    const results = [result({ bib: '12', name: 'Léa Martin' }), result({ bib: '99', name: 'Removed' })];
+    const wrapper = mountWithI18n(RecentRuns, { props: { results, count: 3, precision: 'hundredth', selectable: new Set(['7', '12']) } });
+    const rows = wrapper.findAll('tbody tr');
+    expect(rows.map((row) => row.findAll('button.pick').length)).toEqual([2, 0]);
+    await rows[0].findAll('button.pick')[1].trigger('click');
+    expect(wrapper.emitted('select')).toEqual([['12']]);
+    // None while a run is in progress
+    expect(mountRecent(results).find('button.pick').exists()).toBe(false);
   });
 });

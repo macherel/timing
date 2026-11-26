@@ -367,6 +367,12 @@ export default {
   },
 
   recent: {
+    resize: 'Number of runs shown',
+    fewer: 'Show one run less (for now only)',
+    more: 'Show one more run (for now only)',
+    reset: 'Back to the {n} runs of the discipline settings',
+    resetLabel: 'Settings',
+    select: 'Select this participant',
     title: 'Last run of the line | Last {n} runs of the line',
     none: 'No run on this line yet.',
     bib: 'Bib',

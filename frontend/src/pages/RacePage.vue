@@ -130,6 +130,12 @@ watch(
   { immediate: true },
 );
 onUnmounted(() => (selectionLock.value = null));
+// Quick selection from the last runs: a participant of the participant files, while no run is in progress
+const participantBibs = computed(() => new Set(participants.value.map((p) => p.bib)));
+function selectByBib(bib: string): void {
+  if (locked.value) return;
+  selected.value = participants.value.find((p) => p.bib === bib) ?? selected.value;
+}
 // Bibs of the participants who used all their attempts, or all those allowed at one distance (eliminated)
 const attemptsPerDistance = computed(() => (isDistance.value ? (settings.value.attemptsPerDistance ?? null) : null));
 const finishedBibs = computed(() => {
@@ -146,11 +152,16 @@ const finishedBibs = computed(() => {
 });
 const remainingCount = computed(() => participants.value.filter((p) => !finishedBibs.value.has(p.bib)).length);
 const participantResults = computed(() => results.value.filter((result) => result.bib === selected.value?.bib));
-// The last runs of the discipline timed on this line of this computer, the latest first, as many as its settings say
+// How many last runs are shown: as many as the discipline settings say, unless changed for now from the title of the
+// list (until the page is reloaded, or the settings change)
+const recentCountOverride = ref<number | null>(null);
+const recentCount = computed(() => recentCountOverride.value ?? settings.value.recentRuns);
+watch(() => settings.value.recentRuns, () => (recentCountOverride.value = null));
+// The last runs of the discipline timed on this line of this computer, the latest first
 const recentRuns = computed(() => {
   const name = line.value?.line;
   if (!name || computer.value === null) return [];
-  return recentRunsOf(results.value, computer.value, name, settings.value.recentRuns);
+  return recentRunsOf(results.value, computer.value, name, recentCount.value);
 });
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -575,9 +586,13 @@ onMounted(reload);
     <RecentRuns
       v-if="disciplineExists && settings.recentRuns > 0"
       :results="recentRuns"
-      :count="settings.recentRuns"
+      :count="recentCount"
+      :settings-count="settings.recentRuns"
       :precision="settings.precision"
       :measure="measure"
+      :selectable="locked ? undefined : participantBibs"
+      @select="selectByBib"
+      @resize="(count) => (recentCountOverride = count === settings.recentRuns ? null : count)"
     />
     </template>
   </main>

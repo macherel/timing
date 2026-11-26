@@ -358,6 +358,12 @@ const fr: Messages = {
   },
 
   recent: {
+    resize: 'Nombre de passages affichés',
+    fewer: 'Afficher un passage de moins (pour l’instant seulement)',
+    more: 'Afficher un passage de plus (pour l’instant seulement)',
+    reset: 'Revenir aux {n} passages des réglages de la discipline',
+    resetLabel: 'Réglages',
+    select: 'Sélectionner ce participant',
     title: 'Dernier passage de la ligne | {n} derniers passages de la ligne',
     none: 'Aucun passage sur cette ligne pour l’instant.',
     bib: 'Dossard',
