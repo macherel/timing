@@ -240,7 +240,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         res.status(422).json({ problems });
         return;
     }
-    const { measure, attempts, attemptsPerDistance = null, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, trigger, triggerKey } = req.body.settings;
+    const { measure, attempts, attemptsPerDistance = null, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, resultRows, trigger, triggerKey } = req.body.settings;
     await saveDisciplineSettings(dir, {
         measure: measure ?? DEFAULT_SETTINGS.measure,
         attempts,
@@ -253,6 +253,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         precision: precision ?? DEFAULT_SETTINGS.precision,
         rounding: rounding ?? DEFAULT_SETTINGS.rounding,
         recentRuns: recentRuns ?? DEFAULT_SETTINGS.recentRuns,
+        resultRows: resultRows ?? DEFAULT_SETTINGS.resultRows,
         trigger: trigger ?? DEFAULT_SETTINGS.trigger,
         triggerKey: triggerKey ?? DEFAULT_SETTINGS.triggerKey,
     });

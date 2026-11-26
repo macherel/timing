@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DisciplineSettings, Measure, Participant, RunResult, RunState, RunStatus } from '../../types';
 import { formatDuration, formatTime, formatValue, parseInstant } from '../../format';
@@ -22,6 +22,11 @@ const props = defineProps<{
   lastResult: RunResult | null;
   // The last run of the line, any participant: the distance it suggests for the next one
   previousRun?: RunResult | null;
+  // How many runs the results show at once, the latest first (the others by scrolling): those the discipline settings
+  // ask for, unless changed for now from the title
+  resultRows?: number;
+  // How many the discipline settings ask for, when it differs from `resultRows`: the title offers to go back to it
+  settingsResultRows?: number;
   busy: boolean;
   // Why runs and result changes are disabled (outside the discipline's period), or null
   closed: string | null;
@@ -50,7 +55,37 @@ const emit = defineEmits<{
   invalidate: [];
   disqualify: [];
   setStatus: [result: RunResult, status: RunStatus];
+  // For now only: the settings of the discipline are not changed
+  resizeResults: [rows: number];
 }>();
+
+// The most runs shown at once
+const MAX_RESULT_ROWS = 50;
+const rows = computed(() => props.resultRows ?? 5);
+// The results, the latest first, with their number (the first run is 1)
+const latestFirst = computed(() => props.results.map((result, index) => ({ result, n: index + 1 })).reverse());
+// The results scroll beyond `rows` runs: as high as its header and that many rows
+const scroller = ref<HTMLElement | null>(null);
+const maxHeight = ref<string | undefined>(undefined);
+function fitHeight(): void {
+  const element = scroller.value;
+  if (!element) return;
+  const trs = [...element.querySelectorAll<HTMLElement>('tbody tr')];
+  const height =
+    (element.querySelector<HTMLElement>('thead')?.offsetHeight ?? 0) + trs.slice(0, rows.value).reduce((sum, tr) => sum + tr.offsetHeight, 0);
+  maxHeight.value = trs.length > rows.value && height > 0 ? `${height}px` : undefined;
+}
+watch(
+  [() => props.results.length, rows],
+  async ([length], [before]) => {
+    await nextTick();
+    fitHeight();
+    // A new run: shown at the top
+    if (length !== before && scroller.value) scroller.value.scrollTop = 0;
+  },
+  { immediate: true },
+);
+onMounted(fitHeight);
 
 const { t } = useI18n();
 
@@ -305,9 +340,26 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
     </p>
 
     <div class="results">
-      <h3>{{ $t('run.results') }} <span class="muted">({{ results.length }})</span></h3>
+      <div class="title">
+        <h3>{{ $t('run.results') }} <span class="muted">({{ results.length }})</span></h3>
+        <span class="resize" role="group" :aria-label="$t('run.resultRows', rows)">
+          <button type="button" :disabled="rows <= 1" :title="$t('recent.fewer')" :aria-label="$t('recent.fewer')" data-testid="results-fewer" @click="$emit('resizeResults', rows - 1)">−</button>
+          <button type="button" :disabled="rows >= MAX_RESULT_ROWS" :title="$t('recent.more')" :aria-label="$t('recent.more')" data-testid="results-more" @click="$emit('resizeResults', rows + 1)">+</button>
+          <button
+            v-if="settingsResultRows !== undefined && settingsResultRows !== rows"
+            type="button"
+            class="reset"
+            :title="$t('recent.reset', { n: settingsResultRows })"
+            data-testid="results-reset"
+            @click="$emit('resizeResults', settingsResultRows)"
+          >
+            {{ $t('recent.resetLabel') }}
+          </button>
+        </span>
+      </div>
       <p v-if="results.length === 0" class="muted">{{ $t('run.noRun') }}</p>
-      <table v-else>
+      <div v-else ref="scroller" class="scroller" :style="{ maxHeight }" data-testid="results-scroller">
+      <table>
         <thead>
           <tr>
             <th>{{ $t('run.run') }}</th>
@@ -318,8 +370,8 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
         </thead>
         <tbody>
           <tr
-            v-for="(result, index) in results"
-            :key="`${index}-${result.start}`"
+            v-for="{ result, n } in latestFirst"
+            :key="`${n}-${result.start}`"
             :class="{
               best: result.status === 'ok' && !beyondAttempts.has(result) && valueOfResult(result) === bestValue,
               beyond: beyondAttempts.has(result),
@@ -327,7 +379,7 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
               void: result.status !== 'ok',
             }"
           >
-            <td>{{ index + 1 }}</td>
+            <td>{{ n }}</td>
             <td class="mono time">
               <s v-if="result.status !== 'ok' && valueOfResult(result) !== null">{{ showValue(valueOfResult(result)!) }}</s>
               <template v-else-if="valueOfResult(result) !== null">{{ showValue(valueOfResult(result)!) }}</template>
@@ -343,7 +395,7 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
                 :value="result.status"
                 :disabled="busy || closed !== null"
                 :title="statusHint(result.status)"
-                :aria-label="$t('run.statusOf', { n: index + 1 })"
+                :aria-label="$t('run.statusOf', { n })"
                 @change="onStatusChange($event, result)"
               >
                 <option v-for="status in STATUSES" :key="status" :value="status" :disabled="status === 'ok' && valueOfResult(result) === null">
@@ -354,6 +406,7 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   </section>
 </template>
@@ -482,8 +535,35 @@ button.ready {
 .results {
   grid-column: 1 / -1;
 }
-.results h3 {
+.results .title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0 0 8px;
+}
+.results h3 {
+  margin: 0;
+}
+.resize {
+  display: inline-flex;
+  gap: 4px;
+}
+.resize button {
+  min-width: 2em;
+  padding: 2px 8px;
+}
+.resize button.reset {
+  font-size: 0.9em;
+}
+.scroller {
+  max-width: 600px;
+  overflow-y: auto;
+}
+.scroller thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
 }
 .results table {
   max-width: 600px;

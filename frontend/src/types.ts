@@ -369,6 +369,8 @@ export interface DisciplineSettings {
   rounding: 'truncate' | 'nearest' | 'up';
   // How many of the last runs of a line the race page shows (0: none)
   recentRuns: number;
+  // How many runs of a participant the race page shows at once, the latest first (missing from an older server: 5)
+  resultRows?: number;
   // What starts and finishes the runs: the gates of the line chosen on the race page, or the space bar (keyboard:
   // timed by hand, on the manual line of the computer)
   trigger: 'gates' | 'keyboard';

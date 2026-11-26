@@ -52,6 +52,7 @@ const NO_SETTINGS: DisciplineSettings = {
   precision: 'hundredth',
   rounding: 'up',
   recentRuns: 3,
+  resultRows: 5,
   trigger: 'gates',
   triggerKey: 'Space',
 };
@@ -173,6 +174,13 @@ const recentRuns = computed(() => {
   if (!name || computer.value === null) return [];
   return recentRunsOf(results.value, computer.value, name, recentCount.value);
 });
+
+// How many runs of the participant the results show at once: as many as the discipline settings say, unless changed
+// for now from their title (until the page is reloaded, or the settings change)
+const resultRowsOverride = ref<number | null>(null);
+const settingsResultRows = computed(() => settings.value.resultRows ?? 5);
+const resultRows = computed(() => resultRowsOverride.value ?? settingsResultRows.value);
+watch(settingsResultRows, () => (resultRowsOverride.value = null));
 
 // The last run of this line, whatever the participant: the distance suggested for the next one
 const previousRun = computed(() => {
@@ -597,6 +605,8 @@ onMounted(reload);
       :results="participantResults"
       :last-result="lastResult"
       :previous-run="previousRun"
+      :result-rows="resultRows"
+      :settings-result-rows="settingsResultRows"
       :busy="busy"
       @ready="(distance, unlock) => postRun('ready', distance, unlock)"
       @validate="postRun('validate')"
@@ -604,6 +614,7 @@ onMounted(reload);
       @invalidate="voidRun('invalidate')"
       @disqualify="voidRun('disqualify')"
       @set-status="setStatus"
+      @resize-results="(rows) => (resultRowsOverride = rows === settingsResultRows ? null : rows)"
     />
 
     <RecentRuns

@@ -294,7 +294,8 @@ test('measures a distance typed by the operator, then validated or not, on the m
   await page.getByRole('button', { name: 'Ready', exact: true }).click();
   await page.getByRole('button', { name: 'Disqualify' }).click();
   await expect(rows).toHaveCount(2);
-  await expect(rows.nth(1).locator('td s')).toHaveText('410 cm');
+  // The latest first
+  await expect(rows.first().locator('td s')).toHaveText('410 cm');
 
   await page.goto('/CFM26/100m/live');
   await expect(page.locator('.ranking th.time')).toHaveText('Best distance');

@@ -120,6 +120,8 @@ const fr: Messages = {
     allowDistanceChangeHint: 'Un participant peut tenter une autre distance sans avoir validé la dernière distance tentée. Sinon, il la retente jusqu’à la valider.',
     recentRuns: 'Derniers passages affichés',
     recentRunsHint: 'Nombre de derniers passages de la ligne affichés sur la page de course (0 pour ne pas les afficher).',
+    resultRows: 'Passages affichés par participant',
+    resultRowsHint: 'Nombre de passages d’un participant affichés à la fois sur la page de course, les plus récents en premier (les autres en faisant défiler).',
     best: {
       legend: 'Meilleur temps',
       shortest: 'Le plus court',
@@ -153,6 +155,7 @@ const fr: Messages = {
     attemptsInvalid: 'Le nombre d’essais doit être un entier à partir de 1, ou vide pour illimité.',
     attemptsPerDistanceInvalid: 'Le nombre d’essais par distance doit être un entier à partir de 1, ou vide pour illimité.',
     recentRunsInvalid: 'Le nombre de derniers passages doit être un entier à partir de 0.',
+    resultRowsInvalid: 'Le nombre de passages par participant doit être un entier à partir de 1.',
     startAfterEnd: 'Le début doit être avant la fin.',
     saveError: 'Impossible d’enregistrer les réglages : {error}',
   },
@@ -354,6 +357,7 @@ const fr: Messages = {
     beyondAttempts: 'hors limite',
     beyondAttemptsTitle: 'Au-delà des {n} essais permis : ne compte pas (un passage invalide rendu valide après coup)',
     statusOf: 'Statut du passage {n}',
+    resultRows: '{n} passage affiché à la fois | {n} passages affichés à la fois',
     noLine: 'Aucune ligne sur cet ordinateur',
   },
 

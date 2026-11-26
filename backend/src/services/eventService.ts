@@ -159,6 +159,8 @@ export interface DisciplineSettings {
     rounding: Rounding;
     // How many of the last runs of a line the race page shows (0: none)
     recentRuns: number;
+    // How many runs of a participant the race page shows at once, the latest first: the others by scrolling
+    resultRows: number;
     // What starts and finishes the runs: the gates of the lines of config.yaml, or the space bar of the race page
     // (keyboard: timed by hand, on the manual line of each computer)
     trigger: Trigger;
@@ -197,6 +199,7 @@ export const DEFAULT_SETTINGS: DisciplineSettings = {
     precision: 'hundredth',
     rounding: 'up',
     recentRuns: 3,
+    resultRows: 5,
     trigger: 'gates',
     triggerKey: 'Space',
 };
@@ -595,6 +598,9 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
         } else if (key === 'recentRuns') {
             if (Number.isInteger(value) && (value as number) >= 0) settings.recentRuns = value as number;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: recentRuns must be a whole number from 0 (the last 3 runs are shown)`);
+        } else if (key === 'resultRows') {
+            if (Number.isInteger(value) && (value as number) >= 1) settings.resultRows = value as number;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: resultRows must be a whole number from 1 (5 runs are shown at once)`);
         } else if (key === 'locked') {
             // Older setting, replaced by access: locked
             if (value === true && parsed.access === undefined) settings.access = 'locked';
@@ -691,6 +697,7 @@ export function validateDisciplineSettings(settings: any): string[] {
         precision = DEFAULT_SETTINGS.precision,
         rounding = DEFAULT_SETTINGS.rounding,
         recentRuns = DEFAULT_SETTINGS.recentRuns,
+        resultRows = DEFAULT_SETTINGS.resultRows,
         trigger = DEFAULT_SETTINGS.trigger,
         triggerKey = DEFAULT_SETTINGS.triggerKey,
     } = settings;
@@ -714,6 +721,7 @@ export function validateDisciplineSettings(settings: any): string[] {
     if (!PRECISION_VALUES.includes(precision)) problems.push('precision must be second, tenth, hundredth or thousandth');
     if (!ROUNDING_VALUES.includes(rounding)) problems.push('rounding must be truncate, nearest or up');
     if (!(Number.isInteger(recentRuns) && recentRuns >= 0)) problems.push('recentRuns must be a whole number from 0');
+    if (!(Number.isInteger(resultRows) && resultRows >= 1)) problems.push('resultRows must be a whole number from 1');
     if (!TRIGGER_VALUES.includes(trigger)) problems.push('trigger must be gates or keyboard');
     if (!isKeyCode(triggerKey)) problems.push('triggerKey must be the code of a key, such as Space or Enter');
     return problems;
@@ -729,7 +737,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { measure: _measure, attempts: _attempts, attemptsPerDistance: _attemptsPerDistance, allowDistanceChange: _allowDistanceChange, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, trigger: _trigger, triggerKey: _triggerKey, ...rest } = parsed;
+            const { measure: _measure, attempts: _attempts, attemptsPerDistance: _attemptsPerDistance, allowDistanceChange: _allowDistanceChange, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, resultRows: _resultRows, trigger: _trigger, triggerKey: _triggerKey, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -772,6 +780,9 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         '',
         '# How many of the last runs of a line the race page shows (0: none). 3 when not set.',
         `recentRuns: ${settings.recentRuns}`,
+        '# How many runs of a participant the race page shows at once, the latest first (the others by scrolling).',
+        '# 5 when not set.',
+        `resultRows: ${settings.resultRows}`,
         '',
         '# What starts and finishes the runs: gates (the start and finish gates of a line) or keyboard (timed by hand,',
         `# with the space bar of the race page, on a manual line "${MANUAL_LINE}", "${MANUAL_LINE} 2"…, one per tab)`,

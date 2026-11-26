@@ -90,13 +90,15 @@ describe('RunPanel', () => {
   });
 
   function mountPanel(
-    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null; previousRun: RunResult | null; measure: Measure; attemptsPerDistance: number | null; allowDistanceChange: boolean }> = {},
+    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null; previousRun: RunResult | null; resultRows: number; settingsResultRows: number; measure: Measure; attemptsPerDistance: number | null; allowDistanceChange: boolean }> = {},
   ) {
     return mountWithI18n(RunPanel, {
       props: { participant: HUGO, line: 'Line 1', run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth', ...props },
     });
   }
   const readyButton = (wrapper: ReturnType<typeof mountPanel>) => wrapper.find('button.ready');
+  // The buttons of the run, without those of the results' title
+  const actions = (wrapper: ReturnType<typeof mountPanel>) => wrapper.findAll('button').filter((button) => !button.element.closest('.resize'));
 
   it('offers "Ready to start" for the next attempt', async () => {
     const wrapper = mountPanel({ attempts: 3, results: [result({})] });
@@ -137,7 +139,7 @@ describe('RunPanel', () => {
       run: { status: 'running', event: 'CFM26', discipline: '100m', participant: HUGO, startedAt: new Date().toISOString() },
     });
     expect(running.find('[role="timer"]').exists()).toBe(true);
-    expect(running.findAll('button').map((button) => button.text())).toEqual(['Invalidate', 'Disqualify']);
+    expect(actions(running).map((button) => button.text())).toEqual(['Invalidate', 'Disqualify']);
     for (const [label, event] of [['Invalidate', 'invalidate'], ['Disqualify', 'disqualify']]) {
       await running.findAll('button').find((button) => button.text() === label)!.trigger('click');
       expect(running.emitted(event), event).toHaveLength(1);
@@ -170,13 +172,15 @@ describe('RunPanel', () => {
       result({ start: '2026-11-05T10:10:00Z', timeMs: 9000, status: 'dq' }),
     ];
     const wrapper = mountPanel({ results });
+    // The latest first, with their number
     const rows = wrapper.findAll('tbody tr');
+    expect(rows.map((row) => row.find('td').text())).toEqual(['3', '2', '1']);
     expect(rows.map((row) => row.classes().includes('best'))).toEqual([false, true, false]);
     expect(rows[1].find('.badge').text()).toBe('best');
     // A disqualified run's time is struck through
-    expect(rows[2].find('s').text()).toBe('9.00');
+    expect(rows[0].find('s').text()).toBe('9.00');
 
-    const select = rows[0].find('select');
+    const select = rows[2].find('select');
     await select.setValue('invalid');
     expect(wrapper.emitted('setStatus')).toEqual([[results[0], 'invalid']]);
     // The select keeps the saved status until the saved result comes back
@@ -202,7 +206,7 @@ describe('RunPanel', () => {
 
     const ready = mountPanel({ measure: 'distance', line: 'Manuel', run: { status: 'ready', event: 'CFM26', discipline: 'jump', participant: HUGO, distanceCm: 345 } });
     expect(ready.find('[data-testid="distance-to-validate"]').text()).toBe('345 cm');
-    expect(ready.findAll('button').map((button) => button.text())).toEqual(['Validate', 'Invalidate', 'Disqualify']);
+    expect(actions(ready).map((button) => button.text())).toEqual(['Validate', 'Invalidate', 'Disqualify']);
     for (const [label, event] of [['Validate', 'validate'], ['Invalidate', 'invalidate'], ['Disqualify', 'disqualify']]) {
       await ready.findAll('button').find((button) => button.text() === label)!.trigger('click');
       expect(ready.emitted(event), event).toHaveLength(1);
@@ -260,7 +264,7 @@ describe('RunPanel', () => {
     const wrapper = mountPanel({ results, measure: 'distance', precision: 'tenth' });
     const rows = wrapper.findAll('tbody tr');
     expect(rows.map((row) => row.classes().includes('best'))).toEqual([false, true, false]);
-    expect(rows.map((row) => row.find('td.time s, td.time').text().replace('best', '').trim())).toEqual(['345 cm', '390 cm', '500 cm']);
+    expect(rows.map((row) => row.find('td.time s, td.time').text().replace('best', '').trim())).toEqual(['500 cm', '390 cm', '345 cm']);
     expect(wrapper.find('thead').text()).toContain('Distance');
   });
 
@@ -285,8 +289,20 @@ describe('RunPanel', () => {
       result({ start: '2026-11-05T10:10:00Z', timeMs: 9000 }),
     ];
     const rows = mountPanel({ results, attempts: 2 }).findAll('tbody tr');
-    expect(rows.map((row) => row.classes().includes('best'))).toEqual([true, false, false]);
-    expect(rows.map((row) => row.find('[data-testid="beyond-attempts"]').exists())).toEqual([false, false, true]);
+    expect(rows.map((row) => row.classes().includes('best'))).toEqual([false, false, true]);
+    expect(rows.map((row) => row.find('[data-testid="beyond-attempts"]').exists())).toEqual([true, false, false]);
+  });
+
+  it('changes for now how many runs the results show at once, from their title', async () => {
+    const wrapper = mountPanel({ results: [result({})], resultRows: 5, settingsResultRows: 5 });
+    expect(wrapper.find('[data-testid="results-reset"]').exists()).toBe(false);
+    await wrapper.find('[data-testid="results-more"]').trigger('click');
+    await wrapper.find('[data-testid="results-fewer"]').trigger('click');
+    expect(wrapper.emitted('resizeResults')).toEqual([[6], [4]]);
+    await wrapper.setProps({ resultRows: 1 });
+    expect(wrapper.find('[data-testid="results-fewer"]').attributes('disabled')).toBeDefined();
+    await wrapper.find('[data-testid="results-reset"]').trigger('click');
+    expect(wrapper.emitted('resizeResults')!.at(-1)).toEqual([5]);
   });
 
   it('marks the longest valid time as best for a slow race', () => {
@@ -296,7 +312,7 @@ describe('RunPanel', () => {
       result({ start: '2026-11-05T10:10:00Z', timeMs: 15000, status: 'dq' }),
     ];
     const rows = mountPanel({ results, best: 'longest' }).findAll('tbody tr');
-    expect(rows.map((row) => row.classes().includes('best'))).toEqual([true, false, false]);
+    expect(rows.map((row) => row.classes().includes('best'))).toEqual([false, false, true]);
   });
 
   it('cannot set a run without a time to OK', () => {

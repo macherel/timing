@@ -96,6 +96,7 @@ const bestInput = ref<DisciplineSettings['best']>('shortest');
 const precisionInput = ref<DisciplineSettings['precision']>('hundredth');
 const roundingInput = ref<DisciplineSettings['rounding']>('up');
 const recentRunsInput = ref<string | number>(3);
+const resultRowsInput = ref<string | number>(5);
 const triggerInput = ref<DisciplineSettings['trigger']>('gates');
 // The trigger key as its KeyboardEvent.code, and what it typed when it was chosen here (its name on this keyboard)
 const triggerKeyInput = ref('Space');
@@ -188,6 +189,7 @@ const fields = () =>
     precisionInput.value,
     roundingInput.value,
     String(recentRunsInput.value ?? '').trim(),
+    String(resultRowsInput.value ?? '').trim(),
     triggerInput.value,
     triggerKeyInput.value,
   ]);
@@ -246,6 +248,7 @@ onMounted(async () => {
     precisionInput.value = settings.precision;
     roundingInput.value = settings.rounding;
     recentRunsInput.value = settings.recentRuns;
+    resultRowsInput.value = settings.resultRows ?? 5;
     // Missing from a server of an older version: the gates, as without the setting
     triggerInput.value = settings.trigger ?? 'gates';
     triggerKeyInput.value = settings.triggerKey ?? 'Space';
@@ -274,6 +277,11 @@ async function save(): Promise<void> {
     error.value = t('settings.recentRunsInvalid');
     return;
   }
+  const resultRows = Number(String(resultRowsInput.value ?? '').trim() || 5);
+  if (!(Number.isInteger(resultRows) && resultRows >= 1)) {
+    error.value = t('settings.resultRowsInvalid');
+    return;
+  }
   if (startInput.value && endInput.value && startInput.value >= endInput.value) {
     error.value = t('settings.startAfterEnd');
     return;
@@ -296,6 +304,7 @@ async function save(): Promise<void> {
           precision: precisionInput.value,
           rounding: roundingInput.value,
           recentRuns,
+          resultRows,
           trigger: triggerInput.value,
           triggerKey: triggerKeyInput.value,
         },
@@ -405,6 +414,11 @@ async function save(): Promise<void> {
           <input v-model="recentRunsInput" type="number" min="0" step="1" placeholder="3" class="attempts" data-testid="recent-runs-input" />
         </label>
         <p class="muted small">{{ $t('settings.recentRunsHint') }}</p>
+        <label class="field">
+          {{ $t('settings.resultRows') }}
+          <input v-model="resultRowsInput" type="number" min="1" step="1" placeholder="5" class="attempts" data-testid="result-rows-input" />
+        </label>
+        <p class="muted small">{{ $t('settings.resultRowsHint') }}</p>
       </div>
 
       <div v-show="section === 'lock'" data-section="lock">

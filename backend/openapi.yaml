@@ -1267,7 +1267,7 @@ components:
 
     DisciplineSettings:
       type: object
-      required: [measure, attempts, attemptsPerDistance, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, trigger, triggerKey]
+      required: [measure, attempts, attemptsPerDistance, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, resultRows, trigger, triggerKey]
       properties:
         measure: { $ref: '#/components/schemas/Measure' }
         attempts:
@@ -1304,6 +1304,12 @@ components:
           type: integer
           minimum: 0
           description: How many of the last runs of a line the race page shows (0 for none). 3 when not set
+        resultRows:
+          type: integer
+          minimum: 1
+          description: |
+            How many runs of a participant the race page shows at once, the latest first (the others by scrolling).
+            5 when not set
         trigger: { $ref: '#/components/schemas/Trigger' }
         triggerKey: { $ref: '#/components/schemas/TriggerKey' }
 
@@ -1334,7 +1340,7 @@ components:
     DisciplineSettingsInput:
       type: object
       description: |
-        Every field is optional (time for measure, null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, gates for trigger, Space for triggerKey). start and end accept any ISO 8601 date-time with an offset;
+        Every field is optional (time for measure, null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, 5 for resultRows, gates for trigger, Space for triggerKey). start and end accept any ISO 8601 date-time with an offset;
         without an offset they are read in the server's time zone, and a date alone means the start of that day (start)
         or the next midnight (end). The start must be before the end.
       properties:
@@ -1349,6 +1355,7 @@ components:
         precision: { $ref: '#/components/schemas/Precision' }
         rounding: { $ref: '#/components/schemas/Rounding' }
         recentRuns: { type: integer, minimum: 0 }
+        resultRows: { type: integer, minimum: 1 }
         trigger: { $ref: '#/components/schemas/Trigger' }
         triggerKey: { $ref: '#/components/schemas/TriggerKey' }
 

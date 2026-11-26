@@ -124,6 +124,8 @@ export default {
     allowDistanceChangeHint: 'A participant can try another distance without having validated the last distance they tried. Otherwise they try it again until it is validated.',
     recentRuns: 'Last runs shown',
     recentRunsHint: 'How many of the last runs of the line the race page shows (0 to hide them).',
+    resultRows: 'Runs shown per participant',
+    resultRowsHint: 'How many runs of a participant the race page shows at once, the latest first (the others by scrolling).',
     best: {
       legend: 'Best time',
       shortest: 'Shortest',
@@ -157,6 +159,7 @@ export default {
     attemptsInvalid: 'Attempts must be a whole number from 1, or empty for unlimited.',
     attemptsPerDistanceInvalid: 'Attempts per distance must be a whole number from 1, or empty for unlimited.',
     recentRunsInvalid: 'The number of last runs must be a whole number from 0.',
+    resultRowsInvalid: 'The number of runs per participant must be a whole number from 1.',
     startAfterEnd: 'The start must be before the end.',
     saveError: 'Cannot save the settings: {error}',
   },
@@ -363,6 +366,7 @@ export default {
     beyondAttempts: 'beyond the limit',
     beyondAttemptsTitle: 'Beyond the {n} attempts allowed: does not count (an invalid run made valid afterwards)',
     statusOf: 'Status of run {n}',
+    resultRows: '{n} run shown at once | {n} runs shown at once',
     noLine: 'No line on this computer',
   },
 

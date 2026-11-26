@@ -121,6 +121,8 @@ const de: Messages = {
     allowDistanceChangeHint: 'Ein Teilnehmer kann eine andere Weite versuchen, ohne die zuletzt versuchte bestätigt zu haben. Sonst versucht er sie erneut, bis sie bestätigt ist.',
     recentRuns: 'Angezeigte letzte Läufe',
     recentRunsHint: 'Wie viele der letzten Läufe der Bahn die Rennseite anzeigt (0 blendet sie aus).',
+    resultRows: 'Angezeigte Läufe pro Teilnehmer',
+    resultRowsHint: 'Wie viele Läufe eines Teilnehmers die Rennseite gleichzeitig zeigt, die neuesten zuerst (die anderen durch Scrollen).',
     best: {
       legend: 'Beste Zeit',
       shortest: 'Kürzeste',
@@ -154,6 +156,7 @@ const de: Messages = {
     attemptsInvalid: 'Die Versuche müssen eine ganze Zahl ab 1 sein, oder leer für unbegrenzt.',
     attemptsPerDistanceInvalid: 'Die Versuche pro Weite müssen eine ganze Zahl ab 1 sein, oder leer für unbegrenzt.',
     recentRunsInvalid: 'Die Anzahl der letzten Läufe muss eine ganze Zahl ab 0 sein.',
+    resultRowsInvalid: 'Die Anzahl der Läufe pro Teilnehmer muss eine ganze Zahl ab 1 sein.',
     startAfterEnd: 'Der Beginn muss vor dem Ende liegen.',
     saveError: 'Die Einstellungen können nicht gespeichert werden: {error}',
   },
@@ -358,6 +361,7 @@ const de: Messages = {
     beyondAttempts: 'über dem Limit',
     beyondAttemptsTitle: 'Über den {n} erlaubten Versuchen: zählt nicht (ein ungültiger Lauf, der nachträglich gültig wurde)',
     statusOf: 'Status von Lauf {n}',
+    resultRows: '{n} Lauf gleichzeitig angezeigt | {n} Läufe gleichzeitig angezeigt',
     noLine: 'Keine Bahn auf diesem Computer',
   },
 

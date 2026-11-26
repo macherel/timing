@@ -26,6 +26,7 @@ const SETTINGS: DisciplineSettings = {
     precision: 'hundredth',
     rounding: 'up',
     recentRuns: 3,
+    resultRows: 5,
     trigger: 'gates',
     triggerKey: 'Space',
 };
@@ -250,7 +251,7 @@ describe('discipline settings', () => {
     it('reads every setting', async () => {
         writeFiles({
             'E/D/config.yaml':
-                'measure: distance\nattempts: 3\nattemptsPerDistance: 2\nallowDistanceChange: true\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\nprecision: thousandth\nrounding: nearest\nrecentRuns: 5\ntrigger: keyboard\ntriggerKey: Enter\n',
+                'measure: distance\nattempts: 3\nattemptsPerDistance: 2\nallowDistanceChange: true\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\nprecision: thousandth\nrounding: nearest\nrecentRuns: 5\nresultRows: 8\ntrigger: keyboard\ntriggerKey: Enter\n',
         });
         expect(await loadDisciplineSettings(dir())).toEqual({
             settings: {
@@ -265,6 +266,7 @@ describe('discipline settings', () => {
                 precision: 'thousandth',
                 rounding: 'nearest',
                 recentRuns: 5,
+                resultRows: 8,
                 trigger: 'keyboard',
                 triggerKey: 'Enter',
             },
@@ -278,11 +280,11 @@ describe('discipline settings', () => {
     });
 
     it('ignores wrong settings and lists them', async () => {
-        writeFiles({ 'E/D/config.yaml': 'attempts: 0\naccess: maybe\nstart: someday\nbest: fastest\nprecision: minute\nrounding: down\nrecentRuns: -1\ntrigger: mouse\ntriggerKey: "Ctrl+A"\ncolour: red\n' });
+        writeFiles({ 'E/D/config.yaml': 'attempts: 0\naccess: maybe\nstart: someday\nbest: fastest\nprecision: minute\nrounding: down\nrecentRuns: -1\nresultRows: 0\ntrigger: mouse\ntriggerKey: "Ctrl+A"\ncolour: red\n' });
         const { settings, problems } = await loadDisciplineSettings(dir());
         expect(settings).toEqual(SETTINGS);
-        expect(problems).toHaveLength(10);
-        expect(problems.join('\n')).toMatch(/attempts.*access.*start.*best.*precision.*rounding.*recentRuns.*trigger.*triggerKey.*unknown setting "colour"/s);
+        expect(problems).toHaveLength(11);
+        expect(problems.join('\n')).toMatch(/attempts.*access.*start.*best.*precision.*rounding.*recentRuns.*resultRows.*trigger.*triggerKey.*unknown setting "colour"/s);
     });
 
     it('ignores a period whose start is not before its end', async () => {
@@ -296,7 +298,7 @@ describe('discipline settings', () => {
         expect(validateDisciplineSettings({ attempts: 2, start: '2026-11-05T07:00Z', end: null, access: 'auto' })).toEqual([]);
         expect(validateDisciplineSettings({})).toEqual([]);
         expect(validateDisciplineSettings(null)).toEqual(['settings are missing']);
-        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest', precision: 'minute', rounding: 'down', recentRuns: 1.5, trigger: 'mouse', triggerKey: '', measure: 'height', attemptsPerDistance: 0, allowDistanceChange: 'yes' })).toHaveLength(12);
+        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest', precision: 'minute', rounding: 'down', recentRuns: 1.5, resultRows: 0, trigger: 'mouse', triggerKey: '', measure: 'height', attemptsPerDistance: 0, allowDistanceChange: 'yes' })).toHaveLength(13);
         expect(validateDisciplineSettings({ start: '2026-11-05T17:00Z', end: '2026-11-05T07:00Z' })).toEqual(['start must be before end']);
     });
 
@@ -314,6 +316,7 @@ describe('discipline settings', () => {
             precision: 'tenth',
             rounding: 'truncate',
             recentRuns: 0,
+            resultRows: 2,
             trigger: 'keyboard',
             triggerKey: 'NumpadEnter',
         };
