@@ -174,6 +174,13 @@ const recentRuns = computed(() => {
   return recentRunsOf(results.value, computer.value, name, recentCount.value);
 });
 
+// The last run of this line, whatever the participant: the distance suggested for the next one
+const previousRun = computed(() => {
+  const name = line.value?.line;
+  if (!name || computer.value === null) return null;
+  return recentRunsOf(results.value, computer.value, name, 1)[0] ?? null;
+});
+
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -589,6 +596,7 @@ onMounted(reload);
       :run="run"
       :results="participantResults"
       :last-result="lastResult"
+      :previous-run="previousRun"
       :busy="busy"
       @ready="(distance, unlock) => postRun('ready', distance, unlock)"
       @validate="postRun('validate')"

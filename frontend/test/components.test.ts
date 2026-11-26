@@ -90,7 +90,7 @@ describe('RunPanel', () => {
   });
 
   function mountPanel(
-    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null; measure: Measure; attemptsPerDistance: number | null; allowDistanceChange: boolean }> = {},
+    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null; previousRun: RunResult | null; measure: Measure; attemptsPerDistance: number | null; allowDistanceChange: boolean }> = {},
   ) {
     return mountWithI18n(RunPanel, {
       props: { participant: HUGO, line: 'Line 1', run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth', ...props },
@@ -262,6 +262,20 @@ describe('RunPanel', () => {
     expect(rows.map((row) => row.classes().includes('best'))).toEqual([false, true, false]);
     expect(rows.map((row) => row.find('td.time s, td.time').text().replace('best', '').trim())).toEqual(['345 cm', '390 cm', '500 cm']);
     expect(wrapper.find('thead').text()).toContain('Distance');
+  });
+
+  it('suggests the distance of the last run of the line, or 5 cm more after a valid run of the same participant', () => {
+    const jump = (bib: string, distanceCm: number, status: RunResult['status']) =>
+      result({ bib, name: bib === '7' ? 'Hugo Guérin' : 'Léa Martin', timeMs: null, distanceCm, status });
+    const typed = (previousRun: RunResult | null) =>
+      (mountPanel({ measure: 'distance', line: 'Manuel', previousRun }).find('[data-testid="distance-input"]').element as HTMLInputElement).value;
+    expect(typed(null)).toBe('');
+    expect(typed(jump('12', 300, 'ok'))).toBe('300');
+    expect(typed(jump('12', 300, 'dq'))).toBe('300');
+    expect(typed(jump('7', 300, 'ok'))).toBe('305');
+    // The distance started comes first
+    const started = mountPanel({ measure: 'distance', line: 'Manuel', results: [jump('7', 280, 'dq')], previousRun: jump('12', 300, 'ok') });
+    expect((started.find('[data-testid="distance-input"]').element as HTMLInputElement).value).toBe('280');
   });
 
   it('leaves out of the best the runs beyond the attempts allowed, e.g. an invalid run made valid afterwards', () => {

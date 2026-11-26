@@ -20,6 +20,8 @@ const props = defineProps<{
   results: RunResult[];
   // Time of the run that just finished, highlighted until the next run
   lastResult: RunResult | null;
+  // The last run of the line, any participant: the distance it suggests for the next one
+  previousRun?: RunResult | null;
   busy: boolean;
   // Why runs and result changes are disabled (outside the discipline's period), or null
   closed: string | null;
@@ -119,13 +121,22 @@ const readyTitle = computed(() => {
 // The distance as typed, in centimetres (Vue gives a number input's value as a number)
 const distanceInput = ref<number | string>('');
 const distanceField = ref<HTMLInputElement | null>(null);
+// The distance suggested, in centimetres: that of the last run of the line, or 5 cm more when it is a valid run of
+// this participant. null without such a run
+const SUGGESTED_STEP_CM = 5;
+const suggestedDistance = computed(() => {
+  const previous = props.previousRun;
+  if (!isDistance.value || !previous || previous.distanceCm == null) return null;
+  const same = previous.bib === props.participant.bib && previous.status === 'ok';
+  return same ? previous.distanceCm + SUGGESTED_STEP_CM : previous.distanceCm;
+});
 // Typed again for the next participant, or the next attempt once this one is saved; the distance started and not
-// validated yet is the only one possible
+// validated yet is the only one possible, otherwise the one suggested
 watch(
-  [() => props.participant.bib, distanceToValidate, startedDistance],
-  ([, waiting, started]) => {
+  [() => props.participant.bib, distanceToValidate, startedDistance, suggestedDistance],
+  ([, waiting, started, suggested]) => {
     unlocked.value = false;
-    if (waiting === null) distanceInput.value = started ?? '';
+    if (waiting === null) distanceInput.value = started ?? suggested ?? '';
   },
   { immediate: true },
 );
