@@ -154,7 +154,8 @@ test('shows the times with the precision and rounding of the discipline settings
   await pickParticipant(page, '7', '7 Hugo Guérin');
   await expect(time).toHaveText('10.344');
   expect(readFile('CFM26/100m/config.yaml')).toMatch(/precision: thousandth\n.*\nrounding: truncate\n/);
-  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toContain('7,,0,10,34\r\n');
+  // The fraction of a second in the unit of the precision
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toContain('7,,0,10,344\r\n');
 });
 
 test('asks for the line each time it is opened, and goes back to this choice', async ({ page }) => {
@@ -260,6 +261,44 @@ test('times a discipline by hand with its trigger key, on the manual line', asyn
   await expect(row).toHaveCount(1);
   await expect(row.locator('td').nth(1)).toHaveText(/^\d+\.\d{2}$/);
   await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;.+;OK;[^;]*;Manuel;/);
+});
+
+test('measures a distance typed by the operator, then validated or not, on the manual line', async ({ page }) => {
+  await page.goto('/CFM26/100m/race');
+  await openSettings(page);
+  await expect(page.getByRole('radio', { name: 'Time' })).toBeChecked();
+  await page.getByText('Distance', { exact: true }).click();
+  await expect(page.getByTestId('measure-hint')).toContainText('The longest distance is the best');
+  // No best time nor trigger for a distance
+  await expect(page.getByRole('radio', { name: 'Gates' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(() => readFile('CFM26/100m/config.yaml')).toMatch(/\nmeasure: distance\n/);
+
+  // No line to choose: the distance is typed on the manual line
+  await expect(page.getByTestId('current-line')).toHaveText('Manuel');
+  await pickParticipant(page, 'hug', '7 Hugo Guérin');
+  // In centimetres
+  await page.getByTestId('distance-input').fill('345');
+  await page.getByTestId('distance-input').press('Enter');
+  await expect(page.getByTestId('distance-to-validate')).toHaveText('345 cm');
+  await page.getByRole('button', { name: 'Validate', exact: true }).click();
+
+  const rows = page.locator('.results tbody tr');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.locator('td').nth(1)).toHaveText('345 cm');
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-results.csv')).toMatch(/\n7;Hugo Guérin;[^;]+;[^;]+;345;OK;[^;]*;Manuel;/);
+  await expect.poll(() => readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toContain('7,,345\r\n');
+
+  // A longer distance, not valid: saved with its distance, struck through
+  await page.getByTestId('distance-input').fill('410');
+  await page.getByRole('button', { name: 'Ready', exact: true }).click();
+  await page.getByRole('button', { name: 'Disqualify' }).click();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1).locator('td s')).toHaveText('410 cm');
+
+  await page.goto('/CFM26/100m/live');
+  await expect(page.locator('.ranking th.time')).toHaveText('Best distance');
+  await expect(page.locator('.ranking tbody tr').first().locator('td.time')).toHaveText('345 cm');
 });
 
 test('closes the discipline settings with the gear, asking first when changes are not saved', async ({ page }) => {

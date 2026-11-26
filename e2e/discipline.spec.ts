@@ -161,7 +161,7 @@ test('resets the results, after a backup with the participants and a confirmatio
   const saved = await (await download).path();
   expect(fs.readFileSync(saved, 'utf8')).toContain('Léa Martin');
   expect((await download).suggestedFilename()).toBe(`CFM26-100m-women-${folder}.csv`);
-  expect(readFile(`CFM26/100m/backup/${folder}/CFM26-100m-results-${folder}.csv`)).toContain(run);
+  expect(readFile(`CFM26/100m/backup/${folder}/CFM26-100m-results-${folder}.csv`)).toContain(run.replace(';OK;', ';;OK;'));
   expect(readFile(`CFM26/100m/backup/${folder}/CFM26-100m-uda-results-${folder}.csv`)).toContain('7,,0,10,0');
 });
 

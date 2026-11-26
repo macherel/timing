@@ -59,7 +59,7 @@ describe('events and participants', () => {
         const { status, body } = await call('GET', '/events/CFM26/100m/participants');
         expect(status).toBe(200);
         expect(body.participants.map((p: any) => p.bib)).toEqual(['7', '12']);
-        expect(body.settings).toEqual({ attempts: null, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3, trigger: 'gates', triggerKey: 'Space' });
+        expect(body.settings).toEqual({ measure: 'time', attempts: null, attemptsPerDistance: null, allowDistanceChange: false, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3, trigger: 'gates', triggerKey: 'Space' });
         expect((await call('GET', '/events/CFM26/nope/participants')).status).toBe(404);
     });
 });
@@ -183,7 +183,7 @@ describe('files of a discipline', () => {
             [`CFM26-100m-men-${date}.csv`, 'participants'],
         ]);
         const backup = `${base}/events/CFM26/100m/backups/${date}`;
-        expect(await (await fetch(`${backup}/CFM26-100m-results-${date}.csv`)).text()).toContain(run);
+        expect(await (await fetch(`${backup}/CFM26-100m-results-${date}.csv`)).text()).toContain(run.replace(';OK;', ';;OK;'));
         expect(await (await fetch(`${backup}/CFM26-100m-men-${date}.csv`)).text()).toBe('bib;name\n7;Hugo Guérin\n12;Léa Martin\n');
         expect((await fetch(`${backup}/..%2F..%2Fconfig.yaml`)).status).toBe(404);
         expect((await fetch(`${base}/events/CFM26/100m/backups/nope/men.csv`)).status).toBe(404);
@@ -308,7 +308,10 @@ describe('discipline settings', () => {
         expect(status).toBe(200);
         // Stored in UTC
         expect(body.settings).toEqual({
+            measure: 'time',
             attempts: 3,
+            attemptsPerDistance: null,
+            allowDistanceChange: false,
             start: '2026-11-05T07:00Z',
             end: null,
             access: 'open',
@@ -478,6 +481,25 @@ describe('a run timed by hand', () => {
     it('refuses a key press on another line, or an unknown one', async () => {
         expect((await press('Line 1')).status).toBe(409);
         expect((await press('Nope')).status).toBe(404);
+    });
+});
+
+describe('a distance', () => {
+    const ready = (body: object) => call('POST', '/lines/Manuel/ready', { event: 'CFM26', discipline: '100m', bib: '7', ...body });
+
+    beforeEach(() => writeFiles({ 'CFM26/100m/config.yaml': 'measure: distance\n' }));
+
+    it('is typed when the participant gets ready on the manual line, then validated', async () => {
+        expect((await ready({})).status).toBe(409);
+        expect((await ready({ distance: '345' })).status).toBe(409);
+        expect((await ready({ distance: 345 })).body).toMatchObject({ status: 'ready', distanceCm: 345 });
+        // The key does not start it
+        expect((await call('POST', '/lines/Manuel/key')).body).toMatchObject({ status: 'ready' });
+        expect((await call('POST', '/lines/Manuel/validate')).body).toEqual({ status: 'idle' });
+        expect((await call('POST', '/lines/Manuel/validate')).status).toBe(409);
+
+        const [result] = await waitForResults(1);
+        expect(result).toMatchObject({ bib: '7', status: 'ok', line: 'Manuel', distanceCm: 345, timeMs: null });
     });
 });
 

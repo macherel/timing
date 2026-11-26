@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import type { DisciplineSettings, RunResult, RunStatus } from '../../types';
-import { DECIMALS, formatDuration, formatTime } from '../../format';
+import type { DisciplineSettings, Measure, RunResult, RunStatus } from '../../types';
+import { formatTime, formatValue } from '../../format';
+import { valueOf } from '../../race/results';
 
 /**
  * The last runs of the discipline timed on the line, as read from the results file (its computer and line columns).
@@ -14,11 +15,15 @@ const props = defineProps<{
   count: number;
   // Unit of the times, from the discipline settings
   precision: DisciplineSettings['precision'];
+  // What a run measures: a time (by default) or a distance
+  measure?: Measure;
 }>();
 
 const { t } = useI18n();
 
-const showTime = (ms: number) => formatDuration(ms, DECIMALS[props.precision]);
+const isDistance = () => props.measure === 'distance';
+const valueOfResult = (result: RunResult) => valueOf(result, props.measure ?? 'time');
+const showValue = (value: number) => formatValue(value, props.measure ?? 'time', props.precision);
 const statusLabel = (status: RunStatus) => t(`common.status.${status}`);
 </script>
 
@@ -31,8 +36,8 @@ const statusLabel = (status: RunStatus) => t(`common.status.${status}`);
         <tr>
           <th>{{ $t('recent.bib') }}</th>
           <th>{{ $t('recent.name') }}</th>
-          <th>{{ $t('run.time') }}</th>
-          <th>{{ $t('run.startedAt') }}</th>
+          <th>{{ $t(isDistance() ? 'run.distance' : 'run.time') }}</th>
+          <th>{{ $t(isDistance() ? 'run.typedAt' : 'run.startedAt') }}</th>
           <th>{{ $t('run.status') }}</th>
         </tr>
       </thead>
@@ -41,9 +46,9 @@ const statusLabel = (status: RunStatus) => t(`common.status.${status}`);
           <td class="mono">{{ result.bib }}</td>
           <td>{{ result.name }}</td>
           <td class="mono time">
-            <s v-if="result.status !== 'ok' && result.timeMs !== null">{{ showTime(result.timeMs) }}</s>
-            <template v-else-if="result.timeMs !== null">{{ showTime(result.timeMs) }}</template>
-            <span v-else class="muted" :title="$t('run.noTime')">—</span>
+            <s v-if="result.status !== 'ok' && valueOfResult(result) !== null">{{ showValue(valueOfResult(result)!) }}</s>
+            <template v-else-if="valueOfResult(result) !== null">{{ showValue(valueOfResult(result)!) }}</template>
+            <span v-else class="muted" :title="$t(isDistance() ? 'run.noDistance' : 'run.noTime')">—</span>
           </td>
           <td class="mono muted">{{ formatTime(result.start) }}</td>
           <td><span class="status" :class="result.status">{{ statusLabel(result.status) }}</span></td>

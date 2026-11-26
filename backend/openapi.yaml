@@ -559,6 +559,8 @@ paths:
       summary: A participant is ready on a line
       description: |
         The next start crossing of the line starts their run, its next finish crossing ends it and saves the result.
+        In a discipline that measures a distance (`measure: distance`), `distance` is the distance typed by the
+        operator: the participant is ready with it until it is validated, invalidated or disqualified.
       operationId: prepareRun
       requestBody:
         required: true
@@ -571,6 +573,13 @@ paths:
                 event: { type: string }
                 discipline: { type: string }
                 bib: { type: string }
+                distance:
+                  type: integer
+                  exclusiveMinimum: 0
+                  exclusiveMaximum: 100000
+                  description: |
+                    In centimetres (e.g. 345 for 3.45 m), required for a discipline that measures a distance (ignored
+                    otherwise)
             example: { event: CFM26, discipline: 100m, bib: '7' }
       responses:
         '200':
@@ -586,8 +595,27 @@ paths:
         '409':
           description: |
             The line is not ready (see LineRun.ready), a run is in progress on the line, the participant is ready or
-            running on another line, has no attempt left, the discipline is closed, or it is timed by hand and the line
-            is not the manual line (or the other way round)
+            running on another line, has no attempt left, the discipline is closed, it is timed by hand or measures a
+            distance and the line is not the manual line (or the other way round), the distance is missing or not
+            a whole number of centimetres, the participant is eliminated (all the attempts allowed at one distance
+            used), or they started another distance and did not validate it yet (unless allowDistanceChange)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problems' }
+
+  /lines/{line}/validate:
+    parameters:
+      - $ref: '#/components/parameters/Line'
+    post:
+      tags: [Run]
+      summary: Saves the distance a participant is ready with as valid
+      description: For a discipline that measures a distance, after the participant got ready with it.
+      operationId: validateRun
+      responses:
+        '200': { $ref: '#/components/responses/Idle' }
+        '404': { $ref: '#/components/responses/UnknownLine' }
+        '409':
+          description: No distance waits to be validated on the line
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problems' }
@@ -598,7 +626,9 @@ paths:
     post:
       tags: [Run]
       summary: Ends the running run of a line now and saves it as invalid
-      description: An invalid run is not the participant's fault and does not use up an attempt. It has no time.
+      description: |
+        An invalid run is not the participant's fault and does not use up an attempt. It has no time. A distance waiting
+        to be validated is saved with it.
       operationId: invalidateRun
       responses:
         '200': { $ref: '#/components/responses/Idle' }
@@ -611,6 +641,7 @@ paths:
     post:
       tags: [Run]
       summary: Ends the running run of a line now and saves it as disqualified (DQ)
+      description: A distance waiting to be validated is saved with it.
       operationId: disqualifyRun
       responses:
         '200': { $ref: '#/components/responses/Idle' }
@@ -1218,7 +1249,7 @@ components:
       type: string
       enum: [second, tenth, hundredth, thousandth]
       default: hundredth
-      description: Unit of the measured times.
+      description: Unit of the measured times (not for a distance, always in centimetres).
 
     Rounding:
       type: string
@@ -1230,12 +1261,27 @@ components:
 
     DisciplineSettings:
       type: object
-      required: [attempts, start, end, access, best, precision, rounding, recentRuns, trigger, triggerKey]
+      required: [measure, attempts, attemptsPerDistance, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, trigger, triggerKey]
       properties:
+        measure: { $ref: '#/components/schemas/Measure' }
         attempts:
           type: [integer, 'null']
           minimum: 1
-          description: Runs allowed per participant (invalid runs do not count). null for unlimited
+          description: |
+            Runs allowed per participant (invalid runs do not count). The best result is among the first ones only: a
+            run beyond them (e.g. an invalid run made valid afterwards) does not count. null for unlimited
+        attemptsPerDistance:
+          type: [integer, 'null']
+          minimum: 1
+          description: |
+            For a distance: runs allowed at one same distance (invalid runs do not count). A participant who used them
+            all at a distance without validating it is eliminated. null for unlimited. Ignored for a time
+        allowDistanceChange:
+          type: boolean
+          default: false
+          description: |
+            For a distance: whether a participant can change distance before validating the last one they tried (false:
+            they try it again until it is validated). Ignored for a time
         start:
           type: [string, 'null']
           description: Start of the period (included), UTC to the minute. null for no limit
@@ -1255,6 +1301,15 @@ components:
         trigger: { $ref: '#/components/schemas/Trigger' }
         triggerKey: { $ref: '#/components/schemas/TriggerKey' }
 
+    Measure:
+      type: string
+      enum: [time, distance]
+      default: time
+      description: |
+        What a run measures: a time between the start and finish crossings (time, the default), or a distance typed by
+        the operator on the race page (distance: on the manual line "Manuel" of each computer, the longest distance is
+        the best, in centimetres; best, precision, rounding and trigger are ignored).
+
     TriggerKey:
       type: string
       pattern: '^[A-Za-z][A-Za-z0-9]{0,31}$'
@@ -1273,11 +1328,14 @@ components:
     DisciplineSettingsInput:
       type: object
       description: |
-        Every field is optional (null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, gates for trigger, Space for triggerKey). start and end accept any ISO 8601 date-time with an offset;
+        Every field is optional (time for measure, null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, gates for trigger, Space for triggerKey). start and end accept any ISO 8601 date-time with an offset;
         without an offset they are read in the server's time zone, and a date alone means the start of that day (start)
         or the next midnight (end). The start must be before the end.
       properties:
+        measure: { $ref: '#/components/schemas/Measure' }
         attempts: { type: [integer, 'null'], minimum: 1 }
+        attemptsPerDistance: { type: [integer, 'null'], minimum: 1 }
+        allowDistanceChange: { type: boolean }
         start: { type: [string, 'null'], examples: ['2026-11-05T08:00+01:00'] }
         end: { type: [string, 'null'], examples: ['2026-11-05'] }
         access: { $ref: '#/components/schemas/Access' }
@@ -1304,7 +1362,7 @@ components:
 
     RunResult:
       type: object
-      required: [bib, name, start, finish, timeMs, status, computer, line]
+      required: [bib, name, start, finish, timeMs, distanceCm, status, computer, line]
       properties:
         bib: { type: string, examples: ['7'] }
         name: { type: string, examples: [Hugo Guérin] }
@@ -1317,8 +1375,12 @@ components:
           type: [integer, 'null']
           description: |
             Finish - start in milliseconds, with the precision and rounding of the discipline settings (e.g. 12350
-            for 12.341 s rounded up to the hundredth). null without a finish
+            for 12.341 s rounded up to the hundredth). null without a finish, and for a distance
           examples: [12345]
+        distanceCm:
+          type: [integer, 'null']
+          description: The distance typed by the operator in centimetres (e.g. 345 for 3.45 m). null for a time
+          examples: [345]
         status: { $ref: '#/components/schemas/RunStatus' }
         computer:
           type: [string, 'null']
@@ -1351,13 +1413,18 @@ components:
 
     RunReady:
       type: object
-      description: A participant is ready, waiting for a start crossing
+      description: |
+        A participant is ready, waiting for a start crossing; or, in a discipline that measures a distance, with the
+        distance typed by the operator, waiting to be validated
       required: [status, event, discipline, participant]
       properties:
         status: { type: string, const: ready }
         event: { type: string }
         discipline: { type: string }
         participant: { $ref: '#/components/schemas/Participant' }
+        distanceCm:
+          type: integer
+          description: The distance to validate in centimetres, only in a discipline that measures a distance
 
     RunRunning:
       type: object

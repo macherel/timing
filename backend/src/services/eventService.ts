@@ -132,7 +132,16 @@ function renameLegacyResults(dir: string): void {
 
 /** Settings of a discipline, from its config.yaml. Every setting is optional. */
 export interface DisciplineSettings {
-    attempts: number | null; // Runs allowed per participant (invalid runs do not count). null: unlimited
+    // What a run measures: a time, between the start and finish crossings, or a distance, typed by the operator on the
+    // race page (on the manual line of each computer, the longest distance is the best)
+    measure: Measure;
+    attempts: number | null; // Runs allowed per participant (invalid runs do not count); the best result is among the first ones only. null: unlimited
+    // For a distance: runs allowed at one same distance (invalid runs do not count). A participant who used them all at
+    // a distance without validating it is eliminated: no more runs. null: unlimited. Ignored for a time
+    attemptsPerDistance: number | null;
+    // For a distance: whether a participant can change distance before validating the last one they tried (false: they
+    // try it again until it is validated). Ignored for a time
+    allowDistanceChange: boolean;
     // Period when runs can be timed and results changed, from start (included) to end (excluded), as ISO 8601
     // date-times in UTC, e.g. 2026-11-05T07:00Z. null: no limit on that side
     start: string | null;
@@ -140,10 +149,12 @@ export interface DisciplineSettings {
     // Whether runs can be timed and results changed: follow the start - end period (auto), always (open, e.g. to
     // correct a result after the period) or never (locked, results are final)
     access: Access;
-    // Which time is the best: the shortest (a race), or the longest (a slow race, where the slowest wins)
+    // Which time is the best: the shortest (a race), or the longest (a slow race, where the slowest wins). Ignored for a
+    // distance: the longest is always the best
     best: Best;
     // Unit of the measured times, and how a time is brought to it: truncated, rounded to the nearest (a half goes up)
-    // or rounded up. The time shown, ranked and written for the UDA is this one
+    // or rounded up. The time shown, ranked and written for the UDA is this one. Both are ignored for a distance: it is
+    // typed in centimetres
     precision: Precision;
     rounding: Rounding;
     // How many of the last runs of a line the race page shows (0: none)
@@ -155,6 +166,9 @@ export interface DisciplineSettings {
     // browser (the key at that place on the keyboard, whatever its layout), e.g. Space, Enter or KeyA
     triggerKey: string;
 }
+
+export type Measure = 'time' | 'distance';
+export const MEASURE_VALUES: Measure[] = ['time', 'distance'];
 
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';
 export const PRECISION_VALUES: Precision[] = ['second', 'tenth', 'hundredth', 'thousandth'];
@@ -172,7 +186,10 @@ export type Access = 'auto' | 'open' | 'locked';
 export const ACCESS_VALUES: Access[] = ['auto', 'open', 'locked'];
 
 export const DEFAULT_SETTINGS: DisciplineSettings = {
+    measure: 'time',
     attempts: null,
+    attemptsPerDistance: null,
+    allowDistanceChange: false,
     start: null,
     end: null,
     access: 'auto',
@@ -469,8 +486,8 @@ export function participantCells(row: string[], columns: ParticipantColumns): Pa
 }
 
 /**
- * Whether CSV rows are results in the UDA import format (bib,status,minutes,seconds,fraction, no header, see
- * udaResults in runService.ts), not participants.
+ * Whether CSV rows are results in the UDA import format (bib,status,minutes,seconds,fraction for a time,
+ * bib,status,centimetres for a distance, no header, see udaResults in runService.ts), not participants.
  */
 function isUdaResults(rows: string[][]): boolean {
     const lines = rows.filter((row) => row.some((cell) => cell.trim() !== ''));
@@ -478,7 +495,7 @@ function isUdaResults(rows: string[][]): boolean {
         lines.length > 0 &&
         lines.every((row) => {
             const [bib, status, ...time] = row.map((cell) => cell.trim());
-            return row.length === 5 && /^\d+$/.test(bib) && /^(|DQ|DNF)$/i.test(status) && time.every((cell) => /^\d+$/.test(cell));
+            return (row.length === 5 || row.length === 3) && /^\d+$/.test(bib) && /^(|DQ|DNF)$/i.test(status) && time.every((cell) => /^\d+$/.test(cell));
         })
     );
 }
@@ -545,9 +562,18 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
     }
 
     for (const [key, value] of Object.entries(parsed)) {
-        if (key === 'attempts') {
+        if (key === 'measure') {
+            if (MEASURE_VALUES.includes(value as Measure)) settings.measure = value as Measure;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: measure must be time or distance (the runs are timed)`);
+        } else if (key === 'attempts') {
             if (Number.isInteger(value) && (value as number) >= 1) settings.attempts = value as number;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: attempts must be a whole number from 1 (attempts are unlimited)`);
+        } else if (key === 'attemptsPerDistance') {
+            if (Number.isInteger(value) && (value as number) >= 1) settings.attemptsPerDistance = value as number;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: attemptsPerDistance must be a whole number from 1 (attempts per distance are unlimited)`);
+        } else if (key === 'allowDistanceChange') {
+            if (typeof value === 'boolean') settings.allowDistanceChange = value;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: allowDistanceChange must be true or false (a distance started must be validated first)`);
         } else if (key === 'access') {
             if (ACCESS_VALUES.includes(value as Access)) settings.access = value as Access;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: access must be auto, open or locked (it is ignored)`);
@@ -654,7 +680,10 @@ export function parseCsv(text: string): string[][] {
 export function validateDisciplineSettings(settings: any): string[] {
     if (!settings || typeof settings !== 'object') return ['settings are missing'];
     const {
+        measure = DEFAULT_SETTINGS.measure,
         attempts = null,
+        attemptsPerDistance = null,
+        allowDistanceChange = DEFAULT_SETTINGS.allowDistanceChange,
         start = null,
         end = null,
         access = DEFAULT_SETTINGS.access,
@@ -666,9 +695,14 @@ export function validateDisciplineSettings(settings: any): string[] {
         triggerKey = DEFAULT_SETTINGS.triggerKey,
     } = settings;
     const problems: string[] = [];
+    if (!MEASURE_VALUES.includes(measure)) problems.push('measure must be time or distance');
     if (attempts !== null && !(Number.isInteger(attempts) && attempts >= 1)) {
         problems.push('attempts must be a whole number from 1, or null for unlimited attempts');
     }
+    if (attemptsPerDistance !== null && !(Number.isInteger(attemptsPerDistance) && attemptsPerDistance >= 1)) {
+        problems.push('attemptsPerDistance must be a whole number from 1, or null for unlimited attempts per distance');
+    }
+    if (typeof allowDistanceChange !== 'boolean') problems.push('allowDistanceChange must be true or false');
     for (const [name, value] of [['start', start], ['end', end]] as const) {
         if (value !== null && !toDateTime(value, name)) problems.push(`${name} must be an ISO 8601 date-time such as 2026-11-05T07:00Z, or null`);
     }
@@ -695,7 +729,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { attempts: _attempts, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, trigger: _trigger, triggerKey: _triggerKey, ...rest } = parsed;
+            const { measure: _measure, attempts: _attempts, attemptsPerDistance: _attemptsPerDistance, allowDistanceChange: _allowDistanceChange, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, trigger: _trigger, triggerKey: _triggerKey, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -705,8 +739,18 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     const lines = [
         '# Settings of this discipline, also edited from the race page (saving from the page does not keep comments)',
         '',
-        '# Runs allowed per participant (invalid runs do not count). Unlimited when not set.',
+        '# What a run measures: time (between the start and finish) or distance (typed on the race page, on the line',
+        `# "${MANUAL_LINE}" of each computer, the longest is the best)`,
+        `measure: ${settings.measure}`,
+        '',
+        '# Runs allowed per participant (invalid runs do not count). The best result is among the first ones only (a run',
+        '# made valid afterwards beyond them does not count). Unlimited when not set.',
         settings.attempts === null ? '#attempts: 3' : `attempts: ${settings.attempts}`,
+        '# For a distance: runs allowed at one same distance (invalid runs do not count). A participant who used them all',
+        '# at a distance without validating it is eliminated. Unlimited when not set.',
+        settings.attemptsPerDistance === null ? '#attemptsPerDistance: 3' : `attemptsPerDistance: ${settings.attemptsPerDistance}`,
+        '# For a distance: whether a participant can change distance before validating the last one they tried',
+        `allowDistanceChange: ${settings.allowDistanceChange}`,
         '',
         '# Period when runs can be timed and results changed, from start (included) to end (excluded).',
         '# ISO 8601 date-times in UTC. No limit when not set.',
@@ -717,12 +761,13 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         '# period, e.g. to correct a result) or locked (never, results are final)',
         `access: ${settings.access}`,
         '',
-        '# Which time is the best: shortest (a race) or longest (a slow race, the slowest participant wins)',
+        '# Which time is the best: shortest (a race) or longest (a slow race, the slowest participant wins). Ignored for a',
+        '# distance: the longest is the best',
         `best: ${settings.best}`,
         '',
-        '# Unit of the times: second, tenth, hundredth or thousandth',
+        '# Unit of the times: second, tenth, hundredth or thousandth (not for a distance: it is in centimetres)',
         `precision: ${settings.precision}`,
-        '# How a time is brought to that unit: truncate, nearest (a half goes up) or up',
+        '# How a time is brought to that unit: truncate, nearest (a half goes up) or up (not for a distance)',
         `rounding: ${settings.rounding}`,
         '',
         '# How many of the last runs of a line the race page shows (0: none). 3 when not set.',

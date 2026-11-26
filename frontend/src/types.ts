@@ -15,10 +15,14 @@ export interface RaceUpdateMessage {
   timestamp: string; // ISO 8601, nanosecond precision
 }
 
-/** The timed run of a line: idle, ready (waiting for a start crossing) or running (waiting for a finish crossing). */
+/**
+ * The timed run of a line: idle, ready (waiting for a start crossing) or running (waiting for a finish crossing). In a
+ * discipline that measures a distance, the participant is ready with the distance typed by the operator (in
+ * centimetres), until it is validated, invalidated or disqualified: there is no running state.
+ */
 export type RunState =
   | { status: 'idle' }
-  | { status: 'ready'; event: string; discipline: string; participant: Participant }
+  | { status: 'ready'; event: string; discipline: string; participant: Participant; distanceCm?: number }
   | { status: 'running'; event: string; discipline: string; participant: Participant; startedAt: string };
 
 /** Only ok runs count. invalid: not the participant's fault (e.g. timing problem); dq: disqualified */
@@ -31,7 +35,10 @@ export interface RunResult {
   start: string;
   // null when the run was ended before the finish (invalidated or disqualified)
   finish: string | null;
+  // null without a finish, and for a distance
   timeMs: number | null;
+  // The distance typed by the operator in centimetres; null for a time. Missing from older computers
+  distanceCm?: number | null;
   status: RunStatus;
   // The computer and its line that timed the run, null for a run saved before they were recorded
   computer: string | null;
@@ -336,8 +343,18 @@ export interface Participant {
 /** GET /api/events/:event/:discipline/participants */
 /** Settings of a discipline, from its config.yaml (in the discipline folder) */
 export interface DisciplineSettings {
+  // What a run measures: a time between the start and finish, or a distance typed on the race page (on the manual line,
+  // in centimetres, the longest is the best; best, precision, rounding and trigger are then ignored). Missing from a
+  // server of an older version
+  measure?: Measure;
   // Runs allowed per participant (invalid runs do not count). null: unlimited
   attempts: number | null;
+  // For a distance: runs allowed at one same distance (invalid runs do not count); a participant who used them all at a
+  // distance is eliminated. null: unlimited. Missing from a server of an older version
+  attemptsPerDistance?: number | null;
+  // For a distance: whether a participant can change distance before validating the last one they tried. Missing from a
+  // server of an older version
+  allowDistanceChange?: boolean;
   // Period when runs can be timed and results changed, from start (included) to end (excluded), as ISO 8601
   // date-times in UTC, e.g. 2026-11-05T07:00Z. null: no limit on that side
   start: string | null;
@@ -359,6 +376,9 @@ export interface DisciplineSettings {
   triggerKey: string;
 }
 
+export type Measure = 'time' | 'distance';
+
+// Unit of the times
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';
 
 /** A name column of a participant file: one name, or the first and/or last name. */

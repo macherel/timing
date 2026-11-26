@@ -4,7 +4,7 @@ import ParticipantPicker from '../src/components/race/ParticipantPicker.vue';
 import RunPanel from '../src/components/race/RunPanel.vue';
 import RecentRuns from '../src/components/race/RecentRuns.vue';
 import { setLocale } from '../src/i18n';
-import type { Participant, Precision, RunResult, RunState } from '../src/types';
+import type { Measure, Participant, Precision, RunResult, RunState } from '../src/types';
 import { mountWithI18n } from './mount';
 
 const HUGO: Participant = { bib: '7', name: 'Hugo Guérin', category: 'Sénior M' };
@@ -90,7 +90,7 @@ describe('RunPanel', () => {
   });
 
   function mountPanel(
-    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null }> = {},
+    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null; measure: Measure; attemptsPerDistance: number | null; allowDistanceChange: boolean }> = {},
   ) {
     return mountWithI18n(RunPanel, {
       props: { participant: HUGO, line: 'Line 1', run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth', ...props },
@@ -187,6 +187,76 @@ describe('RunPanel', () => {
     const results = [result({ timeMs: 12345 })];
     expect(mountPanel({ results, precision: 'thousandth' }).find('tbody td.time').text()).toBe('12.345');
     expect(mountPanel({ results: [result({ timeMs: 12000 })], precision: 'second' }).find('tbody td.time').text()).toBe('12');
+  });
+
+  it('takes the distance typed to get the participant ready, then validates it or not', async () => {
+    const idle = mountPanel({ measure: 'distance', line: 'Manuel' });
+    const input = idle.find('[data-testid="distance-input"]');
+    expect(input.attributes('step')).toBe('1');
+    // Nothing typed: not ready
+    await idle.find('form.distance').trigger('submit');
+    expect(idle.emitted('ready')).toBeUndefined();
+    await input.setValue('345');
+    await idle.find('form.distance').trigger('submit');
+    expect(idle.emitted('ready')).toEqual([[345]]);
+
+    const ready = mountPanel({ measure: 'distance', line: 'Manuel', run: { status: 'ready', event: 'CFM26', discipline: 'jump', participant: HUGO, distanceCm: 345 } });
+    expect(ready.find('[data-testid="distance-to-validate"]').text()).toBe('345 cm');
+    expect(ready.findAll('button').map((button) => button.text())).toEqual(['Validate', 'Invalidate', 'Disqualify']);
+    for (const [label, event] of [['Validate', 'validate'], ['Invalidate', 'invalidate'], ['Disqualify', 'disqualify']]) {
+      await ready.findAll('button').find((button) => button.text() === label)!.trigger('click');
+      expect(ready.emitted(event), event).toHaveLength(1);
+    }
+  });
+
+  it('keeps the distance started until it is validated, and tells when the participant is eliminated', () => {
+    const jump = (distanceCm: number, status: RunResult['status'], start: string) => result({ start, timeMs: null, distanceCm, status });
+    const started = mountPanel({ measure: 'distance', line: 'Manuel', attemptsPerDistance: 3, results: [jump(345, 'dq', '2026-11-05T10:00:00Z')] });
+    const input = started.find('[data-testid="distance-input"]');
+    expect((input.element as HTMLInputElement).value).toBe('345');
+    expect(input.attributes('readonly')).toBeDefined();
+    expect(started.find('[data-testid="started-distance"]').text()).toBe('Distance started: 345 cm, attempt 2 of 3');
+    // One ready button only, the one of the distance
+    expect(started.findAll('button.ready').map((button) => button.text())).toEqual(['Ready']);
+
+    // Unless the settings let the participant change distance
+    const free = mountPanel({ measure: 'distance', line: 'Manuel', allowDistanceChange: true, results: [jump(345, 'dq', '2026-11-05T10:00:00Z')] });
+    expect(free.find('[data-testid="distance-input"]').attributes('readonly')).toBeUndefined();
+    expect((free.find('[data-testid="distance-input"]').element as HTMLInputElement).value).toBe('');
+    expect(free.find('[data-testid="started-distance"]').exists()).toBe(false);
+
+    const out = mountPanel({
+      measure: 'distance',
+      line: 'Manuel',
+      attemptsPerDistance: 2,
+      results: [jump(345, 'dq', '2026-11-05T10:00:00Z'), jump(345, 'dq', '2026-11-05T10:01:00Z')],
+    });
+    expect(out.text()).toContain('Eliminated: 2 attempts at 345 cm');
+    expect(readyButton(out).attributes('disabled')).toBeDefined();
+  });
+
+  it('lists the distances in centimetres with the longest valid one marked as best, whatever the precision of times', () => {
+    const results = [
+      result({ start: '2026-11-05T10:00:00Z', timeMs: null, distanceCm: 345 }),
+      result({ start: '2026-11-05T10:05:00Z', timeMs: null, distanceCm: 390 }),
+      result({ start: '2026-11-05T10:10:00Z', timeMs: null, distanceCm: 500, status: 'dq' }),
+    ];
+    const wrapper = mountPanel({ results, measure: 'distance', precision: 'tenth' });
+    const rows = wrapper.findAll('tbody tr');
+    expect(rows.map((row) => row.classes().includes('best'))).toEqual([false, true, false]);
+    expect(rows.map((row) => row.find('td.time s, td.time').text().replace('best', '').trim())).toEqual(['345 cm', '390 cm', '500 cm']);
+    expect(wrapper.find('thead').text()).toContain('Distance');
+  });
+
+  it('leaves out of the best the runs beyond the attempts allowed, e.g. an invalid run made valid afterwards', () => {
+    const results = [
+      result({ start: '2026-11-05T10:00:00Z', timeMs: 12000 }),
+      result({ start: '2026-11-05T10:05:00Z', timeMs: 11000, status: 'dq' }),
+      result({ start: '2026-11-05T10:10:00Z', timeMs: 9000 }),
+    ];
+    const rows = mountPanel({ results, attempts: 2 }).findAll('tbody tr');
+    expect(rows.map((row) => row.classes().includes('best'))).toEqual([true, false, false]);
+    expect(rows.map((row) => row.find('[data-testid="beyond-attempts"]').exists())).toEqual([false, false, true]);
   });
 
   it('marks the longest valid time as best for a slow race', () => {

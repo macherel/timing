@@ -15,7 +15,7 @@ import type {
 } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
 import ParticipantPicker from '../components/race/ParticipantPicker.vue';
-import { countsAsAttempt, recentRunsOf, sameRun } from '../race/results';
+import { countsAsAttempt, eliminatedAt, recentRunsOf, sameRun } from '../race/results';
 import RunPanel from '../components/race/RunPanel.vue';
 import RecentRuns from '../components/race/RecentRuns.vue';
 import { showDateTime } from '../race/dateTime';
@@ -42,6 +42,7 @@ const loadError = ref<string | null>(null);
 const participants = ref<Participant[]>([]);
 const problems = ref<string[]>([]);
 const NO_SETTINGS: DisciplineSettings = {
+  measure: 'time',
   attempts: null,
   start: null,
   end: null,
@@ -58,8 +59,12 @@ const settings = ref<DisciplineSettings>({ ...NO_SETTINGS });
 const settingsOf = ref<string | null>(null);
 const disciplineKey = () => `${eventName.value}\n${discipline.value}`;
 const settingsKnown = computed(() => !disciplineExists.value || settingsOf.value === disciplineKey());
-// A discipline timed by hand runs on the manual line of this computer, with the space bar: no line to choose
-const manual = computed(() => disciplineExists.value && settings.value.trigger === 'keyboard');
+// What a run of the discipline measures: a time, or a distance typed by the operator
+const measure = computed(() => settings.value.measure ?? 'time');
+const isDistance = computed(() => measure.value === 'distance');
+// A discipline timed by hand runs on the manual line of this computer, with the space bar, and so does one that measures
+// a distance (without key): no line to choose
+const manual = computed(() => disciplineExists.value && (isDistance.value || settings.value.trigger === 'keyboard'));
 
 // The current time, refreshed often enough that the page opens and closes on the minute
 const now = ref(Date.now());
@@ -125,15 +130,19 @@ watch(
   { immediate: true },
 );
 onUnmounted(() => (selectionLock.value = null));
-// Bibs of the participants who used all their attempts (none when attempts are unlimited)
+// Bibs of the participants who used all their attempts, or all those allowed at one distance (eliminated)
+const attemptsPerDistance = computed(() => (isDistance.value ? (settings.value.attemptsPerDistance ?? null) : null));
 const finishedBibs = computed(() => {
   const limit = settings.value.attempts;
-  if (limit === null) return new Set<string>();
-  const used = new Map<string, number>();
-  for (const result of results.value) {
-    if (countsAsAttempt(result)) used.set(result.bib, (used.get(result.bib) ?? 0) + 1);
+  const finished = new Set<string>();
+  if (limit === null && attemptsPerDistance.value === null) return finished;
+  const byBib = new Map<string, RunResult[]>();
+  for (const result of results.value) byBib.set(result.bib, [...(byBib.get(result.bib) ?? []), result]);
+  for (const [bib, runs] of byBib) {
+    if (limit !== null && runs.filter(countsAsAttempt).length >= limit) finished.add(bib);
+    else if (eliminatedAt(runs, attemptsPerDistance.value) !== null) finished.add(bib);
   }
-  return new Set([...used].filter(([, count]) => count >= limit).map(([bib]) => bib));
+  return finished;
 });
 const remainingCount = computed(() => participants.value.filter((p) => !finishedBibs.value.has(p.bib)).length);
 const participantResults = computed(() => results.value.filter((result) => result.bib === selected.value?.bib));
@@ -285,12 +294,12 @@ const { send } = useRaceSocket({
 });
 watch([eventName, discipline, disciplineExists, selected, () => line.value?.line], sendViewing);
 
-async function postRun(action: 'ready' | 'cancel' | 'invalidate' | 'disqualify'): Promise<void> {
+async function postRun(action: 'ready' | 'validate' | 'cancel' | 'invalidate' | 'disqualify', distance?: number): Promise<void> {
   const name = line.value?.line;
   if (!name) return;
   busy.value = true;
   try {
-    const body = action === 'ready' ? { event: eventName.value, discipline: discipline.value, bib: selected.value?.bib } : {};
+    const body = action === 'ready' ? { event: eventName.value, discipline: discipline.value, bib: selected.value?.bib, distance } : {};
     const next = await getJson<RunState>(`/api/lines/${encodeURIComponent(name)}/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -311,8 +320,15 @@ function cancel(): void {
   postRun('cancel');
 }
 
-/** Ends the running run now, saved as INVALID or DQ, after a confirmation. */
+/**
+ * Ends the running run now, saved as INVALID or DQ, after a confirmation. A distance waiting to be validated is saved
+ * so at once: the operator says whether it is valid.
+ */
 function voidRun(action: 'invalidate' | 'disqualify'): void {
+  if (run.value.status === 'ready' && run.value.distanceCm !== undefined) {
+    postRun(action);
+    return;
+  }
   if (run.value.status !== 'running') return;
   const { bib, name } = run.value.participant;
   if (!confirm(t(action === 'disqualify' ? 'race.confirmDisqualify' : 'race.confirmInvalidate', { bib, name }))) return;
@@ -321,8 +337,8 @@ function voidRun(action: 'invalidate' | 'disqualify'): void {
 
 // The manual line is started and finished with the trigger key of the discipline (the space bar by default), while a
 // participant is ready or running on it. The press is sent at once: the backend timestamps it on arrival, and makes it
-// the start or the finish
-const keyboardLine = computed(() => (line.value?.manual ? line.value.line : null));
+// the start or the finish. A distance is typed: no key
+const keyboardLine = computed(() => (line.value?.manual && !isDistance.value ? line.value.line : null));
 // The key, by its place on the keyboard (KeyboardEvent.code), and its name to show
 const triggerKey = computed(() => settings.value.triggerKey ?? 'Space');
 const triggerKeyLabel = computed(() => (keyboardLine.value ? keyLabel(triggerKey.value, t) : null));
@@ -539,13 +555,17 @@ onMounted(reload);
       :attempts="settings.attempts"
       :best="settings.best"
       :precision="settings.precision"
+      :measure="measure"
+      :attempts-per-distance="attemptsPerDistance"
+      :allow-distance-change="settings.allowDistanceChange ?? false"
       v-if="selected"
       :participant="selected"
       :run="run"
       :results="participantResults"
       :last-result="lastResult"
       :busy="busy"
-      @ready="postRun('ready')"
+      @ready="(distance) => postRun('ready', distance)"
+      @validate="postRun('validate')"
       @cancel="cancel"
       @invalidate="voidRun('invalidate')"
       @disqualify="voidRun('disqualify')"
@@ -557,6 +577,7 @@ onMounted(reload);
       :results="recentRuns"
       :count="settings.recentRuns"
       :precision="settings.precision"
+      :measure="measure"
     />
     </template>
   </main>

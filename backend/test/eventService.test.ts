@@ -15,7 +15,10 @@ import {
 import { minutesFromNow, readFile, resetWorkDir, workDir, writeFiles } from './helpers.js';
 
 const SETTINGS: DisciplineSettings = {
+    measure: 'time',
     attempts: null,
+    attemptsPerDistance: null,
+    allowDistanceChange: false,
     start: null,
     end: null,
     access: 'auto',
@@ -148,6 +151,8 @@ describe('loadParticipants', () => {
             'E/D/a.csv': '1;Ann\n',
             'E/D/E-D-uda-results.csv': '1,,0,29,92\r\n',
             'E/D/Résultats UDA.csv': '1,,0,29,92\r\n7,DNF,0,0,0\r\n23,DQ,0,0,0\r\n',
+            // A distance, in centimetres
+            'E/D/Saut.csv': '1,,345\r\n7,DNF,0\r\n23,DQ,0\r\n',
         });
         const list = await loadParticipants('E', 'D');
         expect(list?.participants.map((p) => p.bib)).toEqual(['1']);
@@ -245,11 +250,14 @@ describe('discipline settings', () => {
     it('reads every setting', async () => {
         writeFiles({
             'E/D/config.yaml':
-                'attempts: 3\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\nprecision: thousandth\nrounding: nearest\nrecentRuns: 5\ntrigger: keyboard\ntriggerKey: Enter\n',
+                'measure: distance\nattempts: 3\nattemptsPerDistance: 2\nallowDistanceChange: true\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\nprecision: thousandth\nrounding: nearest\nrecentRuns: 5\ntrigger: keyboard\ntriggerKey: Enter\n',
         });
         expect(await loadDisciplineSettings(dir())).toEqual({
             settings: {
+                measure: 'distance',
                 attempts: 3,
+                attemptsPerDistance: 2,
+                allowDistanceChange: true,
                 start: '2026-11-05T07:00Z',
                 end: '2026-11-05T17:00Z',
                 access: 'open',
@@ -288,14 +296,17 @@ describe('discipline settings', () => {
         expect(validateDisciplineSettings({ attempts: 2, start: '2026-11-05T07:00Z', end: null, access: 'auto' })).toEqual([]);
         expect(validateDisciplineSettings({})).toEqual([]);
         expect(validateDisciplineSettings(null)).toEqual(['settings are missing']);
-        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest', precision: 'minute', rounding: 'down', recentRuns: 1.5, trigger: 'mouse', triggerKey: '' })).toHaveLength(9);
+        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest', precision: 'minute', rounding: 'down', recentRuns: 1.5, trigger: 'mouse', triggerKey: '', measure: 'height', attemptsPerDistance: 0, allowDistanceChange: 'yes' })).toHaveLength(12);
         expect(validateDisciplineSettings({ start: '2026-11-05T17:00Z', end: '2026-11-05T07:00Z' })).toEqual(['start must be before end']);
     });
 
     it('saves the settings so they read back the same, keeping other settings', async () => {
         writeFiles({ 'E/D/config.yaml': 'attempts: 5\nlocked: true\nnote: keep me\n' });
         const saved: DisciplineSettings = {
+            measure: 'distance',
             attempts: 2,
+            attemptsPerDistance: 3,
+            allowDistanceChange: true,
             start: '2026-11-05T07:00Z',
             end: null,
             access: 'locked',

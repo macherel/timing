@@ -12,13 +12,15 @@ import type {
   ServerMessage,
 } from '../types';
 import { useRaceSocket } from '../composables/useRaceSocket';
-import { DECIMALS, formatDuration, parseInstant } from '../format';
-import { countsAsAttempt, isBetterTime, sameRun } from '../race/results';
+import { formatDuration, formatValue, parseInstant } from '../format';
+import { bestRule, countsAsAttempt, eliminatedAt, isBetterTime, sameRun, valueOf, withinAttempts } from '../race/results';
 import { discipline, disciplineExists, eventName, eventsLoaded, loadEvents } from '../selection';
 
 /**
  * Public display of the selected event and discipline: what every line of the synced computers showing it on a race
- * page is doing (participant selected or ready, running clock, last time), and the ranking by best time.
+ * page is doing (participant selected or ready, running clock, last time), and the ranking by best time. In a
+ * discipline that measures a distance: the distance waiting to be validated, the last distance, and the ranking by
+ * longest distance.
  */
 
 // Refresh rate of the running clocks, and otherwise of the "just finished" highlight
@@ -34,11 +36,18 @@ const results = ref<RunResult[]>([]);
 const participants = ref<Participant[]>([]);
 // Runs allowed per participant in the discipline, null: unlimited
 const attempts = ref<number | null>(null);
-// Which time is the best: shortest, or longest for a slow race
-const best = ref<DisciplineSettings['best']>('shortest');
-// Unit of the times: they are shown with as many decimals
+// For a distance, runs allowed at one same distance, null: unlimited
+const attemptsPerDistance = ref<number | null>(null);
+// What a run measures: a time or a distance
+const measure = ref<NonNullable<DisciplineSettings['measure']>>('time');
+const isDistance = computed(() => measure.value === 'distance');
+// Which time is the best: shortest, or longest for a slow race; the longest distance
+const bestSetting = ref<DisciplineSettings['best']>('shortest');
+const best = computed(() => bestRule({ measure: measure.value, best: bestSetting.value }));
+// Unit of the times (or distances): they are shown with as many decimals
 const precision = ref<DisciplineSettings['precision']>('hundredth');
-const showTime = (ms: number) => formatDuration(ms, DECIMALS[precision.value]);
+const showValue = (value: number) => formatValue(value, measure.value, precision.value);
+const valueOfResult = (result: RunResult) => valueOf(result, measure.value);
 const error = ref<string | null>(null);
 
 const isHere = (item: { event: string; discipline: string } | null | undefined) =>
@@ -68,7 +77,7 @@ const onTrack = computed(() =>
 
 type CardState =
   | { kind: 'running'; bib: string; name: string; startedAt: string }
-  | { kind: 'ready'; bib: string; name: string }
+  | { kind: 'ready'; bib: string; name: string; distanceCm: number | null }
   | { kind: 'selected'; bib: string; name: string }
   | { kind: 'finished'; result: RunResult }
   | { kind: 'waiting' };
@@ -78,7 +87,9 @@ function cardState({ instance, line }: Lane): CardState {
   if (run.status === 'running' && isHere(run)) {
     return { kind: 'running', bib: run.participant.bib, name: run.participant.name, startedAt: run.startedAt };
   }
-  if (run.status === 'ready' && isHere(run)) return { kind: 'ready', bib: run.participant.bib, name: run.participant.name };
+  if (run.status === 'ready' && isHere(run)) {
+    return { kind: 'ready', bib: run.participant.bib, name: run.participant.name, distanceCm: run.distanceCm ?? null };
+  }
   // A participant selected on its race page, before they are ready, unless they have no attempt left (they
   // cannot run again). The last result stays while the same participant is selected (e.g. just after their run)
   const selected = instance.viewing.find(
@@ -93,10 +104,11 @@ function cardState({ instance, line }: Lane): CardState {
   return { kind: 'waiting' };
 }
 
-/** Whether a participant used all the attempts of the discipline (same rule as the race page). */
+/** Whether a participant used all the attempts of the discipline, or is eliminated (same rule as the race page). */
 function noAttemptLeft(bib: string): boolean {
-  if (attempts.value === null) return false;
-  return results.value.filter((result) => result.bib === bib && countsAsAttempt(result)).length >= attempts.value;
+  const runs = results.value.filter((result) => result.bib === bib);
+  if (attempts.value !== null && runs.filter(countsAsAttempt).length >= attempts.value) return true;
+  return isDistance.value && eliminatedAt(runs, attemptsPerDistance.value) !== null;
 }
 
 // Running clocks: this computer's time corrected by each computer's clock offset
@@ -129,12 +141,14 @@ const recentRuns = computed(() => {
 // Invalid runs (not the participant's fault) are left out: they are not counted and give no time
 const ranking = computed(() => {
   const byBib = new Map<string, { bib: string; name: string; best: number | null; runs: number }>();
-  for (const result of results.value) {
+  // The runs beyond the attempts allowed (e.g. an invalid run made valid afterwards) do not count
+  for (const result of withinAttempts(results.value, attempts.value)) {
     if (result.status === 'invalid') continue;
     const entry = byBib.get(result.bib) ?? { bib: result.bib, name: result.name, best: null, runs: 0 };
     entry.runs++;
-    if (result.status === 'ok' && result.timeMs !== null && (entry.best === null || isBetterTime(result.timeMs, entry.best, best.value))) {
-      entry.best = result.timeMs;
+    const value = valueOfResult(result);
+    if (result.status === 'ok' && value !== null && (entry.best === null || isBetterTime(value, entry.best, best.value))) {
+      entry.best = value;
     }
     byBib.set(result.bib, entry);
   }
@@ -152,9 +166,9 @@ const bestOf = computed(() => new Map(ranking.value.map((entry) => [entry.bib, e
 /** The best time so far of a participant on track, e.g. "Best: 2.378 (3rd)". */
 function bestText(bib: string): string {
   const best = bestOf.value.get(bib);
-  if (best === undefined || best === null) return t('live.noTime');
+  if (best === undefined || best === null) return t(isDistance.value ? 'live.noDistance' : 'live.noTime');
   const rank = ranking.value.findIndex((entry) => entry.best === best) + 1;
-  return t('live.best', { time: showTime(best), rank });
+  return t('live.best', { time: showValue(best), rank });
 }
 
 // Rank among the participants with a valid time (equal times share a rank)
@@ -183,7 +197,9 @@ async function loadResults(): Promise<void> {
     results.value = [];
     participants.value = [];
     attempts.value = null;
-    best.value = 'shortest';
+    attemptsPerDistance.value = null;
+    measure.value = 'time';
+    bestSetting.value = 'shortest';
     precision.value = 'hundredth';
     return;
   }
@@ -196,7 +212,9 @@ async function loadResults(): Promise<void> {
     results.value = resultsBody.results ?? [];
     participants.value = participantsBody.participants ?? [];
     attempts.value = participantsBody.settings?.attempts ?? null;
-    best.value = participantsBody.settings?.best ?? 'shortest';
+    attemptsPerDistance.value = participantsBody.settings?.attemptsPerDistance ?? null;
+    measure.value = participantsBody.settings?.measure ?? 'time';
+    bestSetting.value = participantsBody.settings?.best ?? 'shortest';
     precision.value = participantsBody.settings?.precision ?? 'hundredth';
     error.value = null;
   } catch (e) {
@@ -209,7 +227,9 @@ function onMessage(message: ServerMessage): void {
     instances.value = message.instances;
   } else if (message.type === 'SETTINGS_UPDATE' && isHere(message)) {
     attempts.value = message.settings.attempts;
-    best.value = message.settings.best;
+    attemptsPerDistance.value = message.settings.attemptsPerDistance ?? null;
+    measure.value = message.settings.measure ?? 'time';
+    bestSetting.value = message.settings.best;
     precision.value = message.settings.precision;
     // The times depend on the precision and rounding
     loadResults();
@@ -255,7 +275,11 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
             </template>
             <template v-else-if="state.kind === 'ready'">
               <div class="who"><span class="bib">{{ state.bib }}</span> {{ state.name }}</div>
-              <div class="status-text">{{ $t('live.ready') }}</div>
+              <template v-if="state.distanceCm !== null">
+                <div class="clock mono pending">{{ showValue(state.distanceCm) }}</div>
+                <div class="status-text">{{ $t('live.toValidate') }}</div>
+              </template>
+              <div v-else class="status-text">{{ $t('live.ready') }}</div>
               <div class="best">{{ bestText(state.bib) }}</div>
             </template>
             <template v-else-if="state.kind === 'selected'">
@@ -265,8 +289,8 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
             </template>
             <template v-else-if="state.kind === 'finished'">
               <div class="who"><span class="bib">{{ state.result.bib }}</span> {{ state.result.name }}</div>
-              <div v-if="state.result.status === 'ok' && state.result.timeMs !== null" class="clock mono done">
-                {{ showTime(state.result.timeMs) }}
+              <div v-if="state.result.status === 'ok' && valueOfResult(state.result) !== null" class="clock mono done">
+                {{ showValue(valueOfResult(state.result)!) }}
               </div>
               <div v-else class="status-text void">{{ $t(`common.status.${state.result.status}`) }}</div>
               <div class="best">{{ bestText(state.result.bib) }}</div>
@@ -286,7 +310,7 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
               <th>{{ $t('live.bib') }}</th>
               <th>{{ $t('live.name') }}</th>
               <th v-if="hasCategories">{{ $t('live.category') }}</th>
-              <th class="time">{{ $t('live.bestTime') }}</th>
+              <th class="time">{{ $t(isDistance ? 'live.bestDistance' : 'live.bestTime') }}</th>
               <th class="runs">{{ $t('live.runs') }}</th>
             </tr>
           </thead>
@@ -296,7 +320,7 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
               <td class="mono">{{ entry.bib }}</td>
               <td class="name">{{ entry.name }}</td>
               <td v-if="hasCategories" class="muted">{{ categoryOf.get(entry.bib) ?? '' }}</td>
-              <td class="time mono">{{ entry.best === null ? '—' : showTime(entry.best) }}</td>
+              <td class="time mono">{{ entry.best === null ? '—' : showValue(entry.best) }}</td>
               <td class="runs muted">{{ entry.runs }}</td>
             </tr>
           </tbody>
@@ -369,6 +393,9 @@ watch([eventName, discipline, disciplineExists], loadResults, { immediate: true 
 }
 .clock.done {
   color: var(--text-h);
+}
+.clock.pending {
+  color: var(--warn);
 }
 .best {
   font-size: 1.1em;

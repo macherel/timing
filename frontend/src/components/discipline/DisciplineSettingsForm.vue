@@ -14,8 +14,10 @@ import { canTrigger, keyLabel } from '../../race/keys';
 /**
  * Edits a discipline's config.yaml, in three sections shown one at a time (the tabs of the settings page) and saved
  * together:
- * - basic: attempts, best time and what triggers the runs (gates, or a key for a discipline timed by hand);
- * - advanced: precision and rounding of the times, and the number of last runs of the line shown;
+ * - basic: what a run measures (a time or a distance), attempts, best time and what triggers the runs (gates, or a key
+ *   for a discipline timed by hand), the last two for a time only;
+ * - advanced: precision and rounding of the times (a distance is in centimetres), and the number of last runs of the
+ *   line shown;
  * - lock: period and access.
  * Loads the settings itself; the race pages get the saved ones through the SETTINGS_UPDATE message. Tells whether it
  * has unsaved changes (dirty).
@@ -24,6 +26,14 @@ const props = defineProps<{ event: string; discipline: string; section: Settings
 const emit = defineEmits<{ done: []; showSection: [section: SettingsSection] }>();
 
 const { t } = useI18n();
+
+const MEASURE_OPTIONS = computed(() =>
+  (['time', 'distance'] as const).map((value) => ({
+    value,
+    label: t(`settings.measure.${value}`),
+    hint: t(`settings.measure.${value}Hint`),
+  })),
+);
 
 const TRIGGER_OPTIONS = computed(() =>
   (['gates', 'keyboard'] as const).map((value) => ({
@@ -71,6 +81,11 @@ const timeExample = computed(() => {
   return t('settings.timeExample', { exact: '12.3456', time });
 });
 
+const measureInput = ref<NonNullable<DisciplineSettings['measure']>>('time');
+// For a distance, the attempts at one same distance as typed, empty for unlimited
+const attemptsPerDistanceInput = ref<string | number>('');
+// For a distance, whether a participant can change distance before validating the last one they tried
+const allowDistanceChangeInput = ref(false);
 // The attempts as typed, empty for unlimited (Vue gives a number input's value as a number)
 const attemptsInput = ref<string | number>('');
 // Local YYYY-MM-DDTHH:MM from the datetime inputs, empty for no limit
@@ -162,7 +177,10 @@ const saving = ref(false);
 // The fields as loaded or last saved, to tell whether they were changed since
 const fields = () =>
   JSON.stringify([
+    measureInput.value,
     String(attemptsInput.value ?? '').trim(),
+    String(attemptsPerDistanceInput.value ?? '').trim(),
+    allowDistanceChangeInput.value,
     startInput.value,
     endInput.value,
     accessInput.value,
@@ -216,7 +234,11 @@ async function request(init?: RequestInit): Promise<{ settings: DisciplineSettin
 onMounted(async () => {
   try {
     const { settings } = await request();
+    // Missing from a server of an older version: a time, as without the setting
+    measureInput.value = settings.measure ?? 'time';
     attemptsInput.value = settings.attempts === null ? '' : String(settings.attempts);
+    attemptsPerDistanceInput.value = settings.attemptsPerDistance == null ? '' : String(settings.attemptsPerDistance);
+    allowDistanceChangeInput.value = settings.allowDistanceChange ?? false;
     startInput.value = toLocalInput(settings.start);
     endInput.value = toLocalInput(settings.end);
     accessInput.value = settings.access;
@@ -241,6 +263,12 @@ async function save(): Promise<void> {
     error.value = t('settings.attemptsInvalid');
     return;
   }
+  const perDistanceText = String(attemptsPerDistanceInput.value ?? '').trim();
+  const attemptsPerDistance = perDistanceText === '' ? null : Number(perDistanceText);
+  if (attemptsPerDistance !== null && !(Number.isInteger(attemptsPerDistance) && attemptsPerDistance >= 1)) {
+    error.value = t('settings.attemptsPerDistanceInvalid');
+    return;
+  }
   const recentRuns = Number(String(recentRunsInput.value ?? '').trim() || 3);
   if (!(Number.isInteger(recentRuns) && recentRuns >= 0)) {
     error.value = t('settings.recentRunsInvalid');
@@ -257,7 +285,10 @@ async function save(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         settings: {
+          measure: measureInput.value,
           attempts,
+          attemptsPerDistance,
+          allowDistanceChange: allowDistanceChangeInput.value,
           start: fromLocalInput(startInput.value),
           end: fromLocalInput(endInput.value),
           access: accessInput.value,
@@ -284,12 +315,29 @@ async function save(): Promise<void> {
   <form class="settings" @submit.prevent="save" @invalid.capture="onInvalid">
     <template v-if="loaded">
       <div v-show="section === 'basic'" data-section="basic">
+        <fieldset class="choice">
+          <legend>{{ $t('settings.measure.legend') }}</legend>
+          <div class="segmented" role="radiogroup">
+            <label v-for="option in MEASURE_OPTIONS" :key="option.value" :class="{ checked: measureInput === option.value }" :title="option.hint">
+              <input v-model="measureInput" type="radio" name="measure" :value="option.value" />
+              {{ option.label }}
+            </label>
+          </div>
+          <p class="muted small" data-testid="measure-hint">{{ MEASURE_OPTIONS.find((option) => option.value === measureInput)?.hint }}</p>
+        </fieldset>
         <label class="field">
           {{ $t('settings.attempts') }}
           <input v-model="attemptsInput" type="number" min="1" step="1" :placeholder="$t('settings.unlimited')" class="attempts" />
         </label>
         <p class="muted small">{{ $t('settings.attemptsHint') }}</p>
-        <fieldset class="choice">
+        <template v-if="measureInput === 'distance'">
+          <label class="field">
+            {{ $t('settings.attemptsPerDistance') }}
+            <input v-model="attemptsPerDistanceInput" type="number" min="1" step="1" :placeholder="$t('settings.unlimited')" class="attempts" data-testid="attempts-per-distance" />
+          </label>
+          <p class="muted small">{{ $t('settings.attemptsPerDistanceHint') }}</p>
+        </template>
+        <fieldset v-if="measureInput === 'time'" class="choice">
           <legend>{{ $t('settings.best.legend') }}</legend>
           <div class="segmented" role="radiogroup">
             <label v-for="option in BEST_OPTIONS" :key="option.value" :class="{ checked: bestInput === option.value }" :title="option.hint">
@@ -299,7 +347,7 @@ async function save(): Promise<void> {
           </div>
           <p class="muted small">{{ BEST_OPTIONS.find((option) => option.value === bestInput)?.hint }}</p>
         </fieldset>
-        <fieldset class="choice">
+        <fieldset v-if="measureInput === 'time'" class="choice">
           <legend>{{ $t('settings.trigger.legend') }}</legend>
           <div class="segmented" role="radiogroup">
             <label v-for="option in TRIGGER_OPTIONS" :key="option.value" :class="{ checked: triggerInput === option.value }" :title="option.hint">
@@ -309,7 +357,7 @@ async function save(): Promise<void> {
           </div>
           <p class="muted small" data-testid="trigger-hint">{{ TRIGGER_OPTIONS.find((option) => option.value === triggerInput)?.hint }}</p>
         </fieldset>
-        <div v-if="triggerInput === 'keyboard'" class="trigger-key">
+        <div v-if="measureInput === 'time' && triggerInput === 'keyboard'" class="trigger-key">
           <span class="key-label">{{ $t('settings.triggerKey.label') }}</span>
           <div class="key-row">
             <kbd data-testid="trigger-key">{{ triggerKeyName }}</kbd>
@@ -324,7 +372,7 @@ async function save(): Promise<void> {
       </div>
 
       <div v-show="section === 'advanced'" data-section="advanced">
-        <fieldset class="choice">
+        <fieldset v-if="measureInput === 'time'" class="choice">
           <legend>{{ $t('settings.precision.legend') }}</legend>
           <div class="segmented" role="radiogroup">
             <label v-for="option in PRECISION_OPTIONS" :key="option.value" :class="{ checked: precisionInput === option.value }">
@@ -333,7 +381,7 @@ async function save(): Promise<void> {
             </label>
           </div>
         </fieldset>
-        <fieldset class="choice">
+        <fieldset v-if="measureInput === 'time'" class="choice">
           <legend>{{ $t('settings.rounding.legend') }}</legend>
           <div class="segmented" role="radiogroup">
             <label v-for="option in ROUNDING_OPTIONS" :key="option.value" :class="{ checked: roundingInput === option.value }" :title="option.hint">
@@ -345,6 +393,13 @@ async function save(): Promise<void> {
             {{ ROUNDING_OPTIONS.find((option) => option.value === roundingInput)?.hint }}. {{ timeExample }}
           </p>
         </fieldset>
+        <template v-if="measureInput === 'distance'">
+          <label class="check">
+            <input v-model="allowDistanceChangeInput" type="checkbox" data-testid="allow-distance-change" />
+            {{ $t('settings.allowDistanceChange') }}
+          </label>
+          <p class="muted small">{{ $t('settings.allowDistanceChangeHint') }}</p>
+        </template>
         <label class="field">
           {{ $t('settings.recentRuns') }}
           <input v-model="recentRunsInput" type="number" min="0" step="1" placeholder="3" class="attempts" data-testid="recent-runs-input" />
@@ -419,6 +474,13 @@ async function save(): Promise<void> {
 .segmented label:has(input:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-weight: 600;
 }
 .segmented label.checked {
   background: var(--accent-bg);

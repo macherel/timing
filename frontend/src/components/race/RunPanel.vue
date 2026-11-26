@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { DisciplineSettings, Participant, RunResult, RunState, RunStatus } from '../../types';
-import { DECIMALS, formatDuration, formatTime, parseInstant } from '../../format';
-import { countsAsAttempt, isBetterTime, sameRun } from '../../race/results';
+import type { DisciplineSettings, Measure, Participant, RunResult, RunState, RunStatus } from '../../types';
+import { formatDuration, formatTime, formatValue, parseInstant } from '../../format';
+import { bestRule, countsAsAttempt, eliminatedAt, failedAt, isBetterTime, openDistance, sameRun, valueOf, withinAttempts } from '../../race/results';
 
 // Refresh rate of the running clock
 const CLOCK_INTERVAL_MS = 50;
@@ -29,10 +29,26 @@ const props = defineProps<{
   attempts: number | null;
   // Which time is the best, from config.yaml: shortest, or longest for a slow race
   best: DisciplineSettings['best'];
-  // Unit of the times, from config.yaml: the times are shown with as many decimals
+  // Unit of the times, from config.yaml: the times are shown with as many decimals (a distance is in centimetres)
   precision: DisciplineSettings['precision'];
+  // What a run measures, from config.yaml: a time (by default), or a distance typed here before the participant is
+  // ready, then validated or not
+  measure?: Measure;
+  // For a distance, runs allowed at one same distance, from config.yaml: a participant who used them all is eliminated.
+  // null: unlimited
+  attemptsPerDistance?: number | null;
+  // For a distance, whether the participant can change distance before validating the last one they tried
+  allowDistanceChange?: boolean;
 }>();
-const emit = defineEmits<{ ready: []; cancel: []; invalidate: []; disqualify: []; setStatus: [result: RunResult, status: RunStatus] }>();
+const emit = defineEmits<{
+  // With the distance typed, in centimetres, for a discipline that measures a distance
+  ready: [distance?: number];
+  validate: [];
+  cancel: [];
+  invalidate: [];
+  disqualify: [];
+  setStatus: [result: RunResult, status: RunStatus];
+}>();
 
 const { t } = useI18n();
 
@@ -40,23 +56,88 @@ const STATUSES: RunStatus[] = ['ok', 'invalid', 'dq'];
 const statusLabel = (status: RunStatus) => t(`common.status.${status}`);
 const statusHint = (status: RunStatus) => t(`run.hints.${status}`);
 
-const showTime = (ms: number) => formatDuration(ms, DECIMALS[props.precision]);
+const measure = computed<Measure>(() => props.measure ?? 'time');
+const isDistance = computed(() => measure.value === 'distance');
+const showValue = (value: number) => formatValue(value, measure.value, props.precision);
+const valueOfResult = (result: RunResult) => valueOf(result, measure.value);
 
 const isThisRun = computed(() => props.run.status !== 'idle' && props.run.participant.bib === props.participant.bib);
-// Best time among the valid runs (shortest, or longest for a slow race); invalid and disqualified runs never count
-const bestMs = computed(() => {
-  const times = props.results.flatMap((result) => (result.status !== 'ok' || result.timeMs === null ? [] : [result.timeMs]));
-  return times.reduce<number | null>((best, time) => (best === null || isBetterTime(time, best, props.best) ? time : best), null);
+// The distance this participant is ready with, waiting for the operator to say whether it is valid
+const distanceToValidate = computed(() =>
+  isThisRun.value && props.run.status === 'ready' && props.run.distanceCm !== undefined ? props.run.distanceCm : null,
+);
+// The runs beyond the attempts allowed (e.g. an invalid run made valid afterwards): they are shown, but do not count
+const beyondAttempts = computed(() => {
+  const within = new Set(withinAttempts(props.results, props.attempts));
+  return new Set(props.results.filter((result) => !within.has(result)));
+});
+// Best value among the valid runs within the attempts allowed (shortest or longest time, longest distance); invalid and
+// disqualified runs never count
+const bestValue = computed(() => {
+  const rule = bestRule({ measure: measure.value, best: props.best });
+  const values = props.results.flatMap((result) => {
+    if (beyondAttempts.value.has(result)) return [];
+    const value = valueOfResult(result);
+    return result.status !== 'ok' || value === null ? [] : [value];
+  });
+  return values.reduce<number | null>((best, value) => (best === null || isBetterTime(value, best, rule) ? value : best), null);
 });
 const validCount = computed(() => props.results.filter((result) => result.status === 'ok').length);
 const usedAttempts = computed(() => props.results.filter(countsAsAttempt).length);
-const noAttemptLeft = computed(() => props.attempts !== null && usedAttempts.value >= props.attempts);
+// The distance at which the participant used all the attempts allowed at one distance: they are eliminated
+const eliminated = computed(() => (isDistance.value ? eliminatedAt(props.results, props.attemptsPerDistance) : null));
+const noAttemptLeft = computed(() => (props.attempts !== null && usedAttempts.value >= props.attempts) || eliminated.value !== null);
+// The distance the participant started and did not validate yet: their next attempt is at it
+const startedDistance = computed(() => (isDistance.value && !props.allowDistanceChange ? openDistance(props.results) : null));
+// Attempts failed at that distance since it was last validated
+const usedAtStarted = computed(() => (startedDistance.value === null ? 0 : failedAt(props.results, startedDistance.value)));
 // The attempt being run or about to be run, e.g. "Attempt 2 of 3"
 const attemptLabel = computed(() => {
+  if (eliminated.value !== null && !isThisRun.value) {
+    return t('run.eliminated', { n: props.attemptsPerDistance ?? 0, distance: showValue(eliminated.value) });
+  }
   if (noAttemptLeft.value && !isThisRun.value) return t('run.allUsed', props.attempts ?? 0);
   const next = usedAttempts.value + 1;
   return props.attempts === null ? t('run.attempt', { n: next }) : t('run.attemptOf', { n: next, total: props.attempts });
 });
+
+// Why the participant cannot get ready now, or null when they can
+const readyBlocked = computed(
+  () => props.busy || props.line === null || !!props.startBlocked || props.run.status !== 'idle' || noAttemptLeft.value || props.closed !== null,
+);
+const readyTitle = computed(() => {
+  if (props.line === null) return t('run.noLine');
+  if (props.startBlocked) return props.startBlocked;
+  if (props.closed) return t('run.closedTitle', { reason: props.closed });
+  if (noAttemptLeft.value) return t('run.noAttemptLeft');
+  return undefined;
+});
+
+// The distance as typed, in centimetres (Vue gives a number input's value as a number)
+const distanceInput = ref<number | string>('');
+const distanceField = ref<HTMLInputElement | null>(null);
+// Typed again for the next participant, or the next attempt once this one is saved; the distance started and not
+// validated yet is the only one possible
+watch(
+  [() => props.participant.bib, distanceToValidate, startedDistance],
+  ([, waiting, started]) => {
+    if (waiting === null) distanceInput.value = started ?? '';
+  },
+  { immediate: true },
+);
+
+function ready(): void {
+  if (!isDistance.value) {
+    emit('ready');
+    return;
+  }
+  const distance = Number(distanceInput.value);
+  if (String(distanceInput.value).trim() === '' || !Number.isInteger(distance) || distance <= 0) {
+    distanceField.value?.focus();
+    return;
+  }
+  emit('ready', distance);
+}
 
 // The select shows the saved status until the change is saved (then the new result comes back), so a failed save
 // does not leave it showing a status that is not in the file
@@ -95,7 +176,19 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
     </div>
 
     <div class="status">
-      <template v-if="isThisRun && run.status === 'ready'">
+      <template v-if="distanceToValidate !== null">
+        <span class="clock mono pending" :title="$t('run.toValidate')" data-testid="distance-to-validate">{{ showValue(distanceToValidate) }}</span>
+        <button type="button" class="validate" :disabled="busy" :title="$t('run.validateTitle')" @click="$emit('validate')">
+          {{ $t('run.validate') }}
+        </button>
+        <button type="button" class="warn" :disabled="busy" :title="$t('run.invalidateDistanceTitle')" @click="$emit('invalidate')">
+          {{ $t('run.invalidate') }}
+        </button>
+        <button type="button" class="danger" :disabled="busy" :title="$t('run.disqualifyDistanceTitle')" @click="$emit('disqualify')">
+          {{ $t('run.disqualify') }}
+        </button>
+      </template>
+      <template v-else-if="isThisRun && run.status === 'ready'">
         <span class="state">{{ $t('run.waitingStart') }}</span>
         <i18n-t v-if="keyLabel" keypath="run.pressToStart" tag="span" class="key-hint" data-testid="key-hint">
           <template #key><kbd>{{ keyLabel }}</kbd></template>
@@ -118,28 +211,38 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
         <span v-if="lastResult && lastResult.status !== 'ok'" class="clock" :class="lastResult.status" :title="statusHint(lastResult.status)">
           {{ statusLabel(lastResult.status) }}
         </span>
-        <span v-else-if="lastResult?.timeMs != null" class="clock mono done" :title="$t('run.justFinished')">
-          {{ showTime(lastResult.timeMs) }}
+        <span v-else-if="lastResult && valueOfResult(lastResult) !== null" class="clock mono done" :title="$t('run.justFinished')">
+          {{ showValue(valueOfResult(lastResult)!) }}
         </span>
-        <button
-          type="button"
-          class="ready"
-          :disabled="busy || line === null || !!startBlocked || run.status !== 'idle' || noAttemptLeft || closed !== null"
-          :title="
-            line === null
-              ? $t('run.noLine')
-              : startBlocked
-                ? startBlocked
-                : closed
-                ? $t('run.closedTitle', { reason: closed })
-                : noAttemptLeft
-                  ? $t('run.noAttemptLeft')
-                  : undefined
-          "
-          @click="$emit('ready')"
-        >
+        <form v-if="isDistance" class="distance" @submit.prevent="ready">
+          <input
+            ref="distanceField"
+            v-model="distanceInput"
+            type="number"
+            inputmode="numeric"
+            required
+            min="1"
+            step="1"
+            max="99999"
+            placeholder="0"
+            :disabled="readyBlocked"
+            :readonly="startedDistance !== null"
+            :aria-label="$t('run.distanceInCentimetres')"
+            data-testid="distance-input"
+          />
+          <span class="unit">cm</span>
+          <button type="submit" class="ready" :disabled="readyBlocked" :title="readyTitle">{{ $t('run.readyDistance') }}</button>
+        </form>
+        <button v-else type="button" class="ready" :disabled="readyBlocked" :title="readyTitle" @click="ready">
           {{ $t('run.ready') }}
         </button>
+        <p v-if="isDistance && startedDistance !== null && !noAttemptLeft" class="started muted" data-testid="started-distance">
+          {{
+            attemptsPerDistance
+              ? $t('run.startedDistanceOf', { distance: showValue(startedDistance), n: usedAtStarted + 1, total: attemptsPerDistance })
+              : $t('run.startedDistance', { distance: showValue(startedDistance) })
+          }}
+        </p>
       </template>
     </div>
 
@@ -161,8 +264,8 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
         <thead>
           <tr>
             <th>{{ $t('run.run') }}</th>
-            <th>{{ $t('run.time') }}</th>
-            <th>{{ $t('run.startedAt') }}</th>
+            <th>{{ $t(isDistance ? 'run.distance' : 'run.time') }}</th>
+            <th>{{ $t(isDistance ? 'run.typedAt' : 'run.startedAt') }}</th>
             <th>{{ $t('run.status') }}</th>
           </tr>
         </thead>
@@ -171,17 +274,19 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
             v-for="(result, index) in results"
             :key="`${index}-${result.start}`"
             :class="{
-              best: result.status === 'ok' && result.timeMs === bestMs,
+              best: result.status === 'ok' && !beyondAttempts.has(result) && valueOfResult(result) === bestValue,
+              beyond: beyondAttempts.has(result),
               last: lastResult !== null && sameRun(result, lastResult),
               void: result.status !== 'ok',
             }"
           >
             <td>{{ index + 1 }}</td>
             <td class="mono time">
-              <s v-if="result.status !== 'ok' && result.timeMs !== null">{{ showTime(result.timeMs) }}</s>
-              <template v-else-if="result.timeMs !== null">{{ showTime(result.timeMs) }}</template>
-              <span v-else class="muted" :title="$t('run.noTime')">—</span>
-              <span v-if="result.status === 'ok' && result.timeMs === bestMs && validCount > 1" class="badge ok">{{ $t('run.best') }}</span>
+              <s v-if="result.status !== 'ok' && valueOfResult(result) !== null">{{ showValue(valueOfResult(result)!) }}</s>
+              <template v-else-if="valueOfResult(result) !== null">{{ showValue(valueOfResult(result)!) }}</template>
+              <span v-else class="muted" :title="$t(isDistance ? 'run.noDistance' : 'run.noTime')">—</span>
+              <span v-if="result.status === 'ok' && !beyondAttempts.has(result) && valueOfResult(result) === bestValue && validCount > 1" class="badge ok">{{ $t('run.best') }}</span>
+              <span v-if="beyondAttempts.has(result)" class="badge beyond" :title="$t('run.beyondAttemptsTitle', { n: attempts ?? 0 })" data-testid="beyond-attempts">{{ $t('run.beyondAttempts') }}</span>
             </td>
             <td class="mono muted">{{ formatTime(result.start) }}</td>
             <td>
@@ -194,7 +299,7 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
                 :aria-label="$t('run.statusOf', { n: index + 1 })"
                 @change="onStatusChange($event, result)"
               >
-                <option v-for="status in STATUSES" :key="status" :value="status" :disabled="status === 'ok' && result.timeMs === null">
+                <option v-for="status in STATUSES" :key="status" :value="status" :disabled="status === 'ok' && valueOfResult(result) === null">
                   {{ statusLabel(status) }}
                 </option>
               </select>
@@ -271,6 +376,35 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
 .clock.done {
   color: var(--text-h);
 }
+.clock.pending {
+  color: var(--warn);
+}
+.distance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.distance input {
+  width: 7em;
+  font-size: 1.4em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.started {
+  flex-basis: 100%;
+  margin: 0;
+  text-align: right;
+}
+.distance .unit {
+  font-size: 1.2em;
+  font-weight: 600;
+}
+.status button.validate {
+  font-size: 1.2em;
+  padding: 10px 24px;
+  background: var(--ok);
+  border-color: var(--ok);
+}
 button.ready {
   font-size: 1.2em;
   padding: 10px 24px;
@@ -310,8 +444,14 @@ tr.last {
   color: var(--error);
   border-color: var(--error);
 }
-tr.void td {
+tr.void td,
+tr.beyond td {
   color: var(--text-muted);
+}
+.time .badge.beyond {
+  margin-left: 8px;
+  color: var(--warn);
+  border-color: var(--warn);
 }
 .clock.dq {
   color: var(--error);

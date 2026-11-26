@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, formatTime, hexByte, parseInstant } from '../src/format';
+import { formatDistance, formatDuration, formatTime, formatValue, hexByte, parseInstant } from '../src/format';
 import { fromLocalInput, showDateTime, toLocalInput } from '../src/race/dateTime';
 import { normalize, searchParticipants } from '../src/race/participantSearch';
-import { countsAsAttempt, recentRunsOf, sameRun } from '../src/race/results';
+import { countsAsAttempt, eliminatedAt, failedAt, openDistance, recentRunsOf, sameRun } from '../src/race/results';
 import type { Participant, RunResult } from '../src/types';
 
 describe('format', () => {
@@ -10,6 +10,12 @@ describe('format', () => {
     expect(formatDuration(12345)).toBe('12.345');
     expect(formatDuration(62345)).toBe('1:02.345');
     expect(formatDuration(600000)).toBe('10:00.000');
+  });
+
+  it('shows distances in centimetres', () => {
+    expect(formatDistance(345)).toBe('345 cm');
+    expect(formatValue(345, 'distance', 'thousandth')).toBe('345 cm');
+    expect(formatValue(12345, 'time', 'hundredth')).toBe('12.34');
   });
 
   it('cuts (does not round) a running clock to its decimals', () => {
@@ -93,6 +99,37 @@ describe('searchParticipants', () => {
   it('lists everyone for an empty search, and limits a search', () => {
     expect(bibs('  ')).toEqual(['1', '12', '21', '120']);
     expect(bibs('1', 2)).toEqual(['1', '12']);
+  });
+});
+
+describe('distance attempts', () => {
+  const jump = (distanceCm: number, status: RunResult['status']): RunResult => ({
+    bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: null, timeMs: null, distanceCm, status, computer: null, line: null,
+  });
+
+  it('eliminates at the distance where all the attempts allowed are used without validating it, invalid runs not counted', () => {
+    // Validated at the last attempt: not eliminated
+    expect(eliminatedAt([jump(345, 'dq'), jump(345, 'ok')], 2)).toBeNull();
+    const runs = [jump(345, 'ok'), jump(360, 'dq'), jump(360, 'invalid'), jump(360, 'dq')];
+    expect(eliminatedAt(runs, 2)).toBe(360);
+    expect(eliminatedAt(runs, 3)).toBeNull();
+    expect(eliminatedAt(runs, null)).toBeNull();
+    // A validation resets the count at its distance, so failing it again afterwards eliminates
+    const again = [jump(345, 'dq'), jump(345, 'ok'), jump(345, 'dq'), jump(345, 'dq')];
+    expect(eliminatedAt(again, 2)).toBe(345);
+    expect(eliminatedAt(again, 3)).toBeNull();
+    expect(failedAt(again, 345)).toBe(2);
+    expect(failedAt(again.slice(0, 2), 345)).toBe(0);
+  });
+
+  it('keeps the participant at the last distance started until it is validated', () => {
+    expect(openDistance([])).toBeNull();
+    expect(openDistance([jump(345, 'ok'), jump(360, 'dq')])).toBe(360);
+    expect(openDistance([jump(360, 'dq'), jump(360, 'ok')])).toBeNull();
+    // Failed again after its validation: started again
+    expect(openDistance([jump(360, 'ok'), jump(360, 'dq')])).toBe(360);
+    // An invalid run does not start a distance
+    expect(openDistance([jump(345, 'ok'), jump(360, 'invalid')])).toBeNull();
   });
 });
 

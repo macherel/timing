@@ -45,6 +45,7 @@ import {
     resetResults,
     RUN_STATUSES,
     setResultStatus,
+    validateRun,
     voidRun,
     writeUdaResults,
 } from '../services/runService.js';
@@ -239,9 +240,12 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         res.status(422).json({ problems });
         return;
     }
-    const { attempts, start, end, access, best, precision, rounding, recentRuns, trigger, triggerKey } = req.body.settings;
+    const { measure, attempts, attemptsPerDistance = null, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, trigger, triggerKey } = req.body.settings;
     await saveDisciplineSettings(dir, {
+        measure: measure ?? DEFAULT_SETTINGS.measure,
         attempts,
+        attemptsPerDistance,
+        allowDistanceChange: allowDistanceChange ?? DEFAULT_SETTINGS.allowDistanceChange,
         start: start ? toDateTime(start, 'start') : null,
         end: end ? toDateTime(end, 'end') : null,
         access: access ?? DEFAULT_SETTINGS.access,
@@ -366,7 +370,9 @@ function lineRun(req: Request, res: Response): { line: string; ready: boolean } 
     return null;
 }
 
-// Race page: a participant is ready on a line, its next start crossing starts their run. `bib` must be in the discipline
+// Race page: a participant is ready on a line, its next start crossing starts their run. `bib` must be in the discipline.
+// In a discipline that measures a distance, `distance` is the distance typed by the operator, in centimetres: it then waits
+// for the operator to say whether it is valid (validate, invalidate or disqualify)
 router.post('/lines/:line/ready', async (req: Request, res: Response) => {
     const target = lineRun(req, res);
     if (!target) return;
@@ -374,14 +380,26 @@ router.post('/lines/:line/ready', async (req: Request, res: Response) => {
         res.status(409).json({ problems: [`${target.line} is not ready: it is disabled, or the app does not listen to the device of its start or finish.`] });
         return;
     }
-    const { event, discipline, bib } = req.body ?? {};
+    const { event, discipline, bib, distance } = req.body ?? {};
     const list = typeof event === 'string' && typeof discipline === 'string' ? await loadParticipants(event, discipline) : null;
     const participant = list?.participants.find((p) => p.bib === String(bib));
     if (!participant) {
         res.status(404).json({ problems: ['Unknown event, discipline or participant.'] });
         return;
     }
-    const problem = await prepareRun(target.line, event, discipline, participant);
+    const problem = await prepareRun(target.line, event, discipline, participant, distance);
+    if (problem) {
+        res.status(409).json({ problems: [problem] });
+        return;
+    }
+    res.json(getRunState(target.line));
+});
+
+// Race page: saves the distance a participant is ready with as valid. 409 when no distance waits on the line
+router.post('/lines/:line/validate', (req: Request, res: Response) => {
+    const target = lineRun(req, res);
+    if (!target) return;
+    const problem = validateRun(target.line);
     if (problem) {
         res.status(409).json({ problems: [problem] });
         return;
@@ -390,7 +408,7 @@ router.post('/lines/:line/ready', async (req: Request, res: Response) => {
 });
 
 // Race page: ends the running run of a line now and saves it as DQ (disqualify) or INVALID (invalidate), without a
-// time. 409 when no run is in progress on the line
+// time; a distance waiting to be validated is saved with this status. 409 when no run is in progress on the line
 for (const [action, status] of [['disqualify', 'dq'], ['invalidate', 'invalid']] as const) {
     router.post(`/lines/:line/${action}`, (req: Request, res: Response) => {
         const target = lineRun(req, res);

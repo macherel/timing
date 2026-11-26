@@ -11,7 +11,7 @@ type RunService = typeof import('../src/services/runService.js');
 const HUGO = { bib: '7', name: 'Hugo Guérin', category: '' };
 const LEA = { bib: '12', name: 'Léa Martin', category: '' };
 const RESULTS = 'CFM26/100m/CFM26-100m-results.csv';
-const HEADER = 'bib;name;start;finish;status;computer;line;updated';
+const HEADER = 'bib;name;start;finish;distance;status;computer;line;updated';
 
 let runs: RunService;
 
@@ -64,6 +64,7 @@ describe('a timed run', () => {
                     start: '2026-11-05T10:00:00Z',
                     finish: '2026-11-05T10:00:12.345Z',
                     timeMs: 12350,
+                    distanceCm: null,
                     status: 'ok',
                     computer: os.hostname(),
                     line: LINE,
@@ -73,7 +74,7 @@ describe('a timed run', () => {
         const [header, line] = readFile(RESULTS)!.trim().split('\n');
         expect(header).toBe(HEADER);
         // The time is not stored: it is finish - start
-        expect(line).toBe(`7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:12.345Z;OK;${os.hostname()};${LINE};${line.split(';').at(-1)}`);
+        expect(line).toBe(`7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:00:12.345Z;;OK;${os.hostname()};${LINE};${line.split(';').at(-1)}`);
         expect(line.split(';').at(-1)).toMatch(/^\d{4}-.+Z$/);
     });
 
@@ -288,12 +289,12 @@ describe('results file', () => {
     it('reads older layouts by column name: a time column, no status, computer, line or updated', async () => {
         writeFiles({ [RESULTS]: 'bib;name;start;finish;time\n7;Hugo;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;10.000\n' });
         expect(await runs.loadResults('CFM26', '100m')).toEqual([
-            { bib: '7', name: 'Hugo', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:10Z', timeMs: 10000, status: 'ok', computer: null, line: null },
+            { bib: '7', name: 'Hugo', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:10Z', timeMs: 10000, distanceCm: null, status: 'ok', computer: null, line: null },
         ]);
     });
 
     it('leaves out valid lines without a readable time', async () => {
-        writeFiles({ [RESULTS]: `${HEADER}\n7;Hugo;2026-11-05T10:00:00Z;;OK;;;\n12;Léa;2026-11-05T10:01:00Z;;DQ;;;\n` });
+        writeFiles({ [RESULTS]: `${HEADER}\n7;Hugo;2026-11-05T10:00:00Z;;;OK;;;\n12;Léa;2026-11-05T10:01:00Z;;;DQ;;;\n` });
         expect((await runs.loadResults('CFM26', '100m'))!.map((r) => r.bib)).toEqual(['12']);
     });
 
@@ -308,7 +309,7 @@ describe('results file', () => {
 describe('UDA export', () => {
     const line = (bib: string, start: string, seconds: number | null, status: string) => {
         const finish = seconds === null ? '' : Temporal.Instant.from(start).add({ milliseconds: Math.round(seconds * 1000) }).toString();
-        return `${bib};Runner ${bib};${start};${finish};${status};`;
+        return `${bib};Runner ${bib};${start};${finish};;${status};`;
     };
 
     it('holds the best run of each participant in the UDA import format, DNF without a valid run', async () => {
@@ -333,16 +334,29 @@ describe('UDA export', () => {
 
     it('keeps the longest time for a slow race', () => {
         const rows = [
-            { bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:30Z', status: 'OK', computer: '', line: '', updated: '' },
-            { bib: '7', name: 'X', start: '2026-11-05T10:01:00Z', finish: '2026-11-05T10:01:45.5Z', status: 'OK', computer: '', line: '', updated: '' },
-            { bib: '7', name: 'X', start: '2026-11-05T10:02:00Z', finish: '2026-11-05T10:03:50Z', status: 'DQ', computer: '', line: '', updated: '' },
+            { bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:30Z', distance: '', status: 'OK', computer: '', line: '', updated: '' },
+            { bib: '7', name: 'X', start: '2026-11-05T10:01:00Z', finish: '2026-11-05T10:01:45.5Z', distance: '', status: 'OK', computer: '', line: '', updated: '' },
+            { bib: '7', name: 'X', start: '2026-11-05T10:02:00Z', finish: '2026-11-05T10:03:50Z', distance: '', status: 'DQ', computer: '', line: '', updated: '' },
         ];
         expect(runs.udaResults(rows, ['7'], { ...DEFAULT_SETTINGS, best: 'longest' })).toBe('7,,0,45,50\r\n');
         expect(runs.udaResults(rows, ['7'])).toBe('7,,0,30,0\r\n');
     });
 
+    it('keeps the best run among the first attempts allowed only, invalid runs not counted', () => {
+        const run = (start: string, seconds: string, status: string): ResultRow => ({
+            bib: '7', name: 'X', start, finish: start.replace(':00Z', `:${seconds}Z`), distance: '', status, computer: '', line: '', updated: '',
+        });
+        // The run at 10:01 was invalid when the participant ran the other two, then made valid: it is the third attempt
+        const rows = [run('2026-11-05T10:00:00Z', '30', 'OK'), run('2026-11-05T10:01:00Z', '20', 'OK'), run('2026-11-05T10:02:00Z', '25', 'DQ'), run('2026-11-05T10:03:00Z', '28', 'OK')];
+        expect(runs.udaResults(rows, ['7'], { ...DEFAULT_SETTINGS, attempts: 2 })).toBe('7,,0,20,0\r\n');
+        expect(runs.udaResults(rows, ['7'], { ...DEFAULT_SETTINGS, attempts: 1 })).toBe('7,,0,30,0\r\n');
+        expect(runs.udaResults(rows, ['7'])).toBe('7,,0,20,0\r\n');
+        const later = [run('2026-11-05T10:00:00Z', '30', 'OK'), run('2026-11-05T10:01:00Z', '25', 'DQ'), run('2026-11-05T10:02:00Z', '20', 'INVALID'), run('2026-11-05T10:03:00Z', '28', 'OK')];
+        expect(runs.udaResults(later, ['7'], { ...DEFAULT_SETTINGS, attempts: 2 })).toBe('7,,0,30,0\r\n');
+    });
+
     it('lists bibs with runs that are not in the participant list', async () => {
-        const rows = [{ bib: '5', name: 'X', start: '2026-11-05T10:00:00Z', finish: '', status: 'INVALID', computer: '', line: '', updated: '' }];
+        const rows = [{ bib: '5', name: 'X', start: '2026-11-05T10:00:00Z', finish: '', distance: '', status: 'INVALID', computer: '', line: '', updated: '' }];
         expect(runs.udaResults(rows, ['7'])).toBe('5,DNF,0,0,0\r\n7,DNF,0,0,0\r\n');
     });
 
@@ -352,8 +366,8 @@ describe('UDA export', () => {
     });
 
     it('uses the precision and rounding of the discipline, the fraction of a second in its unit', () => {
-        const rows = [{ bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:12.3449Z', status: 'OK', computer: '', line: '', updated: '' }];
-        const uda = (precision: Precision, rounding: Rounding) => runs.udaResults(rows, ['7'], { best: 'shortest', precision, rounding });
+        const rows = [{ bib: '7', name: 'X', start: '2026-11-05T10:00:00Z', finish: '2026-11-05T10:00:12.3449Z', distance: '', status: 'OK', computer: '', line: '', updated: '' }];
+        const uda = (precision: Precision, rounding: Rounding) => runs.udaResults(rows, ['7'], { measure: 'time', best: 'shortest', precision, rounding });
         expect(uda('second', 'up')).toBe('7,,0,13,0\r\n');
         expect(uda('tenth', 'nearest')).toBe('7,,0,12,3\r\n');
         expect(uda('hundredth', 'truncate')).toBe('7,,0,12,34\r\n');
@@ -363,12 +377,129 @@ describe('UDA export', () => {
     });
 });
 
+describe('a distance', () => {
+    const MANUAL = 'Manuel';
+    const JUMP = 'CFM26/jump';
+    const JUMP_RESULTS = `${JUMP}/CFM26-jump-results.csv`;
+
+    beforeEach(() => writeFiles({ [`${JUMP}/men.csv`]: 'bib;name\n7;Hugo Guérin\n12;Léa Martin\n', [`${JUMP}/config.yaml`]: 'measure: distance\n' }));
+
+    /** Gets a participant ready with a distance, then ends the run with a status and waits for its result. */
+    async function measure(participant: typeof HUGO, distance: number, end: (line: string) => string | null) {
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', participant, distance)).toBeNull();
+        const before = (await runs.loadResults('CFM26', 'jump'))!.length;
+        expect(end(MANUAL)).toBeNull();
+        await vi.waitFor(async () => expect((await runs.loadResults('CFM26', 'jump'))!.length).toBe(before + 1));
+    }
+
+    it('is typed when the participant gets ready, then validated, and saved with its distance', async () => {
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 345)).toBeNull();
+        expect(runs.getRunState(MANUAL)).toMatchObject({ status: 'ready', participant: HUGO, distanceCm: 345 });
+        // No crossing starts it: the operator says whether it is valid
+        runs.onCrossing(MANUAL, 'start', 'Keyboard', Temporal.Now.instant());
+        expect(runs.getRunState(MANUAL)).toMatchObject({ status: 'ready', distanceCm: 345 });
+
+        expect(runs.validateRun(MANUAL)).toBeNull();
+        expect(runs.getRunState(MANUAL)).toEqual({ status: 'idle' });
+        expect(lastResult(MANUAL)?.result).toMatchObject({ bib: '7', distanceCm: 345, timeMs: null, status: 'ok' });
+        await vi.waitFor(async () =>
+            expect(await runs.loadResults('CFM26', 'jump')).toEqual([
+                expect.objectContaining({ bib: '7', distanceCm: 345, timeMs: null, status: 'ok', computer: os.hostname(), line: MANUAL }),
+            ]),
+        );
+        const [header, line] = readFile(JUMP_RESULTS)!.trim().split('\n');
+        expect(header).toBe(HEADER);
+        expect(line.split(';')[4]).toBe('345');
+    });
+
+    it('keeps its distance when invalidated or disqualified, so it can be made valid later', async () => {
+        await measure(HUGO, 410, (line) => runs.voidRun(line, 'dq'));
+        const [result] = (await runs.loadResults('CFM26', 'jump'))!;
+        expect(result).toMatchObject({ distanceCm: 410, status: 'dq' });
+        expect(await runs.setResultStatus('CFM26', 'jump', '7', result.start, 'ok')).toMatchObject({ result: { distanceCm: 410, status: 'ok' } });
+    });
+
+    it('refuses a missing distance, one out of range or more precise than the unit, and a line other than the manual one', async () => {
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO)).toMatch(/distance/);
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 0)).toMatch(/above 0/);
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 34.5)).toMatch(/whole number of centimetres/);
+        expect(await runs.prepareRun(LINE, 'CFM26', 'jump', HUGO, 345)).toMatch(/measures a distance/);
+        expect(runs.getRunState(MANUAL)).toEqual({ status: 'idle' });
+        expect(runs.validateRun(MANUAL)).toMatch(/No distance/);
+    });
+
+    it('eliminates a participant who used all the attempts allowed at one distance without validating it', async () => {
+        writeFiles({ [`${JUMP}/config.yaml`]: 'measure: distance\nattemptsPerDistance: 2\n' });
+        // Validated at the last attempt: goes on to another distance
+        await measure(HUGO, 345, (line) => runs.voidRun(line, 'dq'));
+        await measure(HUGO, 345, (line) => runs.voidRun(line, 'invalid'));
+        await measure(HUGO, 345, runs.validateRun);
+        await measure(HUGO, 360, (line) => runs.voidRun(line, 'dq'));
+        await measure(HUGO, 360, (line) => runs.voidRun(line, 'dq'));
+        // Two failed attempts at 360 cm (invalid runs not counted): no more run, at any distance
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 400)).toBe('7 Hugo Guérin is eliminated: 2 attempt(s) at 360 cm.');
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', LEA, 345)).toBeNull();
+    });
+
+    it('eliminates a participant who fails again a distance they validated, without a total of attempts', async () => {
+        writeFiles({ [`${JUMP}/config.yaml`]: 'measure: distance\nattemptsPerDistance: 3\n' });
+        await measure(HUGO, 345, (line) => runs.voidRun(line, 'dq'));
+        await measure(HUGO, 345, runs.validateRun);
+        // The validation resets the count: three failures at 345 cm since
+        await measure(HUGO, 345, (line) => runs.voidRun(line, 'dq'));
+        await measure(HUGO, 345, (line) => runs.voidRun(line, 'invalid'));
+        // Held at 345 cm, failed again after its validation
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 360)).toBe('7 Hugo Guérin must validate 345 cm before changing distance.');
+        await measure(HUGO, 345, (line) => runs.voidRun(line, 'dq'));
+        await measure(HUGO, 345, (line) => runs.voidRun(line, 'dq'));
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 345)).toBe('7 Hugo Guérin is eliminated: 3 attempt(s) at 345 cm.');
+    });
+
+    it('keeps a participant at the distance they started until it is validated, invalid runs not starting one', async () => {
+        await measure(HUGO, 345, (line) => runs.voidRun(line, 'invalid'));
+        await measure(HUGO, 350, (line) => runs.voidRun(line, 'dq'));
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 360)).toBe('7 Hugo Guérin must validate 350 cm before changing distance.');
+        // Others are not held
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', LEA, 360)).toBeNull();
+        expect(runs.cancelRun(MANUAL)).toBeNull();
+        await measure(HUGO, 350, runs.validateRun);
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 360)).toBeNull();
+    });
+
+    it('lets a participant change distance before validating when the settings allow it', async () => {
+        writeFiles({ [`${JUMP}/config.yaml`]: 'measure: distance\nallowDistanceChange: true\n' });
+        await measure(HUGO, 350, (line) => runs.voidRun(line, 'dq'));
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 360)).toBeNull();
+    });
+
+    it('applies the total of attempts too', async () => {
+        writeFiles({ [`${JUMP}/config.yaml`]: 'measure: distance\nattempts: 2\nattemptsPerDistance: 3\n' });
+        await measure(HUGO, 345, runs.validateRun);
+        await measure(HUGO, 360, runs.validateRun);
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 380)).toMatch(/used all 2 attempt/);
+    });
+
+    it('ranks the longest valid distance first in the UDA export, in centimetres', async () => {
+        await measure(HUGO, 345, runs.validateRun);
+        await measure(HUGO, 520, (line) => runs.voidRun(line, 'invalid'));
+        await measure(HUGO, 390, runs.validateRun);
+        await measure(LEA, 250, (line) => runs.voidRun(line, 'dq'));
+        await vi.waitFor(() => expect(readFile(`${JUMP}/CFM26-jump-uda-results.csv`)).toBe('7,,390\r\n12,DQ,0\r\n'));
+
+        // Whatever the precision of the times
+        const rows = (await runs.readResultRows('CFM26', 'jump'))!;
+        const uda = runs.udaResults(rows, ['7', '40'], { ...DEFAULT_SETTINGS, measure: 'distance', precision: 'second' });
+        expect(uda).toBe('7,,390\r\n12,DQ,0\r\n40,DNF,0\r\n');
+    });
+});
+
 describe('mergeResultRows (sync)', () => {
     const row = (bib: string, start: string, status: string, updated: string): ResultRow => ({
         bib,
         name: `Runner ${bib}`,
         start,
         finish: start.replace(':00Z', ':10Z'),
+        distance: '',
         status,
         computer: 'PC',
         line: 'Line 1',
@@ -376,14 +507,14 @@ describe('mergeResultRows (sync)', () => {
     });
 
     it('adds the lines it does not have, oldest run first', async () => {
-        writeFiles({ [RESULTS]: `${HEADER}\n7;Runner 7;2026-11-05T10:05:00Z;2026-11-05T10:05:10Z;OK;PC;Line 1;2026-11-05T10:05:10Z\n` });
+        writeFiles({ [RESULTS]: `${HEADER}\n7;Runner 7;2026-11-05T10:05:00Z;2026-11-05T10:05:10Z;;OK;PC;Line 1;2026-11-05T10:05:10Z\n` });
         const changed = await runs.mergeResultRows('CFM26', '100m', [row('12', '2026-11-05T10:00:00Z', 'OK', '2026-11-05T10:00:10Z')]);
         expect(changed).toBe(true);
         expect((await runs.readResultRows('CFM26', '100m'))!.map((r) => r.bib)).toEqual(['12', '7']);
     });
 
     it('keeps the most recently changed version of a line', async () => {
-        writeFiles({ [RESULTS]: `${HEADER}\n7;Runner 7;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;PC;Line 1;2026-11-05T10:30:00Z\n` });
+        writeFiles({ [RESULTS]: `${HEADER}\n7;Runner 7;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;;OK;PC;Line 1;2026-11-05T10:30:00Z\n` });
 
         const older = row('7', '2026-11-05T10:00:00Z', 'DQ', '2026-11-05T10:20:00Z');
         expect(await runs.mergeResultRows('CFM26', '100m', [older])).toBe(false);
@@ -394,13 +525,19 @@ describe('mergeResultRows (sync)', () => {
         expect((await runs.readResultRows('CFM26', '100m'))![0].status).toBe('DQ');
     });
 
+    it('takes the lines of a computer of an older version, without the distance column', async () => {
+        const { distance: _distance, ...older } = row('12', '2026-11-05T10:00:00Z', 'OK', '2026-11-05T10:00:10Z');
+        expect(await runs.mergeResultRows('CFM26', '100m', [older as ResultRow])).toBe(true);
+        expect(readFile(RESULTS)).toContain('12;Runner 12;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;;OK;');
+    });
+
     it('does nothing for an unknown discipline', async () => {
         expect(await runs.mergeResultRows('nope', 'nope', [row('7', '2026-11-05T10:00:00Z', 'OK', '')])).toBe(false);
     });
 });
 
 describe('results reset', () => {
-    const OLD = '7;Runner 7;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;OK;PC;Line 1;2026-11-05T10:00:10Z';
+    const OLD = '7;Runner 7;2026-11-05T10:00:00Z;2026-11-05T10:00:10Z;;OK;PC;Line 1;2026-11-05T10:00:10Z';
     const BACKUP = 'CFM26/100m/backup/2026-11-05_08-03-09';
     const backups = () => fs.readdirSync(path.join(workDir(), 'CFM26/100m/backup')).sort();
 
@@ -454,6 +591,7 @@ describe('results reset', () => {
             name: `Runner ${bib}`,
             start,
             finish: start.replace(':00Z', ':10Z'),
+            distance: '',
             status: 'OK',
             computer: 'PC',
             line: 'Line 1',
@@ -466,7 +604,7 @@ describe('results reset', () => {
     });
 
     it('applies a reset copied from another computer, saving the runs its backup does not have', async () => {
-        const later = '12;Runner 12;2026-11-05T11:30:00Z;2026-11-05T11:30:10Z;OK;PC;Line 1;2026-11-05T11:30:10Z';
+        const later = '12;Runner 12;2026-11-05T11:30:00Z;2026-11-05T11:30:10Z;;OK;PC;Line 1;2026-11-05T11:30:10Z';
         writeResults(OLD, later);
         writeFiles({ 'CFM26/100m/results-reset.yaml': 'at: 2026-11-05T11:00:00Z\n', 'CFM26/100m/backup/from-peer/CFM26-100m-results-from-peer.csv': `${HEADER}\n${OLD}\n` });
         expect(await runs.applyResultsReset('CFM26', '100m')).toBe(true);
@@ -476,7 +614,7 @@ describe('results reset', () => {
         expect(await runs.applyResultsReset('CFM26', '100m')).toBe(false);
 
         // A run the peer did not have is saved here
-        const other = '8;Runner 8;2026-11-05T10:30:00Z;2026-11-05T10:30:10Z;OK;PC;Line 1;2026-11-05T10:30:10Z';
+        const other = '8;Runner 8;2026-11-05T10:30:00Z;2026-11-05T10:30:10Z;;OK;PC;Line 1;2026-11-05T10:30:10Z';
         writeResults(other, later);
         expect(await runs.applyResultsReset('CFM26', '100m')).toBe(true);
         expect(backups()).toEqual(['2026-11-05_08-03-09', 'from-peer']);

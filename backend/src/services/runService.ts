@@ -34,6 +34,9 @@ const log = createLogger('Run');
  *   idle → ready (a participant is announced) → running (first start crossing of the line) → idle (first finish
  *   crossing of the line, the result is appended to <event>/<discipline>/<event>-<discipline>-results.csv) or idle
  *   (cancelled, nothing saved).
+ * In a discipline that measures a distance, there is no crossing, and its runs are on the manual line:
+ *   idle → ready (a participant is announced with the distance typed by the operator) → idle (the operator says
+ *   whether the distance is valid, invalid or disqualified: the result is saved) or idle (cancelled, nothing saved).
  * Each write of the results file also rewrites <event>-<discipline>-uda-results.csv beside it, the results in the
  * import format of the UDA.
  * When the participants of a discipline change, its results are reset (see resetResults): runs started before are
@@ -44,8 +47,10 @@ interface LineState {
     run: RunState;
     // The last run ended on the line, shown on the live pages until the next participant is ready on it
     lastResult: LastResult | null;
-    // How the time of the run in progress is measured, from the settings of its discipline when the participant got ready
-    timeRule: TimeRule;
+    // How the run in progress is measured, from the settings of its discipline when the participant got ready
+    timeRule: MeasureRule;
+    // When the participant got ready: the start of a distance run, as there is no start crossing
+    readyAt: string | null;
 }
 
 const lineStates = new Map<string, LineState>();
@@ -53,7 +58,7 @@ const lineStates = new Map<string, LineState>();
 function stateOf(line: string): LineState {
     let state = lineStates.get(line);
     if (!state) {
-        state = { run: { status: 'idle' }, lastResult: null, timeRule: DEFAULT_SETTINGS };
+        state = { run: { status: 'idle' }, lastResult: null, timeRule: DEFAULT_SETTINGS, readyAt: null };
         lineStates.set(line, state);
     }
     return state;
@@ -102,8 +107,18 @@ function setRun(line: string, next: RunState): void {
 
 const unknownLine = (line: string) => `Unknown line "${line}".`;
 
-/** Announces that a participant is ready on a line: its next start crossing starts their run. */
-export async function prepareRun(line: string, event: string, discipline: string, participant: Participant): Promise<string | null> {
+/**
+ * Announces that a participant is ready on a line: its next start crossing starts their run. In a discipline that
+ * measures a distance, `distance` is the distance typed by the operator, in centimetres: the run then waits for the
+ * operator to say whether it is valid (see validateRun and voidRun).
+ */
+export async function prepareRun(
+    line: string,
+    event: string,
+    discipline: string,
+    participant: Participant,
+    distance?: unknown
+): Promise<string | null> {
     if (!isLine(line)) return unknownLine(line);
     if (stateOf(line).run.status === 'running') return `A run is in progress on ${line}. Cancel it first.`;
     const dir = await disciplineDir(event, discipline);
@@ -112,19 +127,35 @@ export async function prepareRun(line: string, event: string, discipline: string
     const { settings } = await loadDisciplineSettings(dir);
     const closed = closedReason(settings);
     if (closed) return `${event} / ${discipline} is closed: ${closed}.`;
-    // The disciplines timed by hand run on the manual line, and only them
-    if (settings.trigger === 'keyboard' && !isManualLine(line)) {
+    // The disciplines timed by hand, and those measuring a distance, run on the manual line, and only them
+    if (settings.measure === 'distance' && !isManualLine(line)) {
+        return `${event} / ${discipline} measures a distance: its runs are on the line "${MANUAL_LINE}".`;
+    }
+    if (settings.measure === 'time' && settings.trigger === 'keyboard' && !isManualLine(line)) {
         return `${event} / ${discipline} is timed by hand: its runs are on the line "${MANUAL_LINE}".`;
     }
-    if (settings.trigger === 'gates' && isManualLine(line)) {
+    if (settings.measure === 'time' && settings.trigger === 'gates' && isManualLine(line)) {
         return `${event} / ${discipline} is timed by the gates: the line "${MANUAL_LINE}" is for the disciplines timed by hand.`;
     }
+    let distanceCm: number | undefined;
+    if (settings.measure === 'distance') {
+        const typed = toDistanceCm(distance);
+        if (typeof typed === 'string') return typed;
+        distanceCm = typed;
+    }
     const { attempts } = settings;
-    if (attempts !== null) {
+    const perDistance = settings.measure === 'distance' ? settings.attemptsPerDistance : null;
+    if (attempts !== null || settings.measure === 'distance') {
         const used = ((await loadResults(event, discipline)) ?? []).filter(
             (result) => result.bib === participant.bib && countsAsAttempt(result)
-        ).length;
-        if (used >= attempts) return `${participant.bib} ${participant.name} has used all ${attempts} attempt(s).`;
+        );
+        if (attempts !== null && used.length >= attempts) return `${participant.bib} ${participant.name} has used all ${attempts} attempt(s).`;
+        const at = perDistance === null ? null : eliminatedAt(used, perDistance);
+        if (at !== null) return `${participant.bib} ${participant.name} is eliminated: ${perDistance} attempt(s) at ${at} cm.`;
+        const open = openDistance(used);
+        if (settings.measure === 'distance' && !settings.allowDistanceChange && open !== null && distanceCm !== open) {
+            return `${participant.bib} ${participant.name} must validate ${open} cm before changing distance.`;
+        }
     }
 
     // Once ready, a start crossing can come at any time, and a USB scan would delay its timestamp (it blocks the event
@@ -144,14 +175,96 @@ export async function prepareRun(line: string, event: string, discipline: string
     );
     if (elsewhere) return `${participant.bib} ${participant.name} is already ${elsewhere.run.status} on ${elsewhere.line}.`;
 
-    stateOf(line).timeRule = settings;
-    setRun(line, { status: 'ready', event, discipline, participant });
-    log.info(`${participant.bib} ${participant.name} is ready on ${line} (${event} / ${discipline}).`);
+    const state = stateOf(line);
+    state.timeRule = settings;
+    state.readyAt = Temporal.Now.instant().toString();
+    if (distanceCm === undefined) {
+        setRun(line, { status: 'ready', event, discipline, participant });
+        log.info(`${participant.bib} ${participant.name} is ready on ${line} (${event} / ${discipline}).`);
+    } else {
+        setRun(line, { status: 'ready', event, discipline, participant, distanceCm });
+        log.info(`${participant.bib} ${participant.name} is ready on ${line} (${event} / ${discipline}) with ${distanceCm} cm.`);
+    }
     return null;
 }
 
+// Longest distance accepted, in centimetres (1000 m)
+const MAX_DISTANCE_CM = 100_000;
+
+/**
+ * A distance typed by the operator, in centimetres; or why it cannot be one: it must be a whole number above 0 and
+ * below 1000 m (e.g. 345 for 3.45 m).
+ */
+export function toDistanceCm(centimetres: unknown): number | string {
+    if (typeof centimetres !== 'number' || !Number.isFinite(centimetres)) return 'The distance (in centimetres) is missing.';
+    if (!Number.isInteger(centimetres)) return 'The distance must be a whole number of centimetres.';
+    if (centimetres <= 0 || centimetres >= MAX_DISTANCE_CM) return 'The distance must be above 0 and below 100000 cm.';
+    return centimetres;
+}
+
+/** The distance of the results file, in centimetres. null when it is missing or not a whole number. */
+function distanceCmOf(text: string): number | null {
+    const value = text.trim();
+    return /^\d+$/.test(value) ? Number(value) : null;
+}
+
+/**
+ * The distance (in centimetres) at which a participant failed all the attempts allowed at one distance, so is
+ * eliminated, or null. A validation resets the count at its distance: a participant who validates a distance, even at
+ * the last attempt, goes on, but one who then fails it again `perDistance` times is eliminated. `results` are their runs
+ * that count as attempts, oldest first.
+ */
+export function eliminatedAt(results: RunResult[], perDistance: number): number | null {
+    const failed = new Map<number, number>();
+    for (const { distanceCm, status } of results) {
+        if (distanceCm === null) continue;
+        if (status === 'ok') {
+            failed.delete(distanceCm);
+            continue;
+        }
+        const count = (failed.get(distanceCm) ?? 0) + 1;
+        if (count >= perDistance) return distanceCm;
+        failed.set(distanceCm, count);
+    }
+    return null;
+}
+
+/**
+ * The distance (in centimetres) a participant started and did not validate yet, so their next run must be at it, or
+ * null. `results` are their runs that count as attempts, oldest first: the distance of the last one, unless it is valid.
+ */
+export function openDistance(results: RunResult[]): number | null {
+    const last = results.at(-1);
+    return last === undefined || last.status === 'ok' ? null : last.distanceCm;
+}
+
+/**
+ * The results without the runs beyond the attempts allowed: for each participant, the runs that count as attempts after
+ * the first `attempts` ones, by start (e.g. an invalid run made valid afterwards, once the participant had their other
+ * attempts). Their best result is among the others. Unlimited attempts (null): every result.
+ */
+export function withinAttempts<T extends Pick<RunResult, 'bib' | 'start' | 'status'>>(results: T[], attempts: number | null): T[] {
+    if (attempts === null) return results;
+    const instant = (result: T) => {
+        try {
+            return Temporal.Instant.from(result.start).epochNanoseconds;
+        } catch {
+            return 0n;
+        }
+    };
+    const used = new Map<string, number>();
+    const beyond = new Set<T>();
+    for (const result of [...results].sort((a, b) => (instant(a) < instant(b) ? -1 : instant(a) > instant(b) ? 1 : 0))) {
+        if (!countsAsAttempt(result)) continue;
+        const count = (used.get(result.bib) ?? 0) + 1;
+        used.set(result.bib, count);
+        if (count > attempts) beyond.add(result);
+    }
+    return results.filter((result) => !beyond.has(result));
+}
+
 /** Invalid runs are not the participant's fault, so they do not use up an attempt. */
-export function countsAsAttempt(result: RunResult): boolean {
+export function countsAsAttempt(result: Pick<RunResult, 'status'>): boolean {
     return result.status !== 'invalid';
 }
 
@@ -179,6 +292,8 @@ export function cancelRun(line: string): string | null {
 export function onCrossing(line: string, gate: Gate, deviceName: string, instant: Temporal.Instant): void {
     if (!isLine(line)) return;
     const { run, timeRule } = stateOf(line);
+    // A distance is typed by the operator: no crossing starts or ends its run
+    if (run.status !== 'idle' && timeRule.measure === 'distance') return;
     if (run.status === 'ready' && gate === 'start') {
         log.info(`Start of ${run.participant.bib} ${run.participant.name} on ${line} ("${deviceName}").`);
         setRun(line, { ...run, status: 'running', startedAt: instant.toString() });
@@ -186,31 +301,57 @@ export function onCrossing(line: string, gate: Gate, deviceName: string, instant
         const finish = instant.toString();
         const timeMs = runTimeMs(run.startedAt, finish, timeRule)!;
         log.info(`Finish of ${run.participant.bib} ${run.participant.name} on ${line} ("${deviceName}"): ${formatSeconds(timeMs)} s`);
-        endRun(line, { finish, timeMs, status: 'ok' });
+        endRun(line, { finish, timeMs, distanceCm: null, status: 'ok' });
     }
 }
 
+/** The distance a participant is ready with on a line, waiting for the operator to say whether it is valid. */
+function distanceToValidate(run: RunState): number | null {
+    return run.status === 'ready' && run.distanceCm !== undefined ? run.distanceCm : null;
+}
+
 /**
- * Ends the run of a line now, without waiting for the finish, and saves it as invalid or DQ (no finish, no time).
+ * Saves the distance a participant is ready with as valid (a discipline that measures a distance). Returns a problem
+ * when no distance waits on the line.
+ */
+export function validateRun(line: string): string | null {
+    if (!isLine(line)) return unknownLine(line);
+    const { run } = stateOf(line);
+    const distanceCm = distanceToValidate(run);
+    if (run.status !== 'ready' || distanceCm === null) return `No distance to validate on ${line}.`;
+    log.info(`Distance of ${run.participant.bib} ${run.participant.name} on ${line} validated: ${distanceCm} cm`);
+    endRun(line, { finish: Temporal.Now.instant().toString(), timeMs: null, distanceCm, status: 'ok' });
+    return null;
+}
+
+/**
+ * Ends the run of a line now, without waiting for the finish, and saves it as invalid or DQ (no finish, no time). For a
+ * distance, the distance waiting on the line is saved with this status (it can be made valid later).
  * Returns a problem when no run is in progress on the line.
  */
 export function voidRun(line: string, status: 'invalid' | 'dq'): string | null {
     if (!isLine(line)) return unknownLine(line);
     const { run } = stateOf(line);
-    if (run.status !== 'running') return `No run in progress on ${line}.`;
+    const distanceCm = distanceToValidate(run);
+    if (run.status !== 'running' && distanceCm === null) return `No run in progress on ${line}.`;
+    if (run.status === 'idle') return null;
     log.info(`Run of ${run.participant.bib} ${run.participant.name} on ${line} ${status === 'dq' ? 'disqualified' : 'invalidated'}.`);
-    endRun(line, { finish: null, timeMs: null, status });
+    if (distanceCm === null) endRun(line, { finish: null, timeMs: null, distanceCm: null, status });
+    else endRun(line, { finish: Temporal.Now.instant().toString(), timeMs: null, distanceCm, status });
     return null;
 }
 
-function endRun(line: string, outcome: Pick<RunResult, 'finish' | 'timeMs' | 'status'>): void {
+function endRun(line: string, outcome: Pick<RunResult, 'finish' | 'timeMs' | 'distanceCm' | 'status'>): void {
     const state = stateOf(line);
-    if (state.run.status !== 'running') return;
-    const { event, discipline, participant, startedAt } = state.run;
+    const { run } = state;
+    // A run starts at its start crossing, a distance when the participant got ready with it
+    if (run.status === 'idle' || (run.status === 'ready' && distanceToValidate(run) === null)) return;
+    const start = run.status === 'running' ? run.startedAt : (state.readyAt ?? Temporal.Now.instant().toString());
+    const { event, discipline, participant } = run;
     const result: RunResult = {
         bib: participant.bib,
         name: participant.name,
-        start: startedAt,
+        start,
         ...outcome,
         computer: computerName(),
         line,
@@ -226,12 +367,13 @@ function formatSeconds(timeMs: number): string {
     return (timeMs / 1000).toFixed(3);
 }
 
-// Columns of the results file. The time is not stored: it is finish - start. `status` is OK, INVALID or DQ. `computer`
+// Columns of the results file. The time is not stored: it is finish - start. `distance` is the distance typed by the
+// operator in centimetres, in a discipline that measures a distance (empty otherwise). `status` is OK, INVALID or DQ. `computer`
 // and `line` are the computer and the timing line of the run (empty for runs saved before these columns). `updated` is
 // when the line was last changed (UTC), so the sync keeps the latest change of a line edited on two computers.
-// Columns are found by their header name, so files with older layouts (with a time column, without status, computer,
-// line or updated) are read too, and are rewritten in this layout on their next write.
-const COLUMNS = ['bib', 'name', 'start', 'finish', 'status', 'computer', 'line', 'updated'] as const;
+// Columns are found by their header name, so files with older layouts (with a time column, without distance, status,
+// computer, line or updated) are read too, and are rewritten in this layout on their next write.
+const COLUMNS = ['bib', 'name', 'start', 'finish', 'distance', 'status', 'computer', 'line', 'updated'] as const;
 export type ResultRow = Record<(typeof COLUMNS)[number], string>;
 type Row = ResultRow;
 const RESULTS_HEADER = COLUMNS.join(';');
@@ -250,6 +392,9 @@ function enqueueWrite<T>(write: () => Promise<T>): Promise<T> {
 
 /** How a run's time is measured: its unit, and how the exact time is brought to it (see DisciplineSettings). */
 export type TimeRule = Pick<DisciplineSettings, 'precision' | 'rounding'>;
+
+/** How a run is measured: a time (see TimeRule), or a distance in centimetres. */
+export type MeasureRule = TimeRule & Pick<DisciplineSettings, 'measure'>;
 
 const NANOSECONDS: Record<Precision, bigint> = {
     second: 1_000_000_000n,
@@ -294,6 +439,7 @@ function parseRows(text: string): Row[] {
                 name: cell('name'),
                 start: cell('start').trim(),
                 finish: cell('finish').trim(),
+                distance: cell('distance').trim(),
                 status: cell('status').trim() || 'OK',
                 computer: cell('computer').trim(),
                 line: cell('line').trim(),
@@ -361,7 +507,7 @@ async function writeAtomically(file: string, content: string): Promise<void> {
 
 /**
  * Results in the import format of the UDA (Unicycling Data Application): one line per participant (of the list, and
- * any other bib with runs), sorted by bib, without header, comma separated, CRLF line ends:
+ * any other bib with runs), sorted by bib, without header, comma separated, CRLF line ends. For a time:
  *   bib,,minutes,seconds,fraction   best OK run (shortest time, or longest for a slow race), e.g. "98,,1,13,23"
  *                                   for 1:13.23
  *   bib,DQ,0,0,0                    no OK run, at least one DQ
@@ -369,15 +515,23 @@ async function writeAtomically(file: string, content: string): Promise<void> {
  * The time is measured with the precision and rounding of the discipline, and the fraction of a second is in its unit:
  * tenths, hundredths or thousandths (0 in seconds), e.g. "98,,1,13,2" for 1:13.2 in tenths, "98,,1,13,234" for
  * 1:13.234 in thousandths.
+ * For a distance (the longest OK run is the best):
+ *   bib,,centimetres                e.g. "98,,345" for 3.45 m
+ *   bib,DQ,0  and  bib,DNF,0        no OK run, as for a time
+ * With a limit of attempts, only the first ones of each participant count (see withinAttempts).
  */
 export function udaResults(
     rows: Row[],
     bibs: string[],
-    settings: Pick<DisciplineSettings, 'best' | 'precision' | 'rounding'> = DEFAULT_SETTINGS
+    settings: Pick<DisciplineSettings, 'measure' | 'best' | 'precision' | 'rounding'> & Partial<Pick<DisciplineSettings, 'attempts'>> = DEFAULT_SETTINGS
 ): string {
-    const { best, precision, rounding } = settings;
+    const { measure, precision, rounding } = settings;
+    const best = measure === 'distance' ? 'longest' : settings.best;
     const bestOf = new Map<string, RunResult | null>(bibs.map((bib) => [bib, null]));
-    for (const result of rows.map((row) => toResult(row, { precision, rounding }))) {
+    const results = rows.map((row) => toResult(row, { measure, precision, rounding }));
+    // A result of null (valid without a time) is kept as it is: it gives no time
+    const counted = new Set(withinAttempts(results.filter((result) => result !== null), settings.attempts ?? null));
+    for (const result of results.filter((result) => result === null || counted.has(result))) {
         if (!result || result.status === 'invalid') {
             if (result && !bestOf.has(result.bib)) bestOf.set(result.bib, null);
             continue;
@@ -388,6 +542,11 @@ export function udaResults(
     return [...bestOf]
         .sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
         .map(([bib, result]) => {
+            if (measure === 'distance') {
+                if (!result) return `${bib},DNF,0\r\n`;
+                if (result.status === 'dq' || result.distanceCm === null) return `${bib},DQ,0\r\n`;
+                return `${bib},,${result.distanceCm}\r\n`;
+            }
             if (!result) return `${bib},DNF,0,0,0\r\n`;
             if (result.status === 'dq' || result.timeMs === null) return `${bib},DQ,0,0,0\r\n`;
             const perSecond = UNITS_PER_SECOND[precision];
@@ -402,11 +561,16 @@ export function udaResults(
 // Units of a precision in a second: the fraction of the UDA export is in this unit
 const UNITS_PER_SECOND: Record<Precision, number> = { second: 1, tenth: 10, hundredth: 100, thousandth: 1000 };
 
-/** An OK run beats a DQ; between OK runs, the shorter time wins (the longer one for a slow race). */
+/**
+ * An OK run beats a DQ; between OK runs, the shorter time wins (the longer one for a slow race), the longer distance for
+ * a distance.
+ */
 function isBetter(result: RunResult, than: RunResult, best: DisciplineSettings['best']): boolean {
     if (result.status !== than.status) return result.status === 'ok';
     if (result.status !== 'ok') return false;
-    return best === 'longest' ? result.timeMs! > than.timeMs! : result.timeMs! < than.timeMs!;
+    const value = result.distanceCm ?? result.timeMs!;
+    const other = than.distanceCm ?? than.timeMs!;
+    return best === 'longest' ? value > other : value < other;
 }
 
 const nowText = () => Temporal.Now.instant().toString({ smallestUnit: 'millisecond' });
@@ -417,6 +581,7 @@ function toRow(result: RunResult): Row {
         name: result.name,
         start: result.start,
         finish: result.finish ?? '',
+        distance: result.distanceCm === null ? '' : String(result.distanceCm),
         status: STATUS_TEXT[result.status],
         computer: result.computer ?? '',
         line: result.line ?? '',
@@ -437,15 +602,17 @@ function updatedAt(row: Row): Temporal.Instant {
 }
 
 /**
- * A row of the results file as a result, its time measured with the rule. null for a valid run without a time (finish missing
- * or unreadable).
+ * A row of the results file as a result, measured with the rule: its time, or its distance in centimetres.
+ * null for a valid run without a time (finish missing or unreadable), or without a distance.
  */
-function toResult(row: Row, rule: TimeRule): RunResult | null {
+function toResult(row: Row, rule: MeasureRule): RunResult | null {
     const status = RUN_STATUSES.find((s) => STATUS_TEXT[s] === row.status.toUpperCase()) ?? 'ok';
     const finish = row.finish || null;
-    const timeMs = runTimeMs(row.start, finish, rule);
-    if (status === 'ok' && timeMs === null) return null;
-    return { bib: row.bib, name: row.name, start: row.start, finish, timeMs, status, computer: row.computer || null, line: row.line || null };
+    const distance = rule.measure === 'distance';
+    const timeMs = distance ? null : runTimeMs(row.start, finish, rule);
+    const distanceCm = distance ? distanceCmOf(row.distance) : null;
+    if (status === 'ok' && (distance ? distanceCm : timeMs) === null) return null;
+    return { bib: row.bib, name: row.name, start: row.start, finish, timeMs, distanceCm, status, computer: row.computer || null, line: row.line || null };
 }
 
 /** Rows of the results file, empty when it does not exist yet. Runs started before the last reset are left out. */
@@ -606,7 +773,10 @@ export async function setResultStatus(
         const row = rows.find((r) => r.bib === bib && r.start === start);
         const current = row && toResult(row, settings);
         if (!row || !current) return { status: 404 as const, problem: 'This result is not in the results file any more.' };
-        if (status === 'ok' && current.timeMs === null) {
+        if (status === 'ok' && settings.measure === 'distance' && current.distanceCm === null) {
+            return { status: 409 as const, problem: 'This run has no distance.' };
+        }
+        if (status === 'ok' && settings.measure === 'time' && current.timeMs === null) {
             return { status: 409 as const, problem: 'This run was ended before the finish: it has no time.' };
         }
 
@@ -666,7 +836,9 @@ export async function mergeResultRows(event: string, discipline: string, remoteR
         const reset = await resultsResetAt(dir);
 
         let changed = false;
-        for (const remote of remoteRows) {
+        for (const sent of remoteRows) {
+            // A computer of an older version leaves out the columns it does not know
+            const remote = Object.fromEntries(COLUMNS.map((column) => [column, String(sent[column] ?? '')])) as Row;
             if (reset && startedBefore(remote, reset)) continue;
             const index = byKey.get(`${remote.bib}\n${remote.start}`);
             if (index === undefined) {

@@ -1,4 +1,4 @@
-import type { Precision } from './types';
+import type { Measure, Precision } from './types';
 
 /**
  * Local time with milliseconds, e.g. "14:03:27.512".
@@ -36,4 +36,14 @@ export function formatDuration(ms: number, decimals = 3): string {
   const minutes = Math.floor(rounded / 60);
   const seconds = (rounded - minutes * 60).toFixed(decimals);
   return minutes > 0 ? `${minutes}:${seconds.padStart(decimals > 0 ? decimals + 3 : 2, '0')}` : seconds;
+}
+
+/** A distance in centimetres, e.g. "345 cm". */
+export function formatDistance(centimetres: number): string {
+  return `${centimetres} cm`;
+}
+
+/** A result value of its discipline: a time with its precision (see formatDuration), or a distance in centimetres. */
+export function formatValue(value: number, measure: Measure, precision: Precision): string {
+  return measure === 'distance' ? formatDistance(value) : formatDuration(value, DECIMALS[precision]);
 }

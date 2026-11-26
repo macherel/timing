@@ -20,10 +20,12 @@ export interface RunParticipant {
 
 /**
  * The timed run of a line: idle, ready (waiting for a start crossing) or running (waiting for a finish crossing).
+ * In a discipline that measures a distance, the participant is ready with the distance typed by the operator
+ * (`distanceCm`, in centimetres), until the operator says whether it is valid: there is no running state.
  */
 export type RunState =
     | { status: 'idle' }
-    | { status: 'ready'; event: string; discipline: string; participant: RunParticipant }
+    | { status: 'ready'; event: string; discipline: string; participant: RunParticipant; distanceCm?: number }
     | { status: 'running'; event: string; discipline: string; participant: RunParticipant; startedAt: string };
 
 /**
@@ -39,7 +41,8 @@ export interface RunResult {
     name: string;
     start: string;          // Temporal.Instant as ISO 8601
     finish: string | null;  // null when the run was ended before the finish (invalidated or disqualified)
-    timeMs: number | null;  // Finish - start in milliseconds, with the precision and rounding of the discipline settings. null when the run was ended before the finish (invalidated or disqualified)
+    timeMs: number | null;  // Finish - start in milliseconds, with the precision and rounding of the discipline settings. null when the run was ended before the finish (invalidated or disqualified), and in a discipline that measures a distance
+    distanceCm: number | null; // The distance typed by the operator in centimetres. null in a discipline that measures a time
     status: RunStatus;
     computer: string | null; // The computer that timed the run, null for a run saved before this was recorded
     line: string | null;     // The line of that computer that timed the run, null for a run saved before this was recorded
@@ -105,7 +108,7 @@ export interface SettingsUpdateMessage {
     type: 'SETTINGS_UPDATE';
     event: string;
     discipline: string;
-    settings: { attempts: number | null; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
+    settings: { measure: 'time' | 'distance'; attempts: number | null; attemptsPerDistance: number | null; allowDistanceChange: boolean; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
         precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up'; recentRuns: number;
         trigger: 'gates' | 'keyboard'; triggerKey: string };
 }
