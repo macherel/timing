@@ -14,19 +14,20 @@ import { discipline, disciplineExists, eventName, eventsLoaded, leaveSettings, l
 
 /**
  * The settings page of a discipline (/<event>/<discipline>/config), hidden while the administration is locked, in
- * four tabs, each with its URL. The first three are the sections of one form, saved together:
+ * five tabs, each with its URL. The first four are the sections of one form, saved together:
  * - settings (…/config): the basic settings, what triggers the runs, attempts and best time;
  * - advanced (…/config/advanced): precision and rounding of the times, last runs shown;
- * - lock (…/config/lock): period and access.
+ * - lock (…/config/lock): period and access;
+ * - export (…/config/export): the templates of the UDA export, with a preview.
  *   Saving or cancelling goes back to the page of the discipline it came from, as the gear beside the title does;
  *   leaving another way with unsaved changes asks first. Switching tabs keeps them;
  * - data (…/config/data): its participant files, to download, replace or add, and its participants, to change by hand (folded at first); its results file and their UDA export,
  *   to download; and the backups of its results made when its participants changed, to download.
  */
-const TABS = ['settings', 'advanced', 'lock', 'data'] as const;
+const TABS = ['settings', 'advanced', 'lock', 'export', 'data'] as const;
 type Tab = (typeof TABS)[number];
 // The tabs of the settings form, and its section on each
-const SECTIONS: Partial<Record<Tab, SettingsSection>> = { settings: 'basic', advanced: 'advanced', lock: 'lock' };
+const SECTIONS: Partial<Record<Tab, SettingsSection>> = { settings: 'basic', advanced: 'advanced', lock: 'lock', export: 'export' };
 
 const { t } = useI18n();
 const route = useRoute();

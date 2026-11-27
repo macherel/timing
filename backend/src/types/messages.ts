@@ -110,7 +110,7 @@ export interface SettingsUpdateMessage {
     discipline: string;
     settings: { measure: 'time' | 'distance'; attempts: number | null; attemptsPerDistance: number | null; minDistance: number | null; allowDistanceChange: boolean; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
         precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up'; recentRuns: number; resultRows: number;
-        trigger: 'gates' | 'keyboard'; triggerKey: string };
+        trigger: 'gates' | 'keyboard'; triggerKey: string; udaHeader: boolean; udaColumns: { title: string; value: string }[] | null; udaSeparator: string; udaSort: string };
 }
 
 /** Sent to every frontend client when files of a discipline were changed by the sync with another computer, or uploaded. */

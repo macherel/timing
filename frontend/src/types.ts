@@ -379,9 +379,33 @@ export interface DisciplineSettings {
   trigger: 'gates' | 'keyboard';
   // The key that starts and finishes the runs timed by hand: its KeyboardEvent.code (Space, Enter, KeyA…)
   triggerKey: string;
+  // The UDA export: whether it has a header line of the titles of the columns, its columns (null: the import format of the UDA), their separator, and the order of the lines
+  // (variables, - for descending). Missing from a server of an older version
+  udaHeader?: boolean;
+  udaColumns?: UdaColumn[] | null;
+  udaSeparator?: string;
+  udaSort?: string;
 }
 
 export type Measure = 'time' | 'distance';
+
+/** GET /api/uda-formats: the UDA export settings of a discipline, with its measure (the last saved first). */
+export interface UdaFormat {
+  event: string;
+  discipline: string;
+  measure: Measure;
+  updated: string;
+  udaHeader: boolean;
+  udaColumns: UdaColumn[] | null;
+  udaSeparator: string;
+  udaSort: string;
+}
+
+/** A column of the UDA export: the template of its title in the header line (empty: none), and of its value. */
+export interface UdaColumn {
+  title: string;
+  value: string;
+}
 
 // Unit of the times
 export type Precision = 'second' | 'tenth' | 'hundredth' | 'thousandth';

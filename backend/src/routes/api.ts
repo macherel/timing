@@ -18,6 +18,7 @@ import {
     DEFAULT_SETTINGS,
     disciplineDir,
     listEvents,
+    listUdaFormats,
     loadDisciplineSettings,
     loadParticipants,
     saveDisciplineSettings,
@@ -48,6 +49,7 @@ import {
     validateRun,
     voidRun,
     writeUdaResults,
+    previewUdaResults,
 } from '../services/runService.js';
 import { WORK_DIR } from '../utils/workDir.js';
 import { createLogger } from '../utils/logger.js';
@@ -240,7 +242,7 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         res.status(422).json({ problems });
         return;
     }
-    const { measure, attempts, attemptsPerDistance = null, minDistance = null, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, resultRows, trigger, triggerKey } = req.body.settings;
+    const { measure, attempts, attemptsPerDistance = null, minDistance = null, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, resultRows, trigger, triggerKey, udaHeader, udaColumns = null, udaSeparator, udaSort } = req.body.settings;
     await saveDisciplineSettings(dir, {
         measure: measure ?? DEFAULT_SETTINGS.measure,
         attempts,
@@ -257,6 +259,11 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
         resultRows: resultRows ?? DEFAULT_SETTINGS.resultRows,
         trigger: trigger ?? DEFAULT_SETTINGS.trigger,
         triggerKey: triggerKey ?? DEFAULT_SETTINGS.triggerKey,
+        udaHeader: udaHeader ?? DEFAULT_SETTINGS.udaHeader,
+        // Their title and value only
+        udaColumns: udaColumns && udaColumns.map(({ title, value }: { title: string; value: string }) => ({ title, value })),
+        udaSeparator: udaSeparator ?? DEFAULT_SETTINGS.udaSeparator,
+        udaSort: udaSort ?? DEFAULT_SETTINGS.udaSort,
     });
     // The best result of each participant and its time may have changed (shortest or longest, precision, rounding)
     await writeUdaResults(event, discipline);
@@ -264,6 +271,29 @@ router.put('/events/:event/:discipline/settings', async (req: Request, res: Resp
     broadcastToUI({ type: 'SETTINGS_UPDATE', event, discipline, settings: saved.settings });
     notifyLocalChange(event, discipline);
     res.json(saved);
+});
+
+// Settings page of a discipline: the UDA export settings of every discipline, the last saved first, to copy one
+router.get('/uda-formats', async (_req: Request, res: Response) => {
+    res.json({ formats: await listUdaFormats() });
+});
+
+// Settings page of a discipline: its UDA export with the settings being edited (not saved), and their problems
+router.post('/events/:event/:discipline/uda-preview', async (req: Request, res: Response) => {
+    const changes = req.body?.settings ?? {};
+    const problems = validateDisciplineSettings(changes);
+    if (problems.length > 0) {
+        res.json({ text: '', problems });
+        return;
+    }
+    const keys = ['measure', 'attempts', 'best', 'precision', 'rounding', 'udaHeader', 'udaColumns', 'udaSeparator', 'udaSort'] as const;
+    const picked = Object.fromEntries(keys.filter((key) => changes[key] !== undefined).map((key) => [key, changes[key]]));
+    const preview = await previewUdaResults(String(req.params.event), String(req.params.discipline), picked);
+    if (!preview) {
+        res.status(404).json({ problems: ['Unknown event or discipline.'] });
+        return;
+    }
+    res.json(preview);
 });
 
 // Settings page of a discipline: its participant files, the files the app writes, and the backups of its results

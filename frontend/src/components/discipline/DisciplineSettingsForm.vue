@@ -1,15 +1,17 @@
 <script lang="ts">
 /** The sections of the settings, each on its tab of the settings page. */
-export type SettingsSection = 'basic' | 'advanced' | 'lock';
+export type SettingsSection = 'basic' | 'advanced' | 'lock' | 'export';
 </script>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { DisciplineSettings } from '../../types';
+import type { DisciplineSettings, UdaColumn } from '../../types';
 import { fromLocalInput, toLocalInput } from '../../race/dateTime';
 import { DECIMALS, formatDuration } from '../../format';
 import { canTrigger, keyLabel } from '../../race/keys';
+import UdaExportSettings from './UdaExportSettings.vue';
+import { defaultColumns, defaultExport, exportOf, isDefault, loadUdaFormats, type UdaExport } from '../../udaColumns';
 
 /**
  * Edits a discipline's config.yaml, in three sections shown one at a time (the tabs of the settings page) and saved
@@ -19,7 +21,8 @@ import { canTrigger, keyLabel } from '../../race/keys';
  *   for a discipline timed by hand), the last two for a time only;
  * - advanced: precision and rounding of the times (a distance is in centimetres), and the number of last runs of the
  *   line shown;
- * - lock: period and access.
+ * - lock: period and access;
+ * - export: the columns of the UDA export, its separator and the order of its lines, with a preview.
  * Loads the settings itself; the race pages get the saved ones through the SETTINGS_UPDATE message. Tells whether it
  * has unsaved changes (dirty).
  */
@@ -101,6 +104,40 @@ const roundingInput = ref<DisciplineSettings['rounding']>('up');
 const recentRunsInput = ref<string | number>(3);
 const resultRowsInput = ref<string | number>(5);
 const triggerInput = ref<DisciplineSettings['trigger']>('gates');
+// The UDA export: its columns (those of the UDA format until changed), the separator and the order
+const udaHeaderInput = ref(false);
+const udaColumnsInput = ref<UdaColumn[]>(defaultColumns('time'));
+const udaSeparatorInput = ref(',');
+const udaSortInput = ref('bib');
+/** Sets the UDA export settings being edited. */
+function setExport(format: UdaExport): void {
+  udaHeaderInput.value = format.header;
+  udaColumnsInput.value = format.columns;
+  udaSeparatorInput.value = format.separator;
+  udaSortInput.value = format.sort;
+}
+
+/**
+ * Another measure chosen: the UDA export takes the format of the last discipline saved that measures it (another one),
+ * or the UDA format when there is none.
+ */
+async function onMeasureChange(): Promise<void> {
+  const measure = measureInput.value;
+  let format: UdaExport = defaultExport(measure);
+  try {
+    const last = (await loadUdaFormats()).find((other) => other.measure === measure && !(other.event === props.event && other.discipline === props.discipline));
+    if (last) format = exportOf(last, measure);
+  } catch {
+    // The UDA format, then
+  }
+  // Unless the measure changed again meanwhile
+  if (measureInput.value === measure) setExport(format);
+}
+// The attempts as typed, as the preview of the export counts them (null: unlimited or not a valid number)
+const attemptsValue = computed(() => {
+  const value = Number(String(attemptsInput.value ?? '').trim());
+  return Number.isInteger(value) && value >= 1 ? value : null;
+});
 // The trigger key as its KeyboardEvent.code, and what it typed when it was chosen here (its name on this keyboard)
 const triggerKeyInput = ref('Space');
 const triggerKeyTyped = ref<string | undefined>(undefined);
@@ -196,6 +233,10 @@ const fields = () =>
     String(resultRowsInput.value ?? '').trim(),
     triggerInput.value,
     triggerKeyInput.value,
+    udaHeaderInput.value,
+    udaColumnsInput.value,
+    udaSeparatorInput.value,
+    udaSortInput.value.trim(),
   ]);
 const savedFields = ref('');
 /** Whether the form has changes not saved yet. */
@@ -257,6 +298,11 @@ onMounted(async () => {
     // Missing from a server of an older version: the gates, as without the setting
     triggerInput.value = settings.trigger ?? 'gates';
     triggerKeyInput.value = settings.triggerKey ?? 'Space';
+    // Missing from a server of an older version: the UDA format
+    udaHeaderInput.value = settings.udaHeader ?? false;
+    udaColumnsInput.value = settings.udaColumns ?? defaultColumns(measureInput.value);
+    udaSeparatorInput.value = settings.udaSeparator ?? ',';
+    udaSortInput.value = settings.udaSort ?? 'bib';
     savedFields.value = fields();
     loaded.value = true;
   } catch (e) {
@@ -319,6 +365,11 @@ async function save(): Promise<void> {
           resultRows,
           trigger: triggerInput.value,
           triggerKey: triggerKeyInput.value,
+          udaHeader: udaHeaderInput.value,
+          // The UDA format is saved as no columns: it follows the measure
+          udaColumns: isDefault(udaColumnsInput.value, measureInput.value) ? null : udaColumnsInput.value,
+          udaSeparator: udaSeparatorInput.value,
+          udaSort: udaSortInput.value.trim() || 'bib',
         },
       }),
     });
@@ -340,7 +391,7 @@ async function save(): Promise<void> {
           <legend>{{ $t('settings.measure.legend') }}</legend>
           <div class="segmented" role="radiogroup">
             <label v-for="option in MEASURE_OPTIONS" :key="option.value" :class="{ checked: measureInput === option.value }" :title="option.hint">
-              <input v-model="measureInput" type="radio" name="measure" :value="option.value" />
+              <input v-model="measureInput" type="radio" name="measure" :value="option.value" @change="onMeasureChange" />
               {{ option.label }}
             </label>
           </div>
@@ -465,6 +516,22 @@ async function save(): Promise<void> {
           </div>
           <p class="muted small">{{ ACCESS_OPTIONS.find((option) => option.value === accessInput)?.hint }}</p>
         </fieldset>
+      </div>
+
+      <div v-show="section === 'export'" data-section="export">
+        <UdaExportSettings
+          v-model:header="udaHeaderInput"
+          v-model:columns="udaColumnsInput"
+          v-model:separator="udaSeparatorInput"
+          v-model:sort="udaSortInput"
+          :event="event"
+          :discipline="discipline"
+          :measure="measureInput"
+          :attempts="attemptsValue"
+          :best="bestInput"
+          :precision="precisionInput"
+          :rounding="roundingInput"
+        />
       </div>
     </template>
     <p v-else-if="!error" class="muted small">{{ $t('common.loading') }}</p>

@@ -44,8 +44,8 @@ export const router = createRouter({
     { path: '/:event/:discipline/race', name: 'race', component: RacePage, meta: { page: 'race', section: 'race', selection: true } },
     { path: '/:event/:discipline/live', name: 'live', component: LivePage, meta: { page: 'live', section: 'race', selection: true } },
     {
-      // Its tabs: …/config (settings), …/config/advanced, …/config/lock, …/config/data
-      path: '/:event/:discipline/config/:tab(advanced|lock|data)?',
+      // Its tabs: …/config (settings), …/config/advanced, …/config/lock, …/config/export, …/config/data
+      path: '/:event/:discipline/config/:tab(advanced|lock|export|data)?',
       name: 'disciplineConfig',
       component: DisciplineConfigPage,
       meta: { page: 'disciplineConfig', section: 'race', selection: true, adminOnly: true },

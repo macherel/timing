@@ -140,8 +140,9 @@ paths:
       tags: [Events]
       summary: Creates a discipline in an event
       description: |
-        Creates the folder of a discipline in the event, with a config.yaml of the default settings, so the sync
-        copies it to the other computers. Same rules for the name as an event (`api` allowed). Pages get an
+        Creates the folder of a discipline in the event, with a config.yaml of the default settings (but the UDA export
+        format of the last discipline saved that measures a time, see /uda-formats), so the sync copies it to the other
+        computers. Same rules for the name as an event (`api` allowed). Pages get an
         `EVENTS_UPDATE` message. Only the pages hide it while the administration is locked.
       operationId: createDiscipline
       requestBody:
@@ -344,6 +345,72 @@ paths:
               schema: { $ref: '#/components/schemas/SettingsResponse' }
         '404': { $ref: '#/components/responses/UnknownDiscipline' }
         '422': { $ref: '#/components/responses/Invalid' }
+
+  /uda-formats:
+    get:
+      tags: [Events]
+      summary: UDA export formats of every discipline
+      description: |
+        The UDA export settings of every discipline of every event that has a config.yaml, with its measure, the last
+        saved first (by the modification time of its config.yaml, which the sync keeps), to copy the format of one to
+        another. A new discipline gets the format of the first one that measures a time.
+      operationId: listUdaFormats
+      responses:
+        '200':
+          description: The formats, the last saved first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [formats]
+                properties:
+                  formats:
+                    type: array
+                    items: { $ref: '#/components/schemas/UdaFormat' }
+
+  /events/{event}/{discipline}/uda-preview:
+    parameters:
+      - $ref: '#/components/parameters/Event'
+      - $ref: '#/components/parameters/Discipline'
+    post:
+      tags: [Events]
+      summary: Previews the UDA export with settings not saved
+      description: |
+        The UDA export of the results and participants of the discipline, with its saved settings changed by those
+        sent (measure, attempts, best, precision, rounding and the udaHeader, udaColumns, udaSeparator and udaSort
+        templates; the others are ignored). Nothing is written. Wrong settings give no text and their problems; an
+        expression that cannot be evaluated for a participant writes #ERROR, and its problem names the bib.
+      operationId: previewUdaResults
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings: { $ref: '#/components/schemas/DisciplineSettingsInput' }
+            example:
+              settings:
+                udaHeader: true
+                udaColumns: [{ title: Bib, value: '{bib}' }, { title: Status, value: '{status}' }, { title: Rank, value: '{rank}' }]
+                udaSeparator: ';'
+                udaSort: rank
+      responses:
+        '200':
+          description: The text of the export (CRLF line ends) and the problems found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [text, problems]
+                properties:
+                  text: { type: string, examples: ["Bib;Status;Rank\r\n7;OK;1\r\n12;DNS;\r\n"] }
+                  problems:
+                    type: array
+                    items: { type: string }
+                    examples: [['column 3, bib 7: division by 0 (character 6)']]
+        '404': { $ref: '#/components/responses/UnknownDiscipline' }
 
   /events/{event}/{discipline}/files:
     parameters:
@@ -1267,7 +1334,7 @@ components:
 
     DisciplineSettings:
       type: object
-      required: [measure, attempts, attemptsPerDistance, minDistance, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, resultRows, trigger, triggerKey]
+      required: [measure, attempts, attemptsPerDistance, minDistance, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, resultRows, trigger, triggerKey, udaHeader, udaColumns, udaSeparator, udaSort]
       properties:
         measure: { $ref: '#/components/schemas/Measure' }
         attempts:
@@ -1319,6 +1386,73 @@ components:
             5 when not set
         trigger: { $ref: '#/components/schemas/Trigger' }
         triggerKey: { $ref: '#/components/schemas/TriggerKey' }
+        udaHeader:
+          type: boolean
+          default: false
+          description: Whether the UDA export starts with a header line, of the titles of its columns
+        udaColumns:
+          type: [array, 'null']
+          minItems: 1
+          maxItems: 50
+          items: { $ref: '#/components/schemas/UdaColumn' }
+          description: |
+            The columns of the UDA export, in their order (their titles in the header line, see udaHeader). null for the import format of the UDA, without header (bib,,minutes,seconds,fraction or
+            bib,,centimetres; bib,DQ,0… or bib,DNF,0…, DNS written DNF)
+        udaSeparator:
+          type: string
+          minLength: 1
+          maxLength: 5
+          default: ','
+          description: The separator of the columns; a value holding it is quoted, as in CSV. A comma when not set
+        udaSort:
+          type: string
+          default: bib
+          description: |
+            The order of the lines of the UDA export: variables of a participant, comma separated, a - before one for
+            descending, then by bib. Empty values (e.g. the rank of a participant without OK run) come last
+          examples: ['category, rank']
+
+    UdaFormat:
+      type: object
+      required: [event, discipline, measure, updated, udaHeader, udaColumns, udaSeparator, udaSort]
+      properties:
+        event: { type: string }
+        discipline: { type: string }
+        measure: { $ref: '#/components/schemas/Measure' }
+        updated:
+          type: string
+          format: date-time
+          description: When its settings were last saved (the modification time of its config.yaml)
+        udaHeader: { type: boolean }
+        udaColumns:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/UdaColumn' }
+        udaSeparator: { type: string }
+        udaSort: { type: string }
+
+    UdaColumn:
+      type: object
+      required: [title, value]
+      properties:
+        title:
+          type: string
+          description: |
+            Template of its title in the header line (see udaHeader), with the variables event, discipline, measure and count (the
+            lines of the participants). Empty for none
+          examples: ['Time']
+        value:
+          type: string
+          description: |
+            Template of its value in the line of each participant: text with {expressions}. The variables bib, name,
+            firstName, lastName (empty with a single name column), category, status (OK, DQ, DNF: no valid run, DNS: no
+            run), runs, okRuns and attempts (the runs of the participant: all, OK, OK and DQ), bestRun and bestAttempt
+            (the number of the run of the best result, among the runs and among the attempts, by start), rank and
+            categoryRank (empty unless OK, the same for a tie), minutes, seconds, fraction (in the
+            unit of the precision), units (the whole time in that unit), timeMs, distance (centimetres; these are 0
+            unless OK), event, discipline, measure and count; whole numbers, "texts", the operators + - * / (whole
+            division) % == != < <= > >= && || !, the functions pad, upper, lower, trim, len, left, right, min, max, abs
+            and col("column of the participant file"); {if …}…{elif …}…{else}…{end}; {{ and }} for a brace
+          examples: ['{if status == "OK"}{minutes * 60 + seconds}.{pad(fraction, 2)}{else}{status}{end}']
 
     Measure:
       type: string
@@ -1347,7 +1481,7 @@ components:
     DisciplineSettingsInput:
       type: object
       description: |
-        Every field is optional (time for measure, null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, 5 for resultRows, gates for trigger, Space for triggerKey). start and end accept any ISO 8601 date-time with an offset;
+        Every field is optional (time for measure, null, auto for access, shortest for best, hundredth for precision, up for rounding, 3 for recentRuns, 5 for resultRows, gates for trigger, Space for triggerKey, false for udaHeader, null for udaColumns, a comma for udaSeparator, bib for udaSort). start and end accept any ISO 8601 date-time with an offset;
         without an offset they are read in the server's time zone, and a date alone means the start of that day (start)
         or the next midnight (end). The start must be before the end.
       properties:
@@ -1366,6 +1500,13 @@ components:
         resultRows: { type: integer, minimum: 1 }
         trigger: { $ref: '#/components/schemas/Trigger' }
         triggerKey: { $ref: '#/components/schemas/TriggerKey' }
+        udaHeader: { type: boolean }
+        udaColumns:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/UdaColumn' }
+          description: null for the import format of the UDA
+        udaSeparator: { type: string, minLength: 1, maxLength: 5 }
+        udaSort: { type: string }
 
     SettingsResponse:
       type: object

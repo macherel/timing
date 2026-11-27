@@ -59,7 +59,7 @@ describe('events and participants', () => {
         const { status, body } = await call('GET', '/events/CFM26/100m/participants');
         expect(status).toBe(200);
         expect(body.participants.map((p: any) => p.bib)).toEqual(['7', '12']);
-        expect(body.settings).toEqual({ measure: 'time', attempts: null, attemptsPerDistance: null, minDistance: null, allowDistanceChange: false, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3, resultRows: 5, trigger: 'gates', triggerKey: 'Space' });
+        expect(body.settings).toEqual({ measure: 'time', attempts: null, attemptsPerDistance: null, minDistance: null, allowDistanceChange: false, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3, resultRows: 5, trigger: 'gates', triggerKey: 'Space', udaHeader: false, udaColumns: null, udaSeparator: ',', udaSort: 'bib' });
         expect((await call('GET', '/events/CFM26/nope/participants')).status).toBe(404);
     });
 });
@@ -94,6 +94,44 @@ describe('creating events and disciplines', () => {
         expect((await call('POST', '/events', { name: 'API' })).status).toBe(422);
         expect((await call('POST', '/events/CFM26/disciplines', { name: 'api' })).status).toBe(201);
         expect((await call('POST', '/events', {})).status).toBe(400);
+    });
+
+    it('gives a new discipline the UDA export format of the last discipline saved that measures a time', async () => {
+        const columns = (value: string) => `udaColumns:\n  - title: T\n    value: "${value}"\n`;
+        writeFiles({
+            'CFM26/old/config.yaml': `udaHeader: true\n${columns('{bib}')}`,
+            'CFM26/jump/config.yaml': `measure: distance\n${columns('{distance}')}`,
+            'CFM26/last/config.yaml': `udaSeparator: ";"\nudaSort: "-rank"\n${columns('{rank}')}`,
+        });
+        const at = (relative: string, minutes: number) => {
+            const time = new Date(Date.UTC(2026, 10, 5, 10, minutes));
+            fs.utimesSync(path.join(workDir(), relative), time, time);
+        };
+        at('CFM26/old/config.yaml', 1);
+        at('CFM26/last/config.yaml', 2);
+        at('CFM26/jump/config.yaml', 3);
+
+        const { formats } = (await call('GET', '/uda-formats')).body;
+        expect(formats.map((format: any) => `${format.event}/${format.discipline}`).slice(0, 3)).toEqual(['CFM26/jump', 'CFM26/last', 'CFM26/old']);
+        expect(formats[1]).toEqual({
+            event: 'CFM26',
+            discipline: 'last',
+            measure: 'time',
+            udaHeader: false,
+            udaColumns: [{ title: 'T', value: '{rank}' }],
+            udaSeparator: ';',
+            udaSort: '-rank',
+            updated: '2026-11-05T10:02:00.000Z',
+        });
+
+        expect((await call('POST', '/events/CFM26/disciplines', { name: 'new' })).status).toBe(201);
+        expect((await call('GET', '/events/CFM26/new/settings')).body.settings).toMatchObject({
+            measure: 'time',
+            udaHeader: false,
+            udaColumns: [{ title: 'T', value: '{rank}' }],
+            udaSeparator: ';',
+            udaSort: '-rank',
+        });
     });
 
     it('needs an existing event for a discipline', async () => {
@@ -323,6 +361,10 @@ describe('discipline settings', () => {
             resultRows: 5,
             trigger: 'gates',
             triggerKey: 'Space',
+            udaHeader: false,
+            udaColumns: null,
+            udaSeparator: ',',
+            udaSort: 'bib',
         });
         expect(readFile('CFM26/100m/config.yaml')).toContain('start: 2026-11-05T07:00Z');
         expect((await call('GET', '/events/CFM26/100m/settings')).body.settings).toEqual(body.settings);
@@ -351,6 +393,40 @@ describe('discipline settings', () => {
         expect(body.settings).toMatchObject({ precision: 'tenth', rounding: 'truncate' });
         expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('7,,0,10,3\r\n12,DNF,0,0,0\r\n');
         expect((await call('GET', '/events/CFM26/100m/results')).body.results[0].timeMs).toBe(10300);
+    });
+
+    it('rewrites the UDA export with its templates, and previews it with settings not saved', async () => {
+        writeFiles({
+            'CFM26/100m/CFM26-100m-results.csv': ['bib;name;start;finish;status;updated', '7;Hugo;2026-11-05T10:00:00Z;2026-11-05T10:01:10.25Z;OK;'].join('\n'),
+        });
+        const uda = {
+            udaHeader: true,
+            udaColumns: [
+                { title: 'Bib', value: '{bib}', extra: 'dropped' },
+                { title: 'Time', value: '{if status == "OK"}{minutes * 60 + seconds}.{pad(fraction, 2)}{else}{status}{end}' },
+            ],
+            udaSeparator: ';',
+            udaSort: '-bib',
+        };
+        const preview = await call('POST', '/events/CFM26/100m/uda-preview', { settings: uda });
+        expect(preview.status).toBe(200);
+        expect(preview.body).toEqual({ text: 'Bib;Time\r\n12;DNS\r\n7;70.25\r\n', problems: [] });
+        // Not saved by the preview
+        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBeNull();
+
+        expect((await call('POST', '/events/CFM26/100m/uda-preview', { settings: { udaColumns: [{ title: '', value: '{bib}' }, { title: '', value: '{bib / 0}' }] } })).body).toEqual({
+            text: '7,#ERROR\r\n12,#ERROR\r\n',
+            problems: ['column 2, bib 7: division by 0 (character 6)', 'column 2, bib 12: division by 0 (character 6)'],
+        });
+        expect((await call('POST', '/events/CFM26/100m/uda-preview', { settings: { udaColumns: [{ title: '', value: '{nope}' }] } })).body).toEqual({
+            text: '',
+            problems: ['udaColumns column 1 value: unknown variable "nope" (character 2)'],
+        });
+
+        expect((await call('PUT', '/events/CFM26/100m/settings', { settings: uda })).status).toBe(200);
+        expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('Bib;Time\r\n12;DNS\r\n7;70.25\r\n');
+        expect(readFile('CFM26/100m/config.yaml')).not.toContain('extra');
+        expect((await call('POST', '/events/CFM26/nope/uda-preview', { settings: {} })).status).toBe(404);
     });
 
     it('refuses invalid settings with 422', async () => {

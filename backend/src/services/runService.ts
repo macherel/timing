@@ -17,15 +17,34 @@ import {
     BACKUP_DIR,
     backupFileName,
     withDisciplinePrefix,
-    readParticipants,
+    readExportParticipants,
+    headerKey,
     resultsFile,
     resultsResetAt,
     udaResultsFile,
     writeResultsReset,
     type DisciplineSettings,
+    type ExportParticipant,
     type Participant,
     type Precision,
 } from './eventService.js';
+
+import {
+    compareValues,
+    DEFAULT_SEPARATOR,
+    DEFAULT_SORT,
+    csvCell,
+    defaultColumns,
+    HEADER_VARIABLES,
+    LINE_VARIABLES,
+    parseSort,
+    parseTemplate,
+    renderTemplate,
+    TemplateError,
+    udaColumnsProblems,
+    type UdaColumn,
+    type Value,
+} from './udaTemplate.js';
 
 const log = createLogger('Run');
 
@@ -501,8 +520,32 @@ function resultsText(rows: Row[]): string {
 }
 
 async function writeUdaFile(dir: string, rows: Row[]): Promise<void> {
-    const { participants, settings } = await readParticipants(dir);
-    await writeAtomically(udaResultsFile(dir), udaResults(rows, participants.map((p) => p.bib), settings));
+    await writeAtomically(udaResultsFile(dir), await udaExportOf(dir, rows));
+}
+
+/** The UDA export of rows of the results file of a discipline folder, for its participants of the moment. */
+async function udaExportOf(dir: string, rows: Row[], settings?: DisciplineSettings, problems?: string[]): Promise<string> {
+    const read = await readExportParticipants(dir);
+    const names = { event: path.basename(path.dirname(dir)), discipline: path.basename(dir) };
+    const errors: string[] = [];
+    const text = udaResults(rows, read.participants, settings ?? read.settings, names, errors);
+    if (problems) problems.push(...errors);
+    else if (errors.length > 0) log.warn(`UDA export of ${names.event}/${names.discipline}: ${errors.slice(0, 5).join('; ')}`);
+    return text;
+}
+
+/**
+ * The UDA export of a discipline with settings not saved yet (the settings page shows it while they are edited): its
+ * text, and the problems of the settings and of the lines (null for an unknown discipline).
+ */
+export async function previewUdaResults(event: string, discipline: string, changes: Partial<DisciplineSettings>): Promise<{ text: string; problems: string[] } | null> {
+    const dir = await disciplineDir(event, discipline);
+    if (!dir) return null;
+    const { settings } = await loadDisciplineSettings(dir);
+    const merged: DisciplineSettings = { ...settings, ...changes };
+    const problems: string[] = [];
+    const text = await udaExportOf(dir, await readRows(resultsFile(dir)), merged, problems);
+    return { text, problems };
 }
 
 /**
@@ -526,56 +569,198 @@ async function writeAtomically(file: string, content: string): Promise<void> {
 }
 
 /**
- * Results in the import format of the UDA (Unicycling Data Application): one line per participant (of the list, and
- * any other bib with runs), sorted by bib, without header, comma separated, CRLF line ends. For a time:
- *   bib,,minutes,seconds,fraction   best OK run (shortest time, or longest for a slow race), e.g. "98,,1,13,23"
- *                                   for 1:13.23
- *   bib,DQ,0,0,0                    no OK run, at least one DQ
- *   bib,DNF,0,0,0                   no valid run: only INVALID runs, or none
- * The time is measured with the precision and rounding of the discipline, and the fraction of a second is in its unit:
- * tenths, hundredths or thousandths (0 in seconds), e.g. "98,,1,13,2" for 1:13.2 in tenths, "98,,1,13,234" for
- * 1:13.234 in thousandths.
- * For a distance (the longest OK run is the best):
- *   bib,,centimetres                e.g. "98,,345" for 3.45 m
- *   bib,DQ,0  and  bib,DNF,0        no OK run, as for a time
+ * The UDA export: one line per participant (of the list, and any other bib with runs), CRLF line ends, written from
+ * the columns of the discipline (see udaTemplate.ts), separated by udaSeparator (a value holding it is quoted, as in
+ * CSV), after a header line of their titles when udaHeader is set, in the order of udaSort (by bib unless set, then
+ * by bib).
+ * The status of a participant is OK (their best counted run, the shortest time, or the longest for a slow race or a
+ * distance), DQ (no OK run, at least one DQ), DNF (no valid run: only INVALID runs, or a valid one without time) or
+ * DNS (no run). The time is measured with the precision and rounding of the discipline: minutes, seconds and fraction
+ * (in the unit of the precision: tenths, hundredths or thousandths, 0 in seconds), units (the whole time in that
+ * unit) and timeMs; a distance is in centimetres. They are 0 without an OK run. The rank (1 for the best, the same for
+ * a tie) is among the OK participants, and categoryRank among those of their category: empty without an OK run.
+ * runs, okRuns and attempts count the runs of the participant (all, OK, OK and DQ), bestRun and bestAttempt number the
+ * run of their best result among their runs and among their attempts (by start; empty without an OK run).
+ * Without columns, the import format of the UDA (see defaultColumns), comma separated:
+ *   time:      bib,,minutes,seconds,fraction   e.g. "98,,1,13,23" for 1:13.23
+ *              bib,DQ,0,0,0  and  bib,DNF,0,0,0 (DNS too)
+ *   distance:  bib,,centimetres  e.g. "98,,345" for 3.45 m;  bib,DQ,0  and  bib,DNF,0
  * With a limit of attempts, only the first ones of each participant count (see withinAttempts).
+ * An expression that cannot be evaluated writes #ERROR: its problem, with the column and the bib, is added to
+ * `problems`.
  */
 export function udaResults(
     rows: Row[],
-    bibs: string[],
-    settings: Pick<DisciplineSettings, 'measure' | 'best' | 'precision' | 'rounding'> & Partial<Pick<DisciplineSettings, 'attempts'>> = DEFAULT_SETTINGS
+    participants: (string | ExportParticipant)[],
+    settings: Pick<DisciplineSettings, 'measure' | 'best' | 'precision' | 'rounding'> &
+        Partial<Pick<DisciplineSettings, 'attempts' | 'udaHeader' | 'udaColumns' | 'udaSeparator' | 'udaSort'>> = DEFAULT_SETTINGS,
+    names: { event: string; discipline: string } = { event: '', discipline: '' },
+    problems: string[] = []
 ): string {
     const { measure, precision, rounding } = settings;
     const best = measure === 'distance' ? 'longest' : settings.best;
-    const bestOf = new Map<string, RunResult | null>(bibs.map((bib) => [bib, null]));
-    const results = rows.map((row) => toResult(row, { measure, precision, rounding }));
+    const listed = participants.map((p) => (typeof p === 'string' ? exportParticipant(p, '') : p));
+    const byBib = new Map(listed.map((p) => [p.bib, p]));
+    // Each bib with its best counted run: undefined without a run, null with no valid one
+    const bestOf = new Map<string, RunResult | null | undefined>(listed.map((p) => [p.bib, undefined]));
+    // The runs of each bib, by start
+    const runsOf = new Map<string, Row[]>();
+    for (const row of rows) {
+        runsOf.set(row.bib, [...(runsOf.get(row.bib) ?? []), row]);
+        if (!byBib.has(row.bib)) byBib.set(row.bib, exportParticipant(row.bib, row.name));
+        if (!bestOf.has(row.bib)) bestOf.set(row.bib, undefined);
+    }
+    for (const runs of runsOf.values()) runs.sort((a, b) => startMs(a) - startMs(b));
+    const results = rows.map((row) => ({ row, result: toResult(row, { measure, precision, rounding }) }));
+    const rowOf = new Map(results.flatMap(({ row, result }) => (result ? [[result, row] as const] : [])));
     // A result of null (valid without a time) is kept as it is: it gives no time
-    const counted = new Set(withinAttempts(results.filter((result) => result !== null), settings.attempts ?? null));
-    for (const result of results.filter((result) => result === null || counted.has(result))) {
+    const counted = new Set(withinAttempts(results.flatMap(({ result }) => (result ? [result] : [])), settings.attempts ?? null));
+    for (const { row, result } of results) {
+        if (result && !counted.has(result)) continue;
+        const current = bestOf.get(row.bib);
         if (!result || result.status === 'invalid') {
-            if (result && !bestOf.has(result.bib)) bestOf.set(result.bib, null);
+            if (current === undefined) bestOf.set(row.bib, null);
             continue;
         }
-        const current = bestOf.get(result.bib);
-        if (!current || isBetter(result, current, best)) bestOf.set(result.bib, result);
+        if (!current || isBetter(result, current, best)) bestOf.set(row.bib, result);
     }
-    return [...bestOf]
-        .sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
-        .map(([bib, result]) => {
-            if (measure === 'distance') {
-                if (!result) return `${bib},DNF,0\r\n`;
-                if (result.status === 'dq' || result.distanceCm === null) return `${bib},DQ,0\r\n`;
-                return `${bib},,${result.distanceCm}\r\n`;
-            }
-            if (!result) return `${bib},DNF,0,0,0\r\n`;
-            if (result.status === 'dq' || result.timeMs === null) return `${bib},DQ,0,0,0\r\n`;
-            const perSecond = UNITS_PER_SECOND[precision];
-            const units = Math.round((result.timeMs * perSecond) / 1000);
-            const minutes = Math.floor(units / (60 * perSecond));
-            const seconds = Math.floor(units / perSecond) % 60;
-            return `${bib},,${minutes},${seconds},${units % perSecond}\r\n`;
-        })
-        .join('');
+
+    const perSecond = UNITS_PER_SECOND[precision];
+    const unitsOf = (result: RunResult) => Math.round((result.timeMs! * perSecond) / 1000);
+    // The value ranked: the time in units of the precision, or the distance
+    const valueOf = (result: RunResult) => (measure === 'distance' ? result.distanceCm! : unitsOf(result));
+    // The best result when it is OK (its time or distance known), else null
+    const okResult = (result: RunResult | null | undefined): RunResult | null =>
+        result && result.status === 'ok' && (measure === 'distance' ? result.distanceCm !== null : result.timeMs !== null) ? result : null;
+    const okResults = [...bestOf].flatMap(([bib, result]) => {
+        const ok = okResult(result);
+        return ok ? [{ bib, value: valueOf(ok), category: byBib.get(bib)!.category }] : [];
+    });
+    const better = (a: number, b: number) => (best === 'longest' ? a > b : a < b);
+    const rankOf = (value: number, among: { value: number }[]) => 1 + among.filter((other) => better(other.value, value)).length;
+
+    const separator = settings.udaSeparator ?? DEFAULT_SEPARATOR;
+    const common = { event: names.event, discipline: names.discipline, measure, count: bestOf.size };
+    const lines = [...bestOf].map(([bib, result]) => {
+        const participant = byBib.get(bib)!;
+        const ok = okResult(result);
+        const status = ok ? 'OK' : result === undefined ? 'DNS' : result?.status === 'dq' ? 'DQ' : 'DNF';
+        const units = ok && measure === 'time' ? unitsOf(ok) : 0;
+        const vars: Record<string, Value> = {
+            ...common,
+            bib,
+            name: participant.name,
+            firstName: participant.firstName,
+            lastName: participant.lastName,
+            category: participant.category,
+            status,
+            ...runNumbers(runsOf.get(bib) ?? [], ok ? rowOf.get(ok)! : null),
+            rank: ok ? rankOf(valueOf(ok), okResults) : '',
+            categoryRank: ok ? rankOf(valueOf(ok), okResults.filter((other) => other.category === participant.category)) : '',
+            timeMs: ok && measure === 'time' ? Math.round((units * 1000) / perSecond) : 0,
+            units,
+            minutes: Math.floor(units / (60 * perSecond)),
+            seconds: Math.floor(units / perSecond) % 60,
+            fraction: units % perSecond,
+            distance: ok && measure === 'distance' ? ok.distanceCm! : 0,
+        };
+        return { bib, vars, participant };
+    });
+
+    const sort = templateOr(() => parseSort(settings.udaSort ?? DEFAULT_SORT), () => parseSort(DEFAULT_SORT), 'udaSort', problems);
+    lines.sort(
+        (a, b) =>
+            sort.reduce((order, key) => order || compareValues(a.vars[key.name], b.vars[key.name], key.descending), 0) ||
+            Number(a.bib) - Number(b.bib) ||
+            a.bib.localeCompare(b.bib)
+    );
+
+    const columns = templateOr(
+        () => {
+            const wrong = settings.udaColumns ? udaColumnsProblems(settings.udaColumns) : [];
+            if (wrong.length > 0) throw new TemplateError(wrong.join('; '));
+            return parseColumns(settings.udaColumns ?? defaultColumns(measure));
+        },
+        () => parseColumns(defaultColumns(measure)),
+        'udaColumns',
+        problems
+    );
+    // A line of cells, each quoted when needed
+    const join = (cells: string[]) => cells.map((cell) => csvCell(cell, separator)).join(separator);
+    const text: string[] = [];
+    if (settings.udaHeader) {
+        text.push(
+            join(
+                columns.map((column, index) => {
+                    const errors: TemplateError[] = [];
+                    const cell = renderTemplate(column.title, { vars: common }, errors);
+                    problems.push(...errors.map((error) => `column ${index + 1} title: ${error.message}`));
+                    return cell;
+                })
+            )
+        );
+    }
+    for (const { bib, vars, participant } of lines) {
+        const cells = new Map(Object.entries(participant.columns).map(([title, value]) => [headerKey(title), value]));
+        const scope = { vars, column: (name: string) => cells.get(headerKey(name)) ?? '' };
+        text.push(
+            join(
+                columns.map((column, index) => {
+                    const errors: TemplateError[] = [];
+                    const cell = renderTemplate(column.value, scope, errors);
+                    problems.push(...errors.map((error) => `column ${index + 1}, bib ${bib}: ${error.message}`));
+                    return cell;
+                })
+            )
+        );
+    }
+    return text.map((line) => `${line}\r\n`).join('');
+}
+
+/** The templates of columns, parsed (they were checked). */
+const parseColumns = (columns: UdaColumn[]) =>
+    columns.map(({ title, value }) => ({ title: parseTemplate(title, HEADER_VARIABLES), value: parseTemplate(value, LINE_VARIABLES) }));
+
+/** When a run started, in milliseconds (its last change when its start cannot be read), to sort runs. */
+function startMs(row: Row): number {
+    try {
+        return Temporal.Instant.from(row.start).epochMilliseconds;
+    } catch {
+        return updatedAt(row).epochMilliseconds;
+    }
+}
+
+const statusOf = (row: Row): RunStatus => RUN_STATUSES.find((s) => STATUS_TEXT[s] === row.status.toUpperCase()) ?? 'ok';
+
+/**
+ * The counts of the runs of a participant (sorted by start) for the UDA export: runs (all of them), okRuns, attempts
+ * (OK and DQ: the runs that use an attempt), and the number of the run of their best result (null: not OK) among all
+ * their runs (bestRun) and among their attempts (bestAttempt), empty without it.
+ */
+function runNumbers(runs: Row[], best: Row | null): Record<'runs' | 'okRuns' | 'attempts' | 'bestRun' | 'bestAttempt', Value> {
+    const index = best ? runs.indexOf(best) : -1;
+    const isAttempt = (row: Row) => countsAsAttempt({ status: statusOf(row) });
+    return {
+        runs: runs.length,
+        okRuns: runs.filter((row) => statusOf(row) === 'ok').length,
+        attempts: runs.filter(isAttempt).length,
+        bestRun: index === -1 ? '' : index + 1,
+        bestAttempt: index === -1 ? '' : runs.slice(0, index + 1).filter(isAttempt).length,
+    };
+}
+
+/** A participant known by their bib only (no participant file, or a bib with runs that is not in it). */
+const exportParticipant = (bib: string, name: string): ExportParticipant => ({ bib, name, category: '', firstName: '', lastName: '', columns: {} });
+
+/** A template parsed, or its fallback when it is wrong (the settings were checked: it should not happen). */
+function templateOr<T, F>(parse: () => T, fallback: () => F, setting: string, problems: string[]): T | F {
+    try {
+        return parse();
+    } catch (error) {
+        if (!(error instanceof TemplateError)) throw error;
+        problems.push(`${setting}: ${error.message}`);
+        return fallback();
+    }
 }
 
 // Units of a precision in a second: the fraction of the UDA export is in this unit
@@ -715,8 +900,7 @@ async function backupResults(file: string, rows: Row[], reset: Temporal.Instant)
     }
     await fs.promises.writeFile(path.join(backup, suffixed(path.basename(file))), resultsText(rows));
     // The UDA export of these results, for these participants
-    const { participants, settings } = await readParticipants(dir);
-    await fs.promises.writeFile(path.join(backup, suffixed(path.basename(udaResultsFile(dir)))), udaResults(rows, participants.map((p) => p.bib), settings));
+    await fs.promises.writeFile(path.join(backup, suffixed(path.basename(udaResultsFile(dir)))), await udaExportOf(dir, rows));
     log.info(`Results, their UDA export and participants saved to ${backup}`);
     return backup;
 }

@@ -4,6 +4,7 @@ import yaml from 'yaml';
 import { createLogger, errorMessage } from '../utils/logger.js';
 import { WORK_DIR } from '../utils/workDir.js';
 import { MANUAL_LINE } from './lines.js';
+import { DEFAULT_SEPARATOR, DEFAULT_SORT, isSeparator, parseSort, TemplateError, udaColumnsProblems, type UdaColumn } from './udaTemplate.js';
 
 /**
  * Events, disciplines and participants, read from the working directory:
@@ -170,6 +171,14 @@ export interface DisciplineSettings {
     // The key that starts and finishes the runs of a discipline timed by hand, as the KeyboardEvent.code of the
     // browser (the key at that place on the keyboard, whatever its layout), e.g. Space, Enter or KeyA
     triggerKey: string;
+    // The UDA export (see udaResults in runService.ts and udaTemplate.ts): whether it starts with a header line of the
+    // titles of its columns, its columns, each with the template of its title and of its value (null: the import
+    // format of the UDA), the separator of the columns, and the order of the lines (variables of a participant, - for
+    // descending)
+    udaHeader: boolean;
+    udaColumns: UdaColumn[] | null;
+    udaSeparator: string;
+    udaSort: string;
 }
 
 export type Measure = 'time' | 'distance';
@@ -206,7 +215,23 @@ export const DEFAULT_SETTINGS: DisciplineSettings = {
     resultRows: 5,
     trigger: 'gates',
     triggerKey: 'Space',
+    udaHeader: false,
+    udaColumns: null,
+    udaSeparator: DEFAULT_SEPARATOR,
+    udaSort: DEFAULT_SORT,
 };
+
+/** Why an order of the lines of the UDA export cannot be used, null when it can. */
+export function udaSortProblem(value: unknown): string | null {
+    if (typeof value !== 'string') return 'must be a text';
+    try {
+        parseSort(value);
+        return null;
+    } catch (error) {
+        if (error instanceof TemplateError) return error.message;
+        throw error;
+    }
+}
 
 /** Whether a value can be a KeyboardEvent.code (letters and digits, e.g. Space, KeyA, Digit1, NumpadEnter). */
 export const isKeyCode = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(value);
@@ -358,15 +383,50 @@ export async function createEvent(name: string): Promise<string> {
     return event;
 }
 
+/** The UDA export settings of a discipline, with its measure and when its settings were last saved. */
+export interface UdaFormat extends Pick<DisciplineSettings, 'measure' | 'udaHeader' | 'udaColumns' | 'udaSeparator' | 'udaSort'> {
+    event: string;
+    discipline: string;
+    updated: string; // ISO 8601: the modification time of its config.yaml (kept by the sync)
+}
+
+const UDA_SETTINGS = ['udaHeader', 'udaColumns', 'udaSeparator', 'udaSort'] as const;
+
+/**
+ * The UDA export settings of every discipline of every event that has a config.yaml, the last saved first, e.g. to copy
+ * the format of one to another.
+ */
+export async function listUdaFormats(): Promise<UdaFormat[]> {
+    const formats: (UdaFormat & { time: number })[] = [];
+    for (const event of await subdirectories(WORK_DIR)) {
+        for (const discipline of await subdirectories(path.join(WORK_DIR, event))) {
+            const dir = path.join(WORK_DIR, event, discipline);
+            let time: number;
+            try {
+                time = (await fs.promises.stat(path.join(dir, SETTINGS_FILE))).mtimeMs;
+            } catch {
+                continue;
+            }
+            const { settings } = await loadDisciplineSettings(dir);
+            const format = Object.fromEntries(UDA_SETTINGS.map((key) => [key, settings[key]])) as Pick<DisciplineSettings, (typeof UDA_SETTINGS)[number]>;
+            formats.push({ event, discipline, measure: settings.measure, ...format, updated: new Date(time).toISOString(), time });
+        }
+    }
+    return formats.sort((a, b) => b.time - a.time).map(({ time: _time, ...format }) => format);
+}
+
 /**
  * Creates the folder of a discipline in an event (the name is trimmed), with its settings file: the sync copies files
- * only, so the discipline appears on the synced computers too. Throws a CreateError when it cannot be created.
+ * only, so the discipline appears on the synced computers too. Its UDA export has the format of the last discipline
+ * saved that measures a time, as it does. Throws a CreateError when it cannot be created.
  */
 export async function createDiscipline(event: string, name: string): Promise<string> {
     if (!(await subdirectories(WORK_DIR)).includes(event)) throw new CreateError(404, 'Unknown event.');
     const discipline = name.trim();
+    const last = (await listUdaFormats()).find((format) => format.measure === DEFAULT_SETTINGS.measure);
     const dir = await createFolder(path.join(WORK_DIR, event), discipline, 'discipline');
-    await saveDisciplineSettings(dir, DEFAULT_SETTINGS);
+    const format = last ? Object.fromEntries(UDA_SETTINGS.map((key) => [key, last[key]])) : {};
+    await saveDisciplineSettings(dir, { ...DEFAULT_SETTINGS, ...format });
     log.info(`Discipline ${event}/${discipline} created.`);
     return discipline;
 }
@@ -397,6 +457,29 @@ export async function readParticipants(dir: string): Promise<ParticipantList> {
     const read = await readParticipantFiles(dir);
     const participants = read.entries.map(({ bib, name, category }) => ({ bib, name, category }));
     return { participants, settings, problems: [...problems, ...read.problems] };
+}
+
+/** A participant as the UDA export sees it: also its first and last names, and every cell of its row by column name. */
+export interface ExportParticipant extends Participant {
+    firstName: string; // Empty when its file has a single name column
+    lastName: string;
+    columns: Record<string, string>; // By the name in the header row of its file (none without header)
+}
+
+/** Participants of a discipline folder for the UDA export, sorted by bib, with the settings of the discipline. */
+export async function readExportParticipants(dir: string): Promise<{ participants: ExportParticipant[]; settings: DisciplineSettings }> {
+    const { settings } = await loadDisciplineSettings(dir);
+    const read = await readParticipantFiles(dir);
+    const files = new Map(read.files.map((file) => [file.name, file]));
+    const participants = read.entries.map(({ bib, name, category, file: fileName, row: index }) => {
+        const file = files.get(fileName)!;
+        const row = file.rows[index].map((cell) => cell.trim());
+        const cell = (column: number | null) => (column === null ? '' : (row[column] ?? ''));
+        const header = file.header ? file.rows[0].map((cell) => cell.trim()) : [];
+        const columns = Object.fromEntries(header.flatMap((title, column) => (title === '' ? [] : [[title, row[column] ?? '']])));
+        return { bib, name, category, firstName: titleCase(cell(file.columns.firstName)), lastName: titleCase(cell(file.columns.lastName)), columns };
+    });
+    return { participants, settings };
 }
 
 /** A participant CSV file of a discipline folder, as read (see readParticipantFiles). */
@@ -517,7 +600,7 @@ const HEADER_ALIASES = {
 };
 export type ParticipantColumns = Record<keyof typeof HEADER_ALIASES, number | null>;
 
-const headerKey = (cell: string) =>
+export const headerKey = (cell: string) =>
     cell.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s_-]/g, '').toLowerCase();
 
 /**
@@ -608,6 +691,20 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
         } else if (key === 'resultRows') {
             if (Number.isInteger(value) && (value as number) >= 1) settings.resultRows = value as number;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: resultRows must be a whole number from 1 (5 runs are shown at once)`);
+        } else if (key === 'udaHeader') {
+            if (typeof value === 'boolean') settings.udaHeader = value;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: udaHeader must be true or false (no header line is written)`);
+        } else if (key === 'udaColumns') {
+            const columnProblems = value === null ? [] : udaColumnsProblems(value);
+            if (columnProblems.length > 0) problems.push(`${SETTINGS_FILE}: udaColumns ${columnProblems.join('; ')} (the UDA import format is written)`);
+            else if (value !== null) settings.udaColumns = (value as UdaColumn[]).map(({ title, value }) => ({ title, value }));
+        } else if (key === 'udaSeparator') {
+            if (isSeparator(value)) settings.udaSeparator = value;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: udaSeparator must be 1 to 5 characters, without line break nor brace (a comma is used)`);
+        } else if (key === 'udaSort') {
+            const problem = value === null ? null : udaSortProblem(value);
+            if (problem) problems.push(`${SETTINGS_FILE}: udaSort ${problem} (the lines are sorted by bib)`);
+            else if (value !== null) settings.udaSort = value as string;
         } else if (key === 'locked') {
             // Older setting, replaced by access: locked
             if (value === true && parsed.access === undefined) settings.access = 'locked';
@@ -713,6 +810,10 @@ export function validateDisciplineSettings(settings: any): string[] {
         resultRows = DEFAULT_SETTINGS.resultRows,
         trigger = DEFAULT_SETTINGS.trigger,
         triggerKey = DEFAULT_SETTINGS.triggerKey,
+        udaHeader = DEFAULT_SETTINGS.udaHeader,
+        udaColumns = null,
+        udaSeparator = DEFAULT_SETTINGS.udaSeparator,
+        udaSort = DEFAULT_SETTINGS.udaSort,
     } = settings;
     const problems: string[] = [];
     if (!MEASURE_VALUES.includes(measure)) problems.push('measure must be time or distance');
@@ -740,6 +841,11 @@ export function validateDisciplineSettings(settings: any): string[] {
     if (!(Number.isInteger(resultRows) && resultRows >= 1)) problems.push('resultRows must be a whole number from 1');
     if (!TRIGGER_VALUES.includes(trigger)) problems.push('trigger must be gates or keyboard');
     if (!isKeyCode(triggerKey)) problems.push('triggerKey must be the code of a key, such as Space or Enter');
+    if (typeof udaHeader !== 'boolean') problems.push('udaHeader must be true or false');
+    if (udaColumns !== null) problems.push(...udaColumnsProblems(udaColumns).map((problem) => `udaColumns ${problem}`));
+    if (!isSeparator(udaSeparator)) problems.push('udaSeparator must be 1 to 5 characters, without line break nor brace');
+    const sortProblem = udaSortProblem(udaSort);
+    if (sortProblem) problems.push(`udaSort ${sortProblem}`);
     return problems;
 }
 
@@ -753,7 +859,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { measure: _measure, attempts: _attempts, attemptsPerDistance: _attemptsPerDistance, minDistance: _minDistance, allowDistanceChange: _allowDistanceChange, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, resultRows: _resultRows, trigger: _trigger, triggerKey: _triggerKey, ...rest } = parsed;
+            const { measure: _measure, attempts: _attempts, attemptsPerDistance: _attemptsPerDistance, minDistance: _minDistance, allowDistanceChange: _allowDistanceChange, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, resultRows: _resultRows, trigger: _trigger, triggerKey: _triggerKey, udaHeader: _udaHeader, udaColumns: _udaColumns, udaSeparator: _udaSeparator, udaSort: _udaSort, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -808,6 +914,21 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         `trigger: ${settings.trigger}`,
         '# The key that starts and finishes the runs timed by hand: the code of a key of the browser (Space, Enter, KeyA…)',
         `triggerKey: ${settings.triggerKey}`,
+        '',
+        '# The UDA export (<event>-<discipline>-uda-results.csv): one line per participant, in the columns of udaColumns,',
+        '# after a header line of their titles when udaHeader is true. Each column has a title and a value, templates:',
+        '# text with {expressions}: variables ({bib}, {name}, {firstName}, {lastName}, {category}, {status}: OK, DQ,',
+        '# DNF or DNS, {rank}, {categoryRank}, {runs}, {okRuns}, {attempts}, {bestRun}, {bestAttempt}, {minutes}, {seconds}, {fraction}, {units}, {timeMs}, {distance},',
+        '# {col("Country")}…), formulas ({minutes * 60 + seconds}, / is the whole division) and conditions',
+        '# ({if status == "OK"}…{elif status == "DQ" || status == "DNF"}…{else}…{end}). {{ and }} write a brace. The',
+        '# import format of the UDA when udaColumns is not set. udaSeparator, between the columns (a value holding it',
+        '# is quoted); udaSort, the order of the lines: variables of a participant, - before one for descending.',
+        `udaHeader: ${settings.udaHeader}`,
+        ...(settings.udaColumns === null
+            ? ['#udaColumns:', '#  - title: Bib', '#    value: "{bib}"', '#  - title: Rank', '#    value: "{rank}"']
+            : yaml.stringify({ udaColumns: settings.udaColumns }).trimEnd().split('\n')),
+        `udaSeparator: ${JSON.stringify(settings.udaSeparator)}`,
+        `udaSort: ${JSON.stringify(settings.udaSort)}`,
     ];
     if (Object.keys(others).length > 0) lines.push('', '# Other settings', yaml.stringify(others).trimEnd());
     await fs.promises.writeFile(file, `${lines.join('\n')}\n`, 'utf8');

@@ -30,6 +30,10 @@ const SETTINGS: DisciplineSettings = {
     resultRows: 5,
     trigger: 'gates',
     triggerKey: 'Space',
+    udaHeader: false,
+    udaColumns: null,
+    udaSeparator: ',',
+    udaSort: 'bib',
 };
 
 beforeEach(resetWorkDir);
@@ -252,7 +256,7 @@ describe('discipline settings', () => {
     it('reads every setting', async () => {
         writeFiles({
             'E/D/config.yaml':
-                'measure: distance\nattempts: 3\nattemptsPerDistance: 2\nminDistance: 250\nallowDistanceChange: true\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\nprecision: thousandth\nrounding: nearest\nrecentRuns: 5\nresultRows: 8\ntrigger: keyboard\ntriggerKey: Enter\n',
+                'measure: distance\nattempts: 3\nattemptsPerDistance: 2\nminDistance: 250\nallowDistanceChange: true\nstart: 2026-11-05T07:00Z\nend: 2026-11-05T17:00Z\naccess: open\nbest: longest\nprecision: thousandth\nrounding: nearest\nrecentRuns: 5\nresultRows: 8\ntrigger: keyboard\ntriggerKey: Enter\nudaHeader: true\nudaColumns:\n  - title: Bib\n    value: "{bib}"\n  - title: ""\n    value: "{rank}"\nudaSeparator: ";"\nudaSort: category, -distance\n',
         });
         expect(await loadDisciplineSettings(dir())).toEqual({
             settings: {
@@ -271,6 +275,13 @@ describe('discipline settings', () => {
                 resultRows: 8,
                 trigger: 'keyboard',
                 triggerKey: 'Enter',
+                udaHeader: true,
+                udaColumns: [
+                    { title: 'Bib', value: '{bib}' },
+                    { title: '', value: '{rank}' },
+                ],
+                udaSeparator: ';',
+                udaSort: 'category, -distance',
             },
             problems: [],
         });
@@ -282,11 +293,11 @@ describe('discipline settings', () => {
     });
 
     it('ignores wrong settings and lists them', async () => {
-        writeFiles({ 'E/D/config.yaml': 'attempts: 0\naccess: maybe\nstart: someday\nbest: fastest\nprecision: minute\nrounding: down\nrecentRuns: -1\nresultRows: 0\nminDistance: 0\ntrigger: mouse\ntriggerKey: "Ctrl+A"\ncolour: red\n' });
+        writeFiles({ 'E/D/config.yaml': 'attempts: 0\naccess: maybe\nstart: someday\nbest: fastest\nprecision: minute\nrounding: down\nrecentRuns: -1\nresultRows: 0\nminDistance: 0\ntrigger: mouse\ntriggerKey: "Ctrl+A"\nudaHeader: yes\nudaColumns:\n  - title: "{bib}"\n    value: "{if x}"\nudaSeparator: ""\nudaSort: speed\ncolour: red\n' });
         const { settings, problems } = await loadDisciplineSettings(dir());
         expect(settings).toEqual(SETTINGS);
-        expect(problems).toHaveLength(12);
-        expect(problems.join('\n')).toMatch(/attempts.*access.*start.*best.*precision.*rounding.*recentRuns.*resultRows.*minDistance.*trigger.*triggerKey.*unknown setting "colour"/s);
+        expect(problems).toHaveLength(16);
+        expect(problems.join('\n')).toMatch(/attempts.*access.*start.*best.*precision.*rounding.*recentRuns.*resultRows.*minDistance.*trigger.*triggerKey.*udaHeader.*udaColumns column 1 title: unknown variable "bib".*column 1 value: unknown variable "x".*udaSeparator.*udaSort "speed".*unknown setting "colour"/s);
     });
 
     it('ignores a period whose start is not before its end', async () => {
@@ -300,7 +311,9 @@ describe('discipline settings', () => {
         expect(validateDisciplineSettings({ attempts: 2, start: '2026-11-05T07:00Z', end: null, access: 'auto' })).toEqual([]);
         expect(validateDisciplineSettings({})).toEqual([]);
         expect(validateDisciplineSettings(null)).toEqual(['settings are missing']);
-        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest', precision: 'minute', rounding: 'down', recentRuns: 1.5, resultRows: 0, trigger: 'mouse', triggerKey: '', measure: 'height', attemptsPerDistance: 0, minDistance: 0, allowDistanceChange: 'yes' })).toHaveLength(14);
+        expect(validateDisciplineSettings({ attempts: 1.5, start: 'x', access: 'never', best: 'fastest', precision: 'minute', rounding: 'down', recentRuns: 1.5, resultRows: 0, trigger: 'mouse', triggerKey: '', measure: 'height', attemptsPerDistance: 0, minDistance: 0, allowDistanceChange: 'yes', udaHeader: 'yes', udaColumns: [{ title: 3, value: '' }, { title: '', value: '{' }], udaSeparator: '\n', udaSort: '' })).toHaveLength(19);
+        expect(validateDisciplineSettings({ udaColumns: [], udaSort: 'bib' })).toEqual(['udaColumns must be a list of 1 to 50 columns']);
+        expect(validateDisciplineSettings({ udaColumns: [{ title: '', value: '{bib}' }, { title: 'Rank', value: '{if status == "OK"}{rank}{end}' }], udaSeparator: '\t', udaSort: '-rank' })).toEqual([]);
         expect(validateDisciplineSettings({ start: '2026-11-05T17:00Z', end: '2026-11-05T07:00Z' })).toEqual(['start must be before end']);
     });
 
@@ -322,6 +335,13 @@ describe('discipline settings', () => {
             resultRows: 2,
             trigger: 'keyboard',
             triggerKey: 'NumpadEnter',
+            udaHeader: true,
+            udaColumns: [
+                { title: 'Dossard', value: '{bib}' },
+                { title: '"Résultat" de {discipline}', value: "{if status == 'OK'}{distance / 100}.{pad(distance % 100, 2)}{else}{status}{end}" },
+            ],
+            udaSeparator: '\t',
+            udaSort: 'category, rank',
         };
         await saveDisciplineSettings(dir(), saved);
 

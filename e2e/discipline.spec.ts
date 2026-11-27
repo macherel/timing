@@ -191,3 +191,100 @@ test('downloads the results of a discipline, and keeps the settings changed in a
   await page.getByRole('tab', { name: 'Advanced settings' }).click();
   await expect(page.getByRole('radio', { name: 'Thousandth' })).toBeChecked();
 });
+
+test('writes the UDA export from columns set one by one in the export tab, previewed before they are saved', async ({ page }) => {
+  writeFiles({
+    'CFM26/100m/CFM26-100m-results.csv':
+      'bib;name;start;finish;status;updated\n7;Hugo Guérin;2026-11-05T10:00:00Z;2026-11-05T10:01:10.25Z;OK;2026-11-05T10:01:10Z\n12;Léa Martin;2026-11-05T10:02:00Z;2026-11-05T10:02:30Z;DQ;2026-11-05T10:02:30Z\n',
+  });
+  await page.goto('/CFM26/100m/config/export');
+  await expect(page.getByRole('tab', { name: 'UDA export' })).toHaveAttribute('aria-selected', 'true');
+  // The columns of the UDA format until they are changed
+  const values = page.getByTestId('uda-column-value');
+  await expect(values).toHaveCount(5);
+  await expect(page.getByTestId('uda-preview')).toHaveText('7,,1,10,25\n12,DQ,0,0,0\n21,DNF,0,0,0');
+  await expect(page.getByTestId('uda-reset-columns')).toHaveCount(0);
+
+  // Two columns removed, one changed, one added, and a header line of their titles
+  await page.getByRole('button', { name: 'Remove column 5' }).click();
+  await page.getByRole('button', { name: 'Remove column 4' }).click();
+  await page.getByLabel('Value of column 3').fill('{if status == "OK"}{minutes * 60 + seconds}.{pad(fraction, 2)}{end}');
+  await page.getByLabel('Value of column 2').fill('{status}');
+  await page.getByTestId('uda-add-column').click();
+  await page.getByLabel('Value of column 4').fill('{rank}');
+  await expect(page.getByLabel('Title of column 1')).toHaveCount(0);
+  await page.getByTestId('uda-header').check();
+  for (const [n, title] of [[1, 'Bib'], [2, 'Status'], [3, 'Time'], [4, 'Rank']] as const) await page.getByLabel(`Title of column ${n}`).fill(title);
+  await page.getByTestId('uda-separator').selectOption({ label: 'Semicolon (;)' });
+  await page.getByTestId('uda-sort').fill('-bib');
+  await expect(page.getByTestId('uda-preview')).toHaveText('Bib;Status;Time;Rank\n21;DNS;;\n12;DQ;;\n7;OK;70.25;1');
+
+  // Moved: the rank second
+  await page.getByRole('button', { name: 'Move column 4 up' }).click();
+  await page.getByRole('button', { name: 'Move column 3 up' }).click();
+  await expect(page.getByTestId('uda-preview')).toHaveText('Bib;Rank;Status;Time\n21;;DNS;\n12;;DQ;\n7;1;OK;70.25');
+
+  // A mistake is shown on its column, and refused on save
+  await page.getByLabel('Value of column 2').fill('{nope}');
+  await expect(page.getByTestId('uda-problems')).toContainText('udaColumns column 2 value: unknown variable "nope" (character 2)');
+  await expect(page.getByLabel('Value of column 2')).toHaveClass(/wrong/);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText(/Cannot save the settings: udaColumns column 2 value: unknown variable/)).toBeVisible();
+
+  await page.getByLabel('Value of column 2').fill('{rank}');
+  await expect(page.getByLabel('Value of column 2')).not.toHaveClass(/wrong/);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).not.toHaveURL(/\/config/);
+  expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('Bib;Rank;Status;Time\r\n21;;DNS;\r\n12;;DQ;\r\n7;1;OK;70.25\r\n');
+
+  // Back to the UDA format: saved as no columns, without header line
+  await page.goto('/CFM26/100m/config/export');
+  await expect(page.getByTestId('uda-header')).toBeChecked();
+  await page.getByTestId('uda-header').uncheck();
+  await page.getByTestId('uda-reset-columns').click();
+  await expect(values).toHaveCount(5);
+  await page.getByTestId('uda-separator').selectOption({ label: 'Comma (,)' });
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).not.toHaveURL(/\/config/);
+  expect(readFile('CFM26/100m/config.yaml')).toContain('#udaColumns:');
+  expect(readFile('CFM26/100m/CFM26-100m-uda-results.csv')).toBe('21,DNF,0,0,0\r\n12,DQ,0,0,0\r\n7,,1,10,25\r\n');
+});
+
+test('reuses the UDA export format of the other disciplines: copied, at creation, and when the performance changes', async ({ page, request }) => {
+  const columns = (value: string) => `udaHeader: true\nudaColumns:\n  - title: T\n    value: "${value}"\n`;
+  writeFiles({
+    'CFM26/relay/config.yaml': columns('{bib}-time'),
+    'CFM26/jump/config.yaml': `measure: distance\n${columns('{bib}-distance')}`,
+  });
+  const at = (relative: string, minutes: number) => {
+    const time = new Date(Date.UTC(2026, 10, 5, 10, minutes));
+    fs.utimesSync(path.join(WORK_DIR, relative), time, time);
+  };
+  at('CFM26/relay/config.yaml', 1);
+  at('CFM26/jump/config.yaml', 2);
+
+  // A new discipline has the format of the last one saved that measures a time
+  expect((await request.post('/api/events/CFM26/disciplines', { data: { name: 'sprint' } })).status()).toBe(201);
+  await page.goto('/CFM26/sprint/config/export');
+  await expect(page.getByLabel('Value of column 1')).toHaveValue('{bib}-time');
+  await expect(page.getByTestId('uda-header')).toBeChecked();
+
+  // Another performance: the format of the last discipline that measures it
+  await page.getByRole('tab', { name: 'Basic settings' }).click();
+  await page.getByText('Distance', { exact: true }).click();
+  await page.getByRole('tab', { name: 'UDA export' }).click();
+  await expect(page.getByLabel('Value of column 1')).toHaveValue('{bib}-distance');
+
+  // Copied from another discipline, those of the same performance first
+  const copy = page.getByTestId('uda-copy');
+  await expect(copy.locator('optgroup')).toHaveCount(2);
+  await expect(copy.locator('optgroup').first()).toHaveAttribute('label', 'Same performance');
+  await expect(copy.locator('optgroup').first().locator('option')).toHaveText(['CFM26 · jump']);
+  await copy.selectOption({ label: 'CFM26 · relay' });
+  await expect(page.getByLabel('Value of column 1')).toHaveValue('{bib}-time');
+  await expect(copy).toHaveValue('');
+
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).not.toHaveURL(/\/config/);
+  expect(readFile('CFM26/sprint/config.yaml')).toContain('{bib}-time');
+});

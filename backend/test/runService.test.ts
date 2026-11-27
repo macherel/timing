@@ -375,6 +375,53 @@ describe('UDA export', () => {
         expect(uda('thousandth', 'nearest')).toBe('7,,0,12,345\r\n');
         expect(uda('thousandth', 'up')).toBe('7,,0,12,345\r\n');
     });
+
+    it('numbers the runs of a participant: all, OK, attempts, and the run of the best result', () => {
+        const row = (bib: string, minute: number, seconds: number | null, status: string): ResultRow => ({
+            bib, name: 'X', start: `2026-11-05T10:0${minute}:00Z`, finish: seconds === null ? '' : `2026-11-05T10:0${minute}:${seconds}Z`,
+            distance: '', status, computer: '', line: '', updated: '',
+        });
+        // Written out of order: numbered by start
+        const rows = [row('7', 4, 19, 'OK'), row('7', 1, null, 'INVALID'), row('7', 2, 23, 'OK'), row('7', 3, 30, 'DQ'), row('12', 1, 40, 'DQ')];
+        const settings = { ...DEFAULT_SETTINGS, udaColumns: ['bib', 'runs', 'okRuns', 'attempts', 'bestRun', 'bestAttempt'].map((name) => ({ title: '', value: `{${name}}` })) };
+        expect(runs.udaResults(rows, ['7', '12', '21'], settings)).toBe('7,4,2,3,4,3\r\n12,1,0,1,,\r\n21,0,0,0,,\r\n');
+    });
+
+    it('writes the lines with the templates of the discipline: statuses, ranks, order, header and separator', () => {
+        const row = (bib: string, seconds: number | null, status: string): ResultRow => ({
+            bib, name: 'X', start: '2026-11-05T10:00:00Z', finish: seconds === null ? '' : `2026-11-05T10:00:${String(seconds).padStart(2, '0')}Z`,
+            distance: '', status, computer: '', line: '', updated: '',
+        });
+        const rows = [row('1', 20, 'OK'), row('2', 15, 'OK'), row('3', 20, 'OK'), row('4', 30, 'DQ'), row('5', null, 'INVALID'), row('6', 25, 'OK')];
+        const person = (bib: string, category: string, lastName = '') => ({ bib, name: `P${bib}`, category, firstName: '', lastName, columns: { Country: `C${bib}` } });
+        const participants = [person('1', 'A', 'Roy'), person('2', 'B'), person('3', 'A'), person('4', 'A'), person('5', 'B'), person('6', 'B'), person('7', 'A')];
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            udaHeader: true,
+            udaColumns: [
+                { title: '{event}', value: '{bib}' },
+                { title: '{discipline}', value: '{status}' },
+                { title: '{count}', value: '{rank}' },
+                { title: '', value: '{categoryRank}' },
+                { title: '', value: '{category}' },
+                { title: '', value: '{lower(col("country"))}' },
+                { title: '', value: '{lastName}' },
+            ],
+            udaSeparator: ';',
+            udaSort: 'category, rank',
+        };
+        const problems: string[] = [];
+        expect(runs.udaResults(rows, participants, settings, { event: 'E', discipline: 'D' }, problems)).toBe(
+            ['E;D;7;;;;', '1;OK;2;1;A;c1;Roy', '3;OK;2;1;A;c3;', '4;DQ;;;A;c4;', '7;DNS;;;A;c7;', '2;OK;1;1;B;c2;', '6;OK;4;2;B;c6;', '5;DNF;;;B;c5;', ''].join('\r\n')
+        );
+        expect(problems).toEqual([]);
+        // Without header line, the titles are not written
+        expect(runs.udaResults(rows, participants, { ...settings, udaHeader: false }, { event: 'E', discipline: 'D' }).split('\r\n')[0]).toBe('1;OK;2;1;A;c1;Roy');
+        // The UDA format writes DNS as DNF
+        expect(runs.udaResults([], ['7'])).toBe('7,DNF,0,0,0\r\n');
+        // A value holding the separator is quoted
+        expect(runs.udaResults([], [{ ...person('7', 'A'), name: 'Roy, "Al"' }], { ...DEFAULT_SETTINGS, udaColumns: [{ title: '', value: '{bib}' }, { title: '', value: '{name}' }] })).toBe('7,"Roy, ""Al"""\r\n');
+    });
 });
 
 describe('a distance', () => {
