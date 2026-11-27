@@ -161,26 +161,21 @@ const distanceInput = ref<number | string>('');
 const distanceField = ref<HTMLInputElement | null>(null);
 // The shortest distance that can be typed, in centimetres
 const minDistance = computed(() => (isDistance.value ? (props.minDistance ?? null) : null));
-// The distance suggested, in centimetres, never below the minimum distance (the one suggested before the first run of
-// the line):
-// - after a run of this participant on the line: its distance, or 5 cm more when it is valid;
-// - for another participant: 5 cm more than their best valid distance, or without one, the distance of the last run of
-//   the line.
-// null without such a run nor minimum
+// The distance suggested, in centimetres, never below the minimum distance. A group of participants often runs in turn
+// at the same distances: the distance in play is that of the last run of the line, whoever ran it.
+// - this participant did not validate it yet (their best valid distance is shorter, or they have none): that distance;
+// - they validated it, or longer: 5 cm more than their best;
+// - no run on the line yet: 5 cm more than their best, or the minimum distance.
+// null without any of these
 const SUGGESTED_STEP_CM = 5;
 const suggestedDistance = computed(() => {
   if (!isDistance.value) return null;
-  const previous = props.previousRun;
   const min = minDistance.value;
-  const previousDistance = previous?.distanceCm ?? null;
+  const inPlay = props.previousRun?.distanceCm ?? null;
+  const best = bestValue.value;
   let suggested: number | null;
-  if (previous && previousDistance !== null && previous.bib === props.participant.bib) {
-    suggested = previous.status === 'ok' ? previousDistance + SUGGESTED_STEP_CM : previousDistance;
-  } else if (bestValue.value !== null) {
-    suggested = bestValue.value + SUGGESTED_STEP_CM;
-  } else {
-    suggested = previousDistance;
-  }
+  if (best !== null && (inPlay === null || best >= inPlay)) suggested = best + SUGGESTED_STEP_CM;
+  else suggested = inPlay;
   if (suggested === null) return min;
   return min === null ? suggested : Math.max(suggested, min);
 });

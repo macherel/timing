@@ -268,35 +268,28 @@ describe('RunPanel', () => {
     expect(wrapper.find('thead').text()).toContain('Distance');
   });
 
-  it('suggests the distance of the last run of the line, 5 cm more after a valid run of the same participant, or 5 cm more than their best', () => {
-    const jump = (bib: string, distanceCm: number, status: RunResult['status']) =>
-      result({ bib, name: bib === '7' ? 'Hugo Guérin' : 'Léa Martin', timeMs: null, distanceCm, status });
-    const typed = (previousRun: RunResult | null) =>
-      (mountPanel({ measure: 'distance', line: 'Manuel', previousRun }).find('[data-testid="distance-input"]').element as HTMLInputElement).value;
-    expect(typed(null)).toBe('');
-    expect(typed(jump('12', 300, 'ok'))).toBe('300');
-    expect(typed(jump('12', 300, 'dq'))).toBe('300');
-    expect(typed(jump('7', 300, 'ok'))).toBe('305');
-    // A participant who validated a distance already: 5 cm more than their best, whatever the last run of the line
-    const typedAfter = (results: RunResult[], previousRun: RunResult | null) =>
-      (mountPanel({ measure: 'distance', line: 'Manuel', results, previousRun }).find('[data-testid="distance-input"]').element as HTMLInputElement).value;
-    const own = [
-      jump('7', 320, 'ok'),
-      { ...jump('7', 340, 'ok'), start: '2026-11-05T10:01:00Z' },
-      { ...jump('7', 360, 'dq'), start: '2026-11-05T10:02:00Z' },
-      { ...jump('7', 360, 'ok'), start: '2026-11-05T10:03:00Z' },
-    ];
-    expect(typedAfter(own.slice(0, 2), jump('12', 300, 'ok'))).toBe('345');
-    expect(typedAfter(own.slice(0, 2), jump('12', 400, 'ok'))).toBe('345');
-    expect(typedAfter(own.slice(0, 2), null)).toBe('345');
-    expect(typedAfter(own, jump('12', 300, 'ok'))).toBe('365');
-    // Without a valid distance, the last run of the line
-    expect(typedAfter([jump('7', 320, 'invalid')], jump('12', 300, 'ok'))).toBe('300');
-    // After their own run on the line, as before
-    expect(typedAfter(own.slice(0, 2), { ...jump('7', 380, 'invalid'), start: '2026-11-05T10:05:00Z' })).toBe('380');
-    // The distance started comes first
-    const started = mountPanel({ measure: 'distance', line: 'Manuel', results: [jump('7', 280, 'dq')], previousRun: jump('12', 300, 'ok') });
-    expect((started.find('[data-testid="distance-input"]').element as HTMLInputElement).value).toBe('280');
+  it('suggests the distance of the last run of the line until the participant validated it, then 5 cm more than their best', () => {
+    const jump = (bib: string, distanceCm: number, status: RunResult['status'], minute = 0) =>
+      result({ bib, name: bib === '7' ? 'Hugo Guérin' : 'Léa Martin', timeMs: null, distanceCm, status, start: `2026-11-05T10:0${minute}:00Z` });
+    const typed = (results: RunResult[], previousRun: RunResult | null) =>
+      (mountPanel({ measure: 'distance', line: 'Manuel', results, previousRun, allowDistanceChange: true }).find('[data-testid="distance-input"]').element as HTMLInputElement)
+        .value;
+    // No run on the line, nor valid distance
+    expect(typed([], null)).toBe('');
+    // Not validated by this participant: the distance in play on the line, valid or not
+    expect(typed([], jump('12', 300, 'ok'))).toBe('300');
+    expect(typed([], jump('12', 300, 'dq'))).toBe('300');
+    expect(typed([jump('7', 280, 'ok', 1)], jump('12', 300, 'ok', 2))).toBe('300');
+    expect(typed([jump('7', 280, 'ok', 1), jump('7', 300, 'dq', 2)], jump('12', 300, 'ok', 3))).toBe('300');
+    // Validated: 5 cm more, by this participant last on the line or by another one since
+    expect(typed([jump('7', 300, 'ok', 1)], jump('7', 300, 'ok', 1))).toBe('305');
+    expect(typed([jump('7', 300, 'ok', 1)], jump('12', 300, 'dq', 2))).toBe('305');
+    // Validated longer already: 5 cm more than their best
+    expect(typed([jump('7', 340, 'ok', 1)], jump('12', 300, 'ok', 2))).toBe('345');
+    // A failure of this participant at the distance in play: that distance again
+    expect(typed([jump('7', 300, 'ok', 1), jump('7', 305, 'invalid', 2)], jump('7', 305, 'invalid', 2))).toBe('305');
+    // No run on the line yet: 5 cm more than their best
+    expect(typed([jump('7', 340, 'ok', 1)], null)).toBe('345');
   });
 
   it('suggests the minimum distance before the first run of the line, and never less', () => {
