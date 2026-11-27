@@ -161,17 +161,27 @@ const distanceInput = ref<number | string>('');
 const distanceField = ref<HTMLInputElement | null>(null);
 // The shortest distance that can be typed, in centimetres
 const minDistance = computed(() => (isDistance.value ? (props.minDistance ?? null) : null));
-// The distance suggested, in centimetres: that of the last run of the line, or 5 cm more when it is a valid run of
-// this participant, and never below the minimum distance (the one suggested before the first run of the line). null
-// without such a run nor minimum
+// The distance suggested, in centimetres, never below the minimum distance (the one suggested before the first run of
+// the line):
+// - after a run of this participant on the line: its distance, or 5 cm more when it is valid;
+// - for another participant: 5 cm more than their best valid distance, or without one, the distance of the last run of
+//   the line.
+// null without such a run nor minimum
 const SUGGESTED_STEP_CM = 5;
 const suggestedDistance = computed(() => {
   if (!isDistance.value) return null;
   const previous = props.previousRun;
   const min = minDistance.value;
-  if (!previous || previous.distanceCm == null) return min;
-  const same = previous.bib === props.participant.bib && previous.status === 'ok';
-  const suggested = same ? previous.distanceCm + SUGGESTED_STEP_CM : previous.distanceCm;
+  const previousDistance = previous?.distanceCm ?? null;
+  let suggested: number | null;
+  if (previous && previousDistance !== null && previous.bib === props.participant.bib) {
+    suggested = previous.status === 'ok' ? previousDistance + SUGGESTED_STEP_CM : previousDistance;
+  } else if (bestValue.value !== null) {
+    suggested = bestValue.value + SUGGESTED_STEP_CM;
+  } else {
+    suggested = previousDistance;
+  }
+  if (suggested === null) return min;
   return min === null ? suggested : Math.max(suggested, min);
 });
 // Typed again for the next participant, or the next attempt once this one is saved; the distance started and not
