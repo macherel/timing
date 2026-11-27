@@ -432,15 +432,15 @@ async function save(): Promise<void> {
           <p class="muted small">{{ $t('settings.allowDistanceChangeHint') }}</p>
         </template>
         <label class="field">
-          {{ $t('settings.recentRuns') }}
-          <input v-model="recentRunsInput" type="number" min="0" step="1" placeholder="3" class="attempts" data-testid="recent-runs-input" />
-        </label>
-        <p class="muted small">{{ $t('settings.recentRunsHint') }}</p>
-        <label class="field">
           {{ $t('settings.resultRows') }}
           <input v-model="resultRowsInput" type="number" min="1" step="1" placeholder="5" class="attempts" data-testid="result-rows-input" />
         </label>
         <p class="muted small">{{ $t('settings.resultRowsHint') }}</p>
+        <label class="field">
+          {{ $t('settings.recentRuns') }}
+          <input v-model="recentRunsInput" type="number" min="0" step="1" placeholder="3" class="attempts" data-testid="recent-runs-input" />
+        </label>
+        <p class="muted small">{{ $t('settings.recentRunsHint') }}</p>
       </div>
 
       <div v-show="section === 'lock'" data-section="lock">
