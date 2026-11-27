@@ -44,6 +44,9 @@ const props = defineProps<{
   // For a distance, runs allowed at one same distance, from config.yaml: a participant who used them all is eliminated.
   // null: unlimited
   attemptsPerDistance?: number | null;
+  // For a distance, the shortest distance that can be typed, in centimetres, from config.yaml: suggested before the
+  // first run of the line. null: no minimum
+  minDistance?: number | null;
   // For a distance, whether the participant can change distance before validating the last one they tried
   allowDistanceChange?: boolean;
 }>();
@@ -156,14 +159,20 @@ const readyTitle = computed(() => {
 // The distance as typed, in centimetres (Vue gives a number input's value as a number)
 const distanceInput = ref<number | string>('');
 const distanceField = ref<HTMLInputElement | null>(null);
+// The shortest distance that can be typed, in centimetres
+const minDistance = computed(() => (isDistance.value ? (props.minDistance ?? null) : null));
 // The distance suggested, in centimetres: that of the last run of the line, or 5 cm more when it is a valid run of
-// this participant. null without such a run
+// this participant, and never below the minimum distance (the one suggested before the first run of the line). null
+// without such a run nor minimum
 const SUGGESTED_STEP_CM = 5;
 const suggestedDistance = computed(() => {
+  if (!isDistance.value) return null;
   const previous = props.previousRun;
-  if (!isDistance.value || !previous || previous.distanceCm == null) return null;
+  const min = minDistance.value;
+  if (!previous || previous.distanceCm == null) return min;
   const same = previous.bib === props.participant.bib && previous.status === 'ok';
-  return same ? previous.distanceCm + SUGGESTED_STEP_CM : previous.distanceCm;
+  const suggested = same ? previous.distanceCm + SUGGESTED_STEP_CM : previous.distanceCm;
+  return min === null ? suggested : Math.max(suggested, min);
 });
 // Typed again for the next participant, or the next attempt once this one is saved; the distance started and not
 // validated yet is the only one possible, otherwise the one suggested
@@ -182,7 +191,7 @@ function ready(): void {
     return;
   }
   const distance = Number(distanceInput.value);
-  if (String(distanceInput.value).trim() === '' || !Number.isInteger(distance) || distance <= 0) {
+  if (String(distanceInput.value).trim() === '' || !Number.isInteger(distance) || distance < (minDistance.value ?? 1)) {
     distanceField.value?.focus();
     return;
   }
@@ -301,10 +310,10 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
             type="number"
             inputmode="numeric"
             required
-            min="1"
+            :min="minDistance ?? 1"
             step="1"
             max="99999"
-            placeholder="0"
+            :placeholder="String(minDistance ?? 0)"
             :disabled="readyBlocked"
             :readonly="locked"
             :class="{ locked }"

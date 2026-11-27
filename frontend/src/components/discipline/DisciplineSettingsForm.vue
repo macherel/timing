@@ -14,7 +14,8 @@ import { canTrigger, keyLabel } from '../../race/keys';
 /**
  * Edits a discipline's config.yaml, in three sections shown one at a time (the tabs of the settings page) and saved
  * together:
- * - basic: what a run measures (a time or a distance), attempts, best time and what triggers the runs (gates, or a key
+ * - basic: what a run measures (a time or a distance), for a distance the minimum distance, attempts (and for a
+ *   distance, per distance), best time and what triggers the runs (gates, or a key
  *   for a discipline timed by hand), the last two for a time only;
  * - advanced: precision and rounding of the times (a distance is in centimetres), and the number of last runs of the
  *   line shown;
@@ -84,6 +85,8 @@ const timeExample = computed(() => {
 const measureInput = ref<NonNullable<DisciplineSettings['measure']>>('time');
 // For a distance, the attempts at one same distance as typed, empty for unlimited
 const attemptsPerDistanceInput = ref<string | number>('');
+// For a distance, the minimum distance in centimetres as typed, empty for none
+const minDistanceInput = ref<string | number>('');
 // For a distance, whether a participant can change distance before validating the last one they tried
 const allowDistanceChangeInput = ref(false);
 // The attempts as typed, empty for unlimited (Vue gives a number input's value as a number)
@@ -181,6 +184,7 @@ const fields = () =>
     measureInput.value,
     String(attemptsInput.value ?? '').trim(),
     String(attemptsPerDistanceInput.value ?? '').trim(),
+    String(minDistanceInput.value ?? '').trim(),
     allowDistanceChangeInput.value,
     startInput.value,
     endInput.value,
@@ -240,6 +244,7 @@ onMounted(async () => {
     measureInput.value = settings.measure ?? 'time';
     attemptsInput.value = settings.attempts === null ? '' : String(settings.attempts);
     attemptsPerDistanceInput.value = settings.attemptsPerDistance == null ? '' : String(settings.attemptsPerDistance);
+    minDistanceInput.value = settings.minDistance == null ? '' : String(settings.minDistance);
     allowDistanceChangeInput.value = settings.allowDistanceChange ?? false;
     startInput.value = toLocalInput(settings.start);
     endInput.value = toLocalInput(settings.end);
@@ -272,6 +277,12 @@ async function save(): Promise<void> {
     error.value = t('settings.attemptsPerDistanceInvalid');
     return;
   }
+  const minDistanceText = String(minDistanceInput.value ?? '').trim();
+  const minDistance = minDistanceText === '' ? null : Number(minDistanceText);
+  if (minDistance !== null && !(Number.isInteger(minDistance) && minDistance >= 1 && minDistance < 100_000)) {
+    error.value = t('settings.minDistanceInvalid');
+    return;
+  }
   const recentRuns = Number(String(recentRunsInput.value ?? '').trim() || 3);
   if (!(Number.isInteger(recentRuns) && recentRuns >= 0)) {
     error.value = t('settings.recentRunsInvalid');
@@ -296,6 +307,7 @@ async function save(): Promise<void> {
           measure: measureInput.value,
           attempts,
           attemptsPerDistance,
+          minDistance,
           allowDistanceChange: allowDistanceChangeInput.value,
           start: fromLocalInput(startInput.value),
           end: fromLocalInput(endInput.value),
@@ -334,6 +346,16 @@ async function save(): Promise<void> {
           </div>
           <p class="muted small" data-testid="measure-hint">{{ MEASURE_OPTIONS.find((option) => option.value === measureInput)?.hint }}</p>
         </fieldset>
+        <template v-if="measureInput === 'distance'">
+          <label class="field">
+            {{ $t('settings.minDistance') }}
+            <span class="with-unit">
+              <input v-model="minDistanceInput" type="number" min="1" max="99999" step="1" :placeholder="$t('settings.noMinimum')" class="attempts" data-testid="min-distance" />
+              cm
+            </span>
+          </label>
+          <p class="muted small">{{ $t('settings.minDistanceHint') }}</p>
+        </template>
         <label class="field">
           {{ $t('settings.attempts') }}
           <input v-model="attemptsInput" type="number" min="1" step="1" :placeholder="$t('settings.unlimited')" class="attempts" />
@@ -560,6 +582,11 @@ async function save(): Promise<void> {
   border-radius: 6px;
   background: var(--bg);
   color: var(--text-h);
+}
+.with-unit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .settings .actions {
   display: flex;

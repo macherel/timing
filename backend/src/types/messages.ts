@@ -108,7 +108,7 @@ export interface SettingsUpdateMessage {
     type: 'SETTINGS_UPDATE';
     event: string;
     discipline: string;
-    settings: { measure: 'time' | 'distance'; attempts: number | null; attemptsPerDistance: number | null; allowDistanceChange: boolean; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
+    settings: { measure: 'time' | 'distance'; attempts: number | null; attemptsPerDistance: number | null; minDistance: number | null; allowDistanceChange: boolean; start: string | null; end: string | null; access: 'auto' | 'open' | 'locked'; best: 'shortest' | 'longest';
         precision: 'second' | 'tenth' | 'hundredth' | 'thousandth'; rounding: 'truncate' | 'nearest' | 'up'; recentRuns: number; resultRows: number;
         trigger: 'gates' | 'keyboard'; triggerKey: string };
 }

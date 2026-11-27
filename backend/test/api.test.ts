@@ -59,7 +59,7 @@ describe('events and participants', () => {
         const { status, body } = await call('GET', '/events/CFM26/100m/participants');
         expect(status).toBe(200);
         expect(body.participants.map((p: any) => p.bib)).toEqual(['7', '12']);
-        expect(body.settings).toEqual({ measure: 'time', attempts: null, attemptsPerDistance: null, allowDistanceChange: false, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3, resultRows: 5, trigger: 'gates', triggerKey: 'Space' });
+        expect(body.settings).toEqual({ measure: 'time', attempts: null, attemptsPerDistance: null, minDistance: null, allowDistanceChange: false, start: null, end: null, access: 'auto', best: 'shortest', precision: 'hundredth', rounding: 'up', recentRuns: 3, resultRows: 5, trigger: 'gates', triggerKey: 'Space' });
         expect((await call('GET', '/events/CFM26/nope/participants')).status).toBe(404);
     });
 });
@@ -311,6 +311,7 @@ describe('discipline settings', () => {
             measure: 'time',
             attempts: 3,
             attemptsPerDistance: null,
+            minDistance: null,
             allowDistanceChange: false,
             start: '2026-11-05T07:00Z',
             end: null,

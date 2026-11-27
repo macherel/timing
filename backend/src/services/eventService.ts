@@ -139,6 +139,9 @@ export interface DisciplineSettings {
     // For a distance: runs allowed at one same distance (invalid runs do not count). A participant who used them all at
     // a distance without validating it is eliminated: no more runs. null: unlimited. Ignored for a time
     attemptsPerDistance: number | null;
+    // For a distance: the shortest distance a participant can try, in centimetres, the one the race page suggests
+    // before the first run of the line. null: no minimum. Ignored for a time
+    minDistance: number | null;
     // For a distance: whether a participant can change distance before validating the last one they tried (false: they
     // try it again until it is validated). Ignored for a time
     allowDistanceChange: boolean;
@@ -191,6 +194,7 @@ export const DEFAULT_SETTINGS: DisciplineSettings = {
     measure: 'time',
     attempts: null,
     attemptsPerDistance: null,
+    minDistance: null,
     allowDistanceChange: false,
     start: null,
     end: null,
@@ -574,6 +578,9 @@ export async function loadDisciplineSettings(dir: string): Promise<{ settings: D
         } else if (key === 'attemptsPerDistance') {
             if (Number.isInteger(value) && (value as number) >= 1) settings.attemptsPerDistance = value as number;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: attemptsPerDistance must be a whole number from 1 (attempts per distance are unlimited)`);
+        } else if (key === 'minDistance') {
+            if (isDistanceCm(value)) settings.minDistance = value;
+            else if (value !== null) problems.push(`${SETTINGS_FILE}: minDistance must be a whole number of centimetres from 1 to 99999 (no minimum distance)`);
         } else if (key === 'allowDistanceChange') {
             if (typeof value === 'boolean') settings.allowDistanceChange = value;
             else if (value !== null) problems.push(`${SETTINGS_FILE}: allowDistanceChange must be true or false (a distance started must be validated first)`);
@@ -682,6 +689,11 @@ export function parseCsv(text: string): string[][] {
     return rows;
 }
 
+/** Whether a value is a distance in whole centimetres, from 1 cm and below 1000 m. */
+function isDistanceCm(value: unknown): value is number {
+    return Number.isInteger(value) && (value as number) >= 1 && (value as number) < 100_000;
+}
+
 /** Problems of settings sent by the race page. Empty when they are valid. */
 export function validateDisciplineSettings(settings: any): string[] {
     if (!settings || typeof settings !== 'object') return ['settings are missing'];
@@ -689,6 +701,7 @@ export function validateDisciplineSettings(settings: any): string[] {
         measure = DEFAULT_SETTINGS.measure,
         attempts = null,
         attemptsPerDistance = null,
+        minDistance = null,
         allowDistanceChange = DEFAULT_SETTINGS.allowDistanceChange,
         start = null,
         end = null,
@@ -708,6 +721,9 @@ export function validateDisciplineSettings(settings: any): string[] {
     }
     if (attemptsPerDistance !== null && !(Number.isInteger(attemptsPerDistance) && attemptsPerDistance >= 1)) {
         problems.push('attemptsPerDistance must be a whole number from 1, or null for unlimited attempts per distance');
+    }
+    if (minDistance !== null && !isDistanceCm(minDistance)) {
+        problems.push('minDistance must be a whole number of centimetres from 1 to 99999, or null for no minimum distance');
     }
     if (typeof allowDistanceChange !== 'boolean') problems.push('allowDistanceChange must be true or false');
     for (const [name, value] of [['start', start], ['end', end]] as const) {
@@ -737,7 +753,7 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
     try {
         const parsed = yaml.parse(await fs.promises.readFile(file, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const { measure: _measure, attempts: _attempts, attemptsPerDistance: _attemptsPerDistance, allowDistanceChange: _allowDistanceChange, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, resultRows: _resultRows, trigger: _trigger, triggerKey: _triggerKey, ...rest } = parsed;
+            const { measure: _measure, attempts: _attempts, attemptsPerDistance: _attemptsPerDistance, minDistance: _minDistance, allowDistanceChange: _allowDistanceChange, start: _start, end: _end, locked: _locked, access: _access, best: _best, precision: _precision, rounding: _rounding, recentRuns: _recentRuns, resultRows: _resultRows, trigger: _trigger, triggerKey: _triggerKey, ...rest } = parsed;
             others = rest;
         }
     } catch (error: any) {
@@ -757,6 +773,9 @@ export async function saveDisciplineSettings(dir: string, settings: DisciplineSe
         '# For a distance: runs allowed at one same distance (invalid runs do not count). A participant who used them all',
         '# at a distance without validating it is eliminated. Unlimited when not set.',
         settings.attemptsPerDistance === null ? '#attemptsPerDistance: 3' : `attemptsPerDistance: ${settings.attemptsPerDistance}`,
+        '# For a distance: the shortest distance a participant can try, in centimetres, suggested before the first run',
+        '# of the line. No minimum when not set.',
+        settings.minDistance === null ? '#minDistance: 100' : `minDistance: ${settings.minDistance}`,
         '# For a distance: whether a participant can change distance before validating the last one they tried',
         `allowDistanceChange: ${settings.allowDistanceChange}`,
         '',

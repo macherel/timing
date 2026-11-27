@@ -428,6 +428,13 @@ describe('a distance', () => {
         expect(runs.validateRun(MANUAL)).toMatch(/No distance/);
     });
 
+    it('refuses a distance below the minimum distance', async () => {
+        writeFiles({ [`${JUMP}/config.yaml`]: 'measure: distance\nminDistance: 300\n' });
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 299)).toBe('The distance must be at least 300 cm.');
+        expect(runs.getRunState(MANUAL)).toEqual({ status: 'idle' });
+        expect(await runs.prepareRun(MANUAL, 'CFM26', 'jump', HUGO, 300)).toBeNull();
+    });
+
     it('eliminates a participant who used all the attempts allowed at one distance without validating it', async () => {
         writeFiles({ [`${JUMP}/config.yaml`]: 'measure: distance\nattemptsPerDistance: 2\n' });
         // Validated at the last attempt: goes on to another distance

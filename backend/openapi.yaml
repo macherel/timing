@@ -579,7 +579,7 @@ paths:
                   exclusiveMaximum: 100000
                   description: |
                     In centimetres (e.g. 345 for 3.45 m), required for a discipline that measures a distance (ignored
-                    otherwise)
+                    otherwise), at least its minDistance
                 unlock:
                   type: boolean
                   default: false
@@ -1267,7 +1267,7 @@ components:
 
     DisciplineSettings:
       type: object
-      required: [measure, attempts, attemptsPerDistance, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, resultRows, trigger, triggerKey]
+      required: [measure, attempts, attemptsPerDistance, minDistance, allowDistanceChange, start, end, access, best, precision, rounding, recentRuns, resultRows, trigger, triggerKey]
       properties:
         measure: { $ref: '#/components/schemas/Measure' }
         attempts:
@@ -1282,6 +1282,13 @@ components:
           description: |
             For a distance: runs allowed at one same distance (invalid runs do not count). A participant who used them
             all at a distance without validating it is eliminated. null for unlimited. Ignored for a time
+        minDistance:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 99999
+          description: |
+            For a distance: the shortest distance a participant can try, in centimetres, the one the race page suggests
+            before the first run of the line. null for no minimum. Ignored for a time
         allowDistanceChange:
           type: boolean
           default: false
@@ -1347,6 +1354,7 @@ components:
         measure: { $ref: '#/components/schemas/Measure' }
         attempts: { type: [integer, 'null'], minimum: 1 }
         attemptsPerDistance: { type: [integer, 'null'], minimum: 1 }
+        minDistance: { type: [integer, 'null'], minimum: 1, maximum: 99999 }
         allowDistanceChange: { type: boolean }
         start: { type: [string, 'null'], examples: ['2026-11-05T08:00+01:00'] }
         end: { type: [string, 'null'], examples: ['2026-11-05'] }

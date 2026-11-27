@@ -352,6 +352,9 @@ export interface DisciplineSettings {
   // For a distance: runs allowed at one same distance (invalid runs do not count); a participant who used them all at a
   // distance is eliminated. null: unlimited. Missing from a server of an older version
   attemptsPerDistance?: number | null;
+  // For a distance: the shortest distance a participant can try, in centimetres, suggested before the first run of the
+  // line. null: no minimum. Missing from a server of an older version
+  minDistance?: number | null;
   // For a distance: whether a participant can change distance before validating the last one they tried. Missing from a
   // server of an older version
   allowDistanceChange?: boolean;

@@ -158,6 +158,9 @@ export async function prepareRun(
     if (settings.measure === 'distance') {
         const typed = toDistanceCm(distance);
         if (typeof typed === 'string') return typed;
+        if (settings.minDistance !== null && typed < settings.minDistance) {
+            return `The distance must be at least ${settings.minDistance} cm.`;
+        }
         distanceCm = typed;
     }
     const { attempts } = settings;

@@ -90,7 +90,7 @@ describe('RunPanel', () => {
   });
 
   function mountPanel(
-    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null; previousRun: RunResult | null; resultRows: number; settingsResultRows: number; measure: Measure; attemptsPerDistance: number | null; allowDistanceChange: boolean }> = {},
+    props: Partial<{ line: string | null; run: RunState; results: RunResult[]; attempts: number | null; best: 'shortest' | 'longest'; precision: Precision; closed: string | null; startBlocked: string | null; lastResult: RunResult | null; previousRun: RunResult | null; resultRows: number; settingsResultRows: number; measure: Measure; attemptsPerDistance: number | null; minDistance: number | null; allowDistanceChange: boolean }> = {},
   ) {
     return mountWithI18n(RunPanel, {
       props: { participant: HUGO, line: 'Line 1', run: { status: 'idle' }, results: [], lastResult: null, busy: false, closed: null, attempts: null, best: 'shortest', precision: 'hundredth', ...props },
@@ -280,6 +280,27 @@ describe('RunPanel', () => {
     // The distance started comes first
     const started = mountPanel({ measure: 'distance', line: 'Manuel', results: [jump('7', 280, 'dq')], previousRun: jump('12', 300, 'ok') });
     expect((started.find('[data-testid="distance-input"]').element as HTMLInputElement).value).toBe('280');
+  });
+
+  it('suggests the minimum distance before the first run of the line, and never less', () => {
+    const jump = (bib: string, distanceCm: number, status: RunResult['status']) =>
+      result({ bib, name: bib === '7' ? 'Hugo Guérin' : 'Léa Martin', timeMs: null, distanceCm, status });
+    const field = (previousRun: RunResult | null) =>
+      mountPanel({ measure: 'distance', line: 'Manuel', minDistance: 250, previousRun }).find('[data-testid="distance-input"]').element as HTMLInputElement;
+    expect(field(null).value).toBe('250');
+    expect(field(null).min).toBe('250');
+    expect(field(jump('12', 200, 'ok')).value).toBe('250');
+    expect(field(jump('12', 300, 'ok')).value).toBe('300');
+  });
+
+  it('does not get ready below the minimum distance', async () => {
+    const wrapper = mountPanel({ measure: 'distance', line: 'Manuel', minDistance: 250 });
+    await wrapper.find('[data-testid="distance-input"]').setValue('240');
+    await wrapper.find('form.distance').trigger('submit');
+    expect(wrapper.emitted('ready')).toBeUndefined();
+    await wrapper.find('[data-testid="distance-input"]').setValue('250');
+    await wrapper.find('form.distance').trigger('submit');
+    expect(wrapper.emitted('ready')).toEqual([[250]]);
   });
 
   it('leaves out of the best the runs beyond the attempts allowed, e.g. an invalid run made valid afterwards', () => {

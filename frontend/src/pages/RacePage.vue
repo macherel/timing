@@ -598,6 +598,7 @@ onMounted(reload);
       :precision="settings.precision"
       :measure="measure"
       :attempts-per-distance="attemptsPerDistance"
+      :min-distance="settings.minDistance ?? null"
       :allow-distance-change="settings.allowDistanceChange ?? false"
       v-if="selected"
       :participant="selected"
