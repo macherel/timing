@@ -179,6 +179,12 @@ const suggestedDistance = computed(() => {
   if (suggested === null) return min;
   return min === null ? suggested : Math.max(suggested, min);
 });
+// A participant who never ran yet often starts at the minimum distance, whatever the distance in play: one click sets it
+const canSetMinimum = computed(() => minDistance.value !== null && props.results.length === 0);
+function setMinimum(): void {
+  distanceInput.value = minDistance.value ?? '';
+  distanceField.value?.focus();
+}
 // Typed again for the next participant, or the next attempt once this one is saved; the distance started and not
 // validated yet is the only one possible, otherwise the one suggested
 watch(
@@ -327,6 +333,17 @@ const elapsed = computed(() => (props.run.status === 'running' ? now.value - par
             data-testid="distance-input"
           />
           <span class="unit">cm</span>
+          <button
+            v-if="canSetMinimum"
+            type="button"
+            class="minimum"
+            :disabled="readyBlocked || Number(distanceInput) === minDistance"
+            :title="$t('run.setMinimumDistance', { distance: showValue(minDistance!) })"
+            data-testid="distance-minimum"
+            @click="setMinimum"
+          >
+            {{ $t('run.minimumDistance') }}
+          </button>
           <button type="submit" class="ready" :disabled="readyBlocked" :title="readyTitle">{{ $t('run.readyDistance') }}</button>
         </form>
         <button v-else type="button" class="ready" :disabled="readyBlocked" :title="readyTitle" @click="ready">

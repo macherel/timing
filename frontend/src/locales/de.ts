@@ -405,6 +405,8 @@ const de: Messages = {
     allUsed: 'Der einzige Versuch ist verbraucht | Alle {n} Versuche verbraucht',
     eliminated: 'Ausgeschieden: {n} Versuche bei {distance}',
     distanceLocked: 'Weite gesperrt: sie kann vor der Bestätigung nicht geändert werden',
+    minimumDistance: 'Min.',
+    setMinimumDistance: 'Weite auf das Minimum setzen ({distance})',
     unlockDistance: 'Weite ausnahmsweise entsperren, um eine andere einzugeben, ohne diese zu bestätigen',
     lockDistance: 'Begonnene Weite wieder sperren',
     attempt: 'Versuch {n}',

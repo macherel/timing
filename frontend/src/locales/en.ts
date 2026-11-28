@@ -410,6 +410,8 @@ export default {
     allUsed: 'Its only attempt is used | All {n} attempts used',
     eliminated: 'Eliminated: {n} attempts at {distance}',
     distanceLocked: 'Distance locked: it cannot be changed before it is validated',
+    minimumDistance: 'Min',
+    setMinimumDistance: 'Set the distance to the minimum ({distance})',
     unlockDistance: 'Unlock the distance exceptionally, to type another one without validating this one',
     lockDistance: 'Lock the distance started again',
     attempt: 'Attempt {n}',

@@ -401,6 +401,8 @@ const fr: Messages = {
     allUsed: 'Son seul essai est utilisé | Les {n} essais sont utilisés',
     eliminated: 'Éliminé : {n} essais à {distance}',
     distanceLocked: 'Distance verrouillée : elle ne peut pas être modifiée avant d’être validée',
+    minimumDistance: 'Min.',
+    setMinimumDistance: 'Régler la distance au minimum ({distance})',
     unlockDistance: 'Déverrouiller exceptionnellement la distance, pour en saisir une autre sans valider celle-ci',
     lockDistance: 'Verrouiller à nouveau la distance entamée',
     attempt: 'Essai {n}',

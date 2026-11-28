@@ -233,7 +233,7 @@ test('times a discipline by hand with its trigger key, on the manual line', asyn
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('trigger-key')).toHaveText('Enter');
   await page.getByRole('button', { name: 'Save' }).click();
-  expect(readFile('CFM26/100m/config.yaml')).toMatch(/trigger: keyboard\n.*\ntriggerKey: Enter\n/);
+  await expect.poll(() => readFile('CFM26/100m/config.yaml')).toMatch(/trigger: keyboard\n.*\ntriggerKey: Enter\n/);
 
   // No line to choose: the discipline runs on the manual line
   await expect(page.getByTestId('current-line')).toHaveText('Manuel');

@@ -303,6 +303,20 @@ describe('RunPanel', () => {
     expect(field(jump('12', 300, 'ok')).value).toBe('300');
   });
 
+  it('sets the minimum distance with a button, for a participant who never ran', async () => {
+    const previousRun = result({ bib: '12', name: 'Léa Martin', timeMs: null, distanceCm: 300, status: 'ok' });
+    const wrapper = mountPanel({ measure: 'distance', line: 'Manuel', minDistance: 250, previousRun });
+    const input = wrapper.find('[data-testid="distance-input"]');
+    expect((input.element as HTMLInputElement).value).toBe('300');
+    await wrapper.find('[data-testid="distance-minimum"]').trigger('click');
+    expect((input.element as HTMLInputElement).value).toBe('250');
+    expect(wrapper.find('[data-testid="distance-minimum"]').attributes('disabled')).toBeDefined();
+    // Not after a first run, nor without a minimum distance
+    const jumped = result({ bib: '7', name: 'Hugo Guérin', timeMs: null, distanceCm: 300, status: 'ok' });
+    expect(mountPanel({ measure: 'distance', line: 'Manuel', minDistance: 250, results: [jumped] }).find('[data-testid="distance-minimum"]').exists()).toBe(false);
+    expect(mountPanel({ measure: 'distance', line: 'Manuel', previousRun }).find('[data-testid="distance-minimum"]').exists()).toBe(false);
+  });
+
   it('does not get ready below the minimum distance', async () => {
     const wrapper = mountPanel({ measure: 'distance', line: 'Manuel', minDistance: 250 });
     await wrapper.find('[data-testid="distance-input"]').setValue('240');
